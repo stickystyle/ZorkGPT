@@ -116,7 +116,7 @@ class ZorkAgent:
         self.max_turns_per_episode = max_turns_per_episode
         
         # Model parameters
-        self.max_tokens_agent = 4096
+        self.max_tokens_agent = None
         self.max_tokens_critic = 100
         self.max_tokens_info_ext = 300
         self.temperature_agent = 0.5
@@ -167,6 +167,8 @@ class ZorkAgent:
         self.total_episode_reward = 0
         self.previous_zork_score = 0
         self.episode_id = None
+        # Add failed actions tracking by location
+        self.failed_actions_by_location = {}  # location_name -> set of failed actions
 
     def get_agent_action(
         self,
@@ -203,9 +205,9 @@ class ZorkAgent:
                     act for act, count in action_counts.items() if count > 2
                 ]
                 if repeated_actions:
-                    memory_context += "\nNote: You've tried these actions multiple times with limited success: "
+                    memory_context += "\n**CRITICAL WARNING**: You've tried these actions multiple times with limited success: "
                     memory_context += ", ".join(repeated_actions)
-                    memory_context += ". Consider exploring other directions or interacting with different objects.\n"
+                    memory_context += ". According to your instructions, you must AVOID repeating failed actions and try completely different approaches.\n"
 
             messages.append({"role": "system", "content": memory_context})
 
@@ -230,7 +232,14 @@ class ZorkAgent:
             # Clean up the action: remove any thinking
             action = re.sub(r"<think>.*?</think>\s*", "", action, flags=re.DOTALL)
             # Basic cleaning: Zork commands are usually lowercase
-            return action.lower()
+            action = action.lower()
+            
+            # Validate action is not empty
+            if not action or action.isspace():
+                self.logger.warning("Agent returned empty action, using 'look' as fallback")
+                action = "look"
+            
+            return action
         except Exception as e:
             self.logger.error(f"Error getting agent action: {e}")
             return "look"  # Default safe action on error
@@ -398,6 +407,15 @@ Evaluate this action based on your criteria. Respond in JSON format.
             other_memory_strings.append(
                 f"- You are carrying: {', '.join(current_inventory)}."
             )
+
+        # Add failed actions warning for current location
+        if (hasattr(self, 'failed_actions_by_location') and 
+            current_location_name_from_current_extraction in self.failed_actions_by_location):
+            failed_actions = self.failed_actions_by_location[current_location_name_from_current_extraction]
+            if failed_actions:
+                other_memory_strings.append(
+                    f"- FAILED ACTIONS in {current_location_name_from_current_extraction}: The following actions have already failed here and should NOT be repeated: {', '.join(sorted(failed_actions))}."
+                )
 
         previous_observations_of_current_room = [
             obs
@@ -1010,9 +1028,36 @@ Evaluate this action based on your criteria. Respond in JSON format.
                 "you can't see any such thing.",
                 "you can't do that.",
                 "what?",
+                "huh?",
             ]
+            
+            # TODO: In the final version, we should not have `blocking_failure_phrases` - the LLM should be able to handle this.
+            # But for now, we need to track failed actions to prevent repetition and training.
+            # Track failed actions by location
+            action_failed = False
+            blocking_failure_phrases = [
+                "there is a wall there",
+                "it is too narrow",
+                "you can't move the bolt",
+                "i can't see one here",
+                "pushing the bubble doesn't appear worthwhile",
+                "playing in this way with a bubble doesn't appear worthwhile",
+                "you certainly can't turn it with",
+                "the bolt won't turn with your best effort",
+            ]
+            
             if any(phrase in next_game_state.lower() for phrase in parser_failure_phrases):
                 reward -= 0.2  # Small penalty
+                action_failed = True
+            elif any(phrase in next_game_state.lower() for phrase in blocking_failure_phrases):
+                action_failed = True
+            
+            # Track failed actions to prevent repetition
+            if action_failed and hasattr(self, 'failed_actions_by_location'):
+                current_location = self.current_room_name_for_map or "unknown_location"
+                if current_location not in self.failed_actions_by_location:
+                    self.failed_actions_by_location[current_location] = set()
+                self.failed_actions_by_location[current_location].add(agent_action.lower())
 
             self.total_episode_reward += reward
             
@@ -1090,7 +1135,7 @@ Evaluate this action based on your criteria. Respond in JSON format.
 
 if __name__ == "__main__":
     # Create ZorkAgent instance with default settings
-    agent = ZorkAgent(agent_model="qwen/qwen3-235b-a22b", critic_model="google/gemini-2.5-flash-preview-05-20", info_ext_model="google/gemini-2.5-flash-preview-05-20")
+    agent = ZorkAgent(agent_model="openai/o4-mini-high", critic_model="google/gemini-2.5-flash-preview-05-20", info_ext_model="google/gemini-2.5-flash-preview-05-20")
     
     with ZorkInterface(timeout=1.0) as zork_game:  # Increased timeout for stability
         try:

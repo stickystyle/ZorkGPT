@@ -237,19 +237,19 @@ The `episodes` command generates markdown tables with comprehensive episode deta
 | Turns | Number of turns taken in the episode |
 | Reward | Total accumulated reward for the episode |
 | Status | Episode outcome (Completed, Died, Victory, Game Over) |
+| Runtime | Total time taken to complete the episode |
 | Agent Model | Model used for the agent |
 | Critic Model | Model used for the critic |
 | Info Ext Model | Model used for information extraction |
-| Start Time | When the episode started |
 
 Example output:
 ```markdown
 # Episode Performance Report
 
-| Episode ID | Score | Turns | Reward | Status | Agent Model | Critic Model | Info Ext Model | Start Time |
-|------------|-------|-------|--------|--------|-------------|--------------|----------------|------------|
-| `2024-01-15T11:45:22` | 85/585 | 18 | 28.2 | Completed | gpt-4-turbo | gpt-4 | gpt-4 | 2024-01-15 11:45:22 |
-| `2024-01-15T10:30:15` | 42/585 | 25 | 15.5 | Completed | gpt-4 | gpt-3.5-turbo | gpt-3.5-turbo | 2024-01-15 10:30:15 |
+| Episode ID | Score | Turns | Reward | Status | Runtime | Agent Model | Critic Model | Info Ext Model |
+|------------|-------|-------|--------|--------|---------|-------------|--------------|----------------|
+| `2024-01-15T11:45:22` | 85/585 | 18 | 28.2 | Completed | 3m 45s | gpt-4-turbo | gpt-4 | gpt-4 |
+| `2024-01-15T10:30:15` | 42/585 | 25 | 15.5 | Completed | 5m 12s | gpt-4 | gpt-3.5-turbo | gpt-3.5-turbo |
 
 ## Summary
 - **Episodes shown:** 2
