@@ -213,5 +213,122 @@ class TestMapGraph(unittest.TestCase):
         )  # Should not appear for unknown rooms
 
 
+class TestPendingConnections(unittest.TestCase):
+    """Test the pending connection functionality for dark room scenarios."""
+    
+    def setUp(self):
+        # Import here to avoid circular imports
+        from main import ZorkAgent
+        self.agent = ZorkAgent()
+        self.agent.reset_episode_state()
+    
+    def test_dark_room_detection(self):
+        """Test detection of dark room responses."""
+        # Test positive cases
+        dark_responses = [
+            "It is pitch dark. You are likely to be eaten by a grue.",
+            "PITCH BLACK everywhere!",
+            "Too dark to see anything.",
+            "The darkness surrounds you.",
+            "You are likely to be eaten by a grue"
+        ]
+        
+        for response in dark_responses:
+            with self.subTest(response=response):
+                self.assertTrue(self.agent.is_dark_room_response(response))
+        
+        # Test negative cases
+        normal_responses = [
+            "You are in a bright room.",
+            "The sun shines brightly here.",
+            "This is a well-lit corridor.",
+            "You can see clearly in all directions."
+        ]
+        
+        for response in normal_responses:
+            with self.subTest(response=response):
+                self.assertFalse(self.agent.is_dark_room_response(response))
+    
+    def test_pending_connection_creation_and_resolution(self):
+        """Test the full cycle of creating and resolving a pending connection."""
+        # Setup initial state
+        self.agent.current_room_name_for_map = "Living_room"
+        self.agent.turn_count = 22
+        
+        # Create pending connection
+        self.agent.pending_connection = {
+            'from_room': 'Living_room',
+            'action': 'down',
+            'turn_created': 22
+        }
+        
+        # Test resolution with valid location
+        self.agent.turn_count = 23
+        result = self.agent.check_and_resolve_pending_connection(
+            "Dark_cellar", self.agent.turn_count
+        )
+        
+        self.assertTrue(result)
+        self.assertIsNone(self.agent.pending_connection)
+        
+        # Verify connection was created
+        self.assertIn("Living_room", self.agent.game_map.connections)
+        self.assertEqual(
+            self.agent.game_map.connections["Living_room"]["down"], 
+            "Dark_cellar"
+        )
+    
+    def test_pending_connection_expiration(self):
+        """Test that pending connections expire after 3 turns."""
+        self.agent.turn_count = 10
+        self.agent.pending_connection = {
+            'from_room': 'TestRoom',
+            'action': 'north',
+            'turn_created': 5  # 5 turns ago
+        }
+        
+        # Should expire (more than 3 turns old)
+        result = self.agent.check_and_resolve_pending_connection(
+            "SomeLocation", self.agent.turn_count
+        )
+        
+        self.assertFalse(result)
+        self.assertIsNone(self.agent.pending_connection)
+    
+    def test_pending_connection_generic_location_rejection(self):
+        """Test that generic locations don't resolve pending connections."""
+        self.agent.turn_count = 15
+        self.agent.pending_connection = {
+            'from_room': 'StartRoom',
+            'action': 'east',
+            'turn_created': 14
+        }
+        
+        # Try to resolve with generic location
+        result = self.agent.check_and_resolve_pending_connection(
+            "unknown location", self.agent.turn_count
+        )
+        
+        self.assertFalse(result)
+        self.assertIsNotNone(self.agent.pending_connection)
+    
+    def test_pending_connection_same_room_rejection(self):
+        """Test that same room names don't resolve pending connections."""
+        self.agent.turn_count = 15
+        self.agent.pending_connection = {
+            'from_room': 'StartRoom',
+            'action': 'east',
+            'turn_created': 14
+        }
+        
+        # Try to resolve with same room name
+        result = self.agent.check_and_resolve_pending_connection(
+            "StartRoom", self.agent.turn_count
+        )
+        
+        self.assertFalse(result)
+        self.assertIsNotNone(self.agent.pending_connection)
+
+
 if __name__ == "__main__":
     unittest.main()

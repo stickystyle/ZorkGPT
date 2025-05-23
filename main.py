@@ -159,6 +159,9 @@ class ZorkAgent:
         # Episode state (reset for each episode)
         self.reset_episode_state()
 
+        # Add pending connection tracking for dark room scenarios
+        self.pending_connection: Optional[dict] = None  # Stores {from_room, action, turn_created}
+
     def _load_system_prompts(self) -> None:
         """Load system prompts from markdown files."""
         try:
@@ -173,22 +176,24 @@ class ZorkAgent:
             raise
 
     def reset_episode_state(self) -> None:
-        """Reset state variables for a new episode."""
-        self.memory_log_history = []
-        self.current_inventory = []
-        self.action_history = []
+        """Reset all episode-specific state variables."""
         self.action_counts = Counter()
+        self.action_history = []
+        self.memory_log_history = []
         self.visited_locations = set()
-        self.game_map = MapGraph()
-        self.prev_room_for_prompt_context = None
-        self.action_leading_to_current_room_for_prompt_context = None
-        self.current_room_name_for_map = None
-        self.turn_count = 0
-        self.total_episode_reward = 0
+        self.failed_actions_by_location = {}
+        self.episode_id = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.previous_zork_score = 0
-        self.episode_id = None
-        # Add failed actions tracking by location
-        self.failed_actions_by_location = {}  # location_name -> set of failed actions
+        self.current_episode_scores = []
+        self.current_episode_turns = 0
+        self.turn_count = 0  # Initialize turn counter
+        self.total_episode_reward = 0  # Initialize total reward for episode
+        self.game_map = MapGraph()
+        self.current_room_name_for_map = ""  # Track current room for map updates
+        self.prev_room_for_prompt_context: Optional[str] = None
+        self.action_leading_to_current_room_for_prompt_context: Optional[str] = None
+        # Reset pending connection tracking
+        self.pending_connection = None
         
         # Reset dynamic turn limit for the new episode
         self.max_turns_per_episode = self.base_max_turns_per_episode
@@ -536,17 +541,104 @@ Evaluate this action based on your criteria. Respond in JSON format.
         return "\n".join(final_output_parts) + "\n"
 
     def extract_location_from_text(self, text: str) -> Optional[str]:
-        """
-        Extract a simplified location identifier from room descriptions.
-        This helps track when the agent has changed locations.
-        """
-        # If no specific pattern matches, try to extract a generic location description
-        # Look for phrases like "You are in/at/on..."
-        location_match = re.search(r"You are (in|at|on) (the |a |an )?([\w\s]+)", text)
-        if location_match:
-            return location_match.group(3).strip().lower().replace(" ", "_")
+        """Extract location name from game text using regex patterns."""
+        if not text:
+            return None
 
+        # Remove leading/trailing whitespace
+        text = text.strip().replace(">", "")
+        
+        # Look for "You are..." patterns which indicate room descriptions
+        # Capture everything until we hit a period followed by a capital letter (new sentence)
+        # or period followed by end of text/multiple spaces
+        you_are_match = re.search(r"You are (.+?)\.(?:\s*[A-Z]|\s*$|  )", text, re.IGNORECASE | re.DOTALL)
+        if you_are_match:
+            location = you_are_match.group(1).strip()
+            
+            # Clean up line breaks and extra whitespace
+            location = re.sub(r'\s+', ' ', location).strip()
+            
+            # Remove trailing periods
+            location = location.rstrip('.')
+            
+            # Clean up common prefixes
+            location = re.sub(r"^(in |at |on |standing |sitting )", "", location, flags=re.IGNORECASE)
+            
+            if location and len(location) > 3:  # Avoid very short matches
+                return location
+        
         return None
+
+    def is_dark_room_response(self, game_text: str) -> bool:
+        """Check if the game response indicates the player is in a dark room."""
+        dark_room_indicators = [
+            "it is pitch dark",
+            "pitch black",
+            "too dark to see",
+            "darkness",
+            "you are likely to be eaten by a grue"
+        ]
+
+        game_text_lower = game_text.lower()
+        return any(indicator in game_text_lower for indicator in dark_room_indicators)
+
+    def check_and_resolve_pending_connection(self, current_location: str, current_turn: int) -> bool:
+        """
+        Check if there's a pending connection that can now be resolved.
+        Returns True if a connection was resolved.
+        """
+        if not self.pending_connection:
+            return False
+            
+        # Don't keep pending connections for too long (max 3 turns)
+        if current_turn - self.pending_connection['turn_created'] > 3:
+            self.logger.debug(
+                "Pending connection expired",
+                extra={
+                    "extras": {
+                        "event_type": "pending_connection_expired",
+                        "episode_id": self.episode_id,
+                        "pending_connection": self.pending_connection,
+                    }
+                }
+            )
+            self.pending_connection = None
+            return False
+            
+        # If we now have a clear location name that's different from where we started
+        if (current_location and 
+            current_location != self.pending_connection['from_room'] and
+            current_location.lower() not in GENERIC_LOCATION_FALLBACKS):
+            
+            # Create the connection
+            self.game_map.add_connection(
+                self.pending_connection['from_room'],
+                self.pending_connection['action'],
+                current_location
+            )
+            
+            self.logger.info(
+                "Resolved pending connection",
+                extra={
+                    "extras": {
+                        "event_type": "pending_connection_resolved",
+                        "episode_id": self.episode_id,
+                        "from_room": self.pending_connection['from_room'],
+                        "action": self.pending_connection['action'],
+                        "to_room": current_location,
+                        "turns_delayed": current_turn - self.pending_connection['turn_created']
+                    }
+                }
+            )
+            
+            # Update context for future prompts
+            self.prev_room_for_prompt_context = self.pending_connection['from_room']
+            self.action_leading_to_current_room_for_prompt_context = self.pending_connection['action']
+            
+            self.pending_connection = None
+            return True
+            
+        return False
 
     def play_episode(self, zork_interface_instance) -> Tuple[List, int]:
         """
@@ -1001,6 +1093,9 @@ Evaluate this action based on your criteria. Respond in JSON format.
                         final_current_room_name, llm_extracted_info.exits
                     )
 
+                # Check for pending connection resolution first
+                connection_resolved = self.check_and_resolve_pending_connection(final_current_room_name, self.turn_count)
+
                 # Check if room name changed but it wasn't actual movement
                 if (
                     final_current_room_name != room_before_action
@@ -1022,36 +1117,50 @@ Evaluate this action based on your criteria. Respond in JSON format.
                         },
                     )
 
-                # If location changed AND it was actually a movement command, add connection
+                # Handle movement and connection mapping
                 if (
-                    final_current_room_name != room_before_action
-                    and room_before_action
+                    room_before_action
                     and not is_non_movement_command(action_taken)
+                    and not connection_resolved  # Don't double-process if we just resolved a pending connection
                 ):
                     normalized_exit_taken = normalize_direction(action_taken)
-
-                    effective_exit_for_connection = ""
-                    effective_exit_for_prompt = ""
-
-                    if normalized_exit_taken:
-                        effective_exit_for_connection = normalized_exit_taken
-                        effective_exit_for_prompt = normalized_exit_taken
-                    else:
-                        effective_exit_for_connection = (
-                            action_taken.lower()
-                        )  # Use lowercase raw action
-                        effective_exit_for_prompt = action_taken.lower()
+                    effective_exit_for_connection = normalized_exit_taken or action_taken.lower()
+                    effective_exit_for_prompt = normalized_exit_taken or action_taken.lower()
 
                     if effective_exit_for_connection:  # Ensure it's not empty
-                        self.game_map.add_connection(
-                            room_before_action,
-                            effective_exit_for_connection,
-                            final_current_room_name,
-                        )
-                        self.prev_room_for_prompt_context = room_before_action
-                        self.action_leading_to_current_room_for_prompt_context = (
-                            effective_exit_for_prompt
-                        )
+                        # Check if we moved into a dark room
+                        is_dark = self.is_dark_room_response(next_game_state)
+                        
+                        if is_dark and final_current_room_name == room_before_action:
+                            # We're in a dark room and location extraction failed/persisted
+                            # Create a pending connection for later resolution
+                            self.pending_connection = {
+                                'from_room': room_before_action,
+                                'action': effective_exit_for_connection,
+                                'turn_created': self.turn_count
+                            }
+                            
+                            self.logger.info(
+                                "Created pending connection for dark room",
+                                extra={
+                                    "extras": {
+                                        "event_type": "pending_connection_created",
+                                        "episode_id": self.episode_id,
+                                        "from_room": room_before_action,
+                                        "action": effective_exit_for_connection,
+                                        "game_response": next_game_state[:100] + "..." if len(next_game_state) > 100 else next_game_state
+                                    }
+                                }
+                            )
+                        elif final_current_room_name != room_before_action:
+                            # Normal case: location changed and we have a clear destination
+                            self.game_map.add_connection(
+                                room_before_action,
+                                effective_exit_for_connection,
+                                final_current_room_name,
+                            )
+                            self.prev_room_for_prompt_context = room_before_action
+                            self.action_leading_to_current_room_for_prompt_context = effective_exit_for_prompt
 
                 # Update current_room_name_for_map for the next iteration.
                 self.current_room_name_for_map = final_current_room_name
