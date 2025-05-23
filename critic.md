@@ -54,7 +54,7 @@ For each "Current Game State" and "Proposed Agent Action" you receive, provide:
     *   **+0.1 to +0.4:** Slightly useful, sensible information gathering, logical next step in exploration.
     *   **+0.5 to +1.0:** Highly strategic, likely to solve a puzzle, gain significant advantage, uncover crucial information, or directly progress towards a major goal.
 
-2.  **A Brief Justification (1-2 sentences):** Explain your score based on the criteria above. Highlight why the action is good, bad, or neutral in this specific context.
+2.  **A Brief Justification (1-2 sentences):** Explain your score based on the criteria above. Highlight why the action is good, bad, or neutral in this specific context. This **must** be a single line with no newlines.
 
 **Example Output you might provide:**
 
