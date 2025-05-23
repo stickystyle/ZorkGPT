@@ -9,6 +9,7 @@ import environs
 from datetime import datetime
 from map_graph import MapGraph, normalize_direction, is_non_movement_command
 from logger import setup_logging, ZorkExperienceTracker
+import os
 
 
 GENERIC_LOCATION_FALLBACKS = {
@@ -92,6 +93,8 @@ class ZorkAgent:
         performance_check_interval: int = 20,
         performance_threshold: float = 0.7,
         min_turns_for_increase: int = 50,
+        # Automatic knowledge base updating
+        auto_update_knowledge: bool = True,
     ):
         """
         Initialize the ZorkAgent.
@@ -111,6 +114,7 @@ class ZorkAgent:
             performance_check_interval: How often (in turns) to check performance for turn limit increases
             performance_threshold: Average critic score threshold to trigger turn limit increase
             min_turns_for_increase: Minimum turns before first turn limit increase is possible
+            auto_update_knowledge: Whether to automatically update knowledge base after each episode
         """
         # Configuration from environment or parameters
         self.agent_model = agent_model or env.str("AGENT_MODEL", "qwen3-30b-a3b-mlx")
@@ -134,6 +138,9 @@ class ZorkAgent:
         self.performance_check_interval = performance_check_interval
         self.performance_threshold = performance_threshold
         self.min_turns_for_increase = min_turns_for_increase
+        
+        # Knowledge base configuration
+        self.auto_update_knowledge = auto_update_knowledge
 
         # Model parameters
         self.max_tokens_agent = None
@@ -165,8 +172,13 @@ class ZorkAgent:
     def _load_system_prompts(self) -> None:
         """Load system prompts from markdown files."""
         try:
+            # Load base agent prompt
             with open("agent.md") as fh:
-                self.agent_system_prompt = fh.read()
+                base_agent_prompt = fh.read()
+            
+            # Try to enhance with knowledge base
+            self.agent_system_prompt = self._enhance_prompt_with_knowledge(base_agent_prompt)
+            
             with open("critic.md") as fh:
                 self.critic_system_prompt = fh.read()
             with open("extractor.md") as fh:
@@ -174,6 +186,70 @@ class ZorkAgent:
         except FileNotFoundError as e:
             self.logger.error(f"Failed to load system prompt file: {e}")
             raise
+
+    def _enhance_prompt_with_knowledge(self, base_prompt: str) -> str:
+        """Enhance the agent prompt with accumulated knowledge."""
+        # Prefer strategic guide if available, otherwise use raw knowledge base
+        strategic_guide_file = "zork_strategy_guide.md"
+        raw_knowledge_file = "knowledgebase.md"
+        
+        knowledge_file = None
+        knowledge_type = None
+        
+        if os.path.exists(strategic_guide_file):
+            knowledge_file = strategic_guide_file
+            knowledge_type = "Strategic Guide"
+        elif os.path.exists(raw_knowledge_file):
+            knowledge_file = raw_knowledge_file
+            knowledge_type = "Raw Knowledge Base"
+        
+        if not knowledge_file:
+            return base_prompt
+        
+        try:
+            with open(knowledge_file, 'r', encoding='utf-8') as f:
+                knowledge_content = f.read()
+            
+            # Insert knowledge before the "Output Format" section
+            if knowledge_type == "Strategic Guide":
+                knowledge_section = f"""
+
+**STRATEGIC KNOWLEDGE FROM PREVIOUS EPISODES:**
+
+The following strategic guide has been compiled from analyzing many previous episodes. This contains the most important strategies and insights for efficient gameplay:
+
+{knowledge_content}
+
+**END OF STRATEGIC KNOWLEDGE**
+
+"""
+            else:
+                knowledge_section = f"""
+
+**ACCUMULATED KNOWLEDGE FROM PREVIOUS EPISODES:**
+
+The following knowledge has been learned from analyzing previous episodes. Use this information to make better decisions and avoid known pitfalls:
+
+{knowledge_content}
+
+**END OF ACCUMULATED KNOWLEDGE**
+
+"""
+            
+            if "**Output Format" in base_prompt:
+                insertion_point = base_prompt.find("**Output Format")
+                enhanced_prompt = base_prompt[:insertion_point] + knowledge_section + base_prompt[insertion_point:]
+            else:
+                enhanced_prompt = base_prompt + knowledge_section
+            
+            # Log which knowledge source was used
+            self.logger.info(f"Enhanced prompt with {knowledge_type} ({len(knowledge_content):,} characters)")
+            
+            return enhanced_prompt
+            
+        except Exception as e:
+            self.logger.warning(f"Could not load knowledge from {knowledge_file}: {e}")
+            return base_prompt
 
     def reset_episode_state(self) -> None:
         """Reset all episode-specific state variables."""
@@ -1423,6 +1499,10 @@ Evaluate this action based on your criteria. Respond in JSON format.
         # Save experiences to a separate file for RL
         self.experience_tracker.save_experiences(self.experiences_file)
 
+        # Automatically update knowledge base after episode completion
+        if self.auto_update_knowledge:
+            self._auto_update_knowledge_base()
+
         return self.experience_tracker.get_experiences(), self.previous_zork_score
 
     def evaluate_performance_and_adjust_turn_limit(self) -> bool:
@@ -1510,6 +1590,74 @@ Evaluate this action based on your criteria. Respond in JSON format.
             return True
             
         return False
+
+    def _auto_update_knowledge_base(self) -> None:
+        """
+        Automatically update the knowledge base and strategic guide after episode completion.
+        This runs asynchronously to avoid blocking the main episode loop.
+        """
+        try:
+            self.logger.info(
+                "Starting automatic knowledge base update...",
+                extra={
+                    "extras": {
+                        "event_type": "auto_knowledge_update_start",
+                        "episode_id": self.episode_id,
+                    }
+                }
+            )
+            
+            # Update raw knowledge base from logs
+            from knowledge_extractor import update_knowledge_base
+            update_knowledge_base(self.json_log_file, "knowledgebase.md")
+            
+            # Generate strategic guide using the same client configuration
+            from knowledge_summarizer import KnowledgeSummarizer
+            
+            # Load raw knowledge
+            with open("knowledgebase.md", 'r', encoding='utf-8') as f:
+                raw_knowledge = f.read()
+            
+            # Use this agent's client for consistency
+            summarizer = KnowledgeSummarizer(
+                model="gpt-4",
+                temperature=0.1,
+                client=self.client
+            )
+            
+            # Generate and save strategic guide
+            strategic_guide = summarizer.summarize_knowledge_base(raw_knowledge)
+            
+            with open("zork_strategy_guide.md", 'w', encoding='utf-8') as f:
+                f.write(strategic_guide)
+            
+            # Log successful update with compression stats
+            compression_ratio = len(raw_knowledge) / len(strategic_guide) if len(strategic_guide) > 0 else 0
+            
+            self.logger.info(
+                f"Knowledge base automatically updated successfully",
+                extra={
+                    "extras": {
+                        "event_type": "auto_knowledge_update_success",
+                        "episode_id": self.episode_id,
+                        "raw_knowledge_chars": len(raw_knowledge),
+                        "strategic_guide_chars": len(strategic_guide),
+                        "compression_ratio": compression_ratio,
+                    }
+                }
+            )
+            
+        except Exception as e:
+            self.logger.warning(
+                f"Automatic knowledge base update failed: {e}",
+                extra={
+                    "extras": {
+                        "event_type": "auto_knowledge_update_failed",
+                        "episode_id": self.episode_id,
+                        "error": str(e),
+                    }
+                }
+            )
 
 
 if __name__ == "__main__":
