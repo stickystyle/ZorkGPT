@@ -202,14 +202,14 @@ class ZorkInterface:
         """
         inv_text = self.send_command("inventory")
         return self._parse_inventory(inv_text)
-    
+
     def inventory_with_response(self) -> tuple[List[str], str]:
         """Get the current inventory and the raw response text.
         Returns both the parsed inventory and the raw response for game-over checking.
         """
         inv_text = self.send_command("inventory")
         return self._parse_inventory(inv_text), inv_text
-    
+
     def _parse_inventory(self, inv_text: str) -> List[str]:
         """Parse inventory text into a list of items."""
         if "empty handed" in inv_text:

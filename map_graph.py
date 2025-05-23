@@ -58,56 +58,114 @@ def is_non_movement_command(action_str: str) -> bool:
     """
     Determines if an action is a non-movement command that should not create map connections.
     These are observation/interaction commands that don't change the player's location.
-    
+
     Returns True if the action should NOT create a map connection.
     """
     if not action_str:
         return True
-    
+
     action_lower = action_str.lower().strip()
-    
+
     # Define non-movement command patterns
     non_movement_commands = {
         # Observation commands
-        "look", "l", "examine", "x", "read", "search", "investigate",
-        # Inventory commands  
-        "inventory", "i", "take", "get", "drop", "put", "give",
+        "look",
+        "l",
+        "examine",
+        "x",
+        "read",
+        "search",
+        "investigate",
+        # Inventory commands
+        "inventory",
+        "i",
+        "take",
+        "get",
+        "drop",
+        "put",
+        "give",
         # Interaction commands
-        "open", "close", "push", "pull", "turn", "lift",
-        "unlock", "lock", "break", "fix", "repair", "use", "activate",
+        "open",
+        "close",
+        "push",
+        "pull",
+        "turn",
+        "lift",
+        "unlock",
+        "lock",
+        "break",
+        "fix",
+        "repair",
+        "use",
+        "activate",
         # Communication commands
-        "say", "tell", "ask", "answer", "talk", "speak",
+        "say",
+        "tell",
+        "ask",
+        "answer",
+        "talk",
+        "speak",
         # Meta commands
-        "save", "restore", "quit", "help", "score", "time", "version",
+        "save",
+        "restore",
+        "quit",
+        "help",
+        "score",
+        "time",
+        "version",
         # Other interaction verbs
-        "eat", "drink", "wear", "remove", "light", "extinguish",
-        "ring", "knock", "kick", "hit", "attack", "kill", "touch"
+        "eat",
+        "drink",
+        "wear",
+        "remove",
+        "light",
+        "extinguish",
+        "ring",
+        "knock",
+        "kick",
+        "hit",
+        "attack",
+        "kill",
+        "touch",
     }
-    
+
     # Check exact matches first
     if action_lower in non_movement_commands:
         return True
-    
+
     # Check for commands that start with non-movement verbs
     for verb in non_movement_commands:
         if action_lower.startswith(verb + " "):
             return True
-    
+
     # Check for "go" or movement patterns to explicitly allow them
     movement_patterns = [
-        "go ", "walk ", "run ", "move ", "travel ", "head ", "proceed ",
-        "climb ", "crawl ", "swim ", "fly ", "jump ", "step ",
-        "enter ", "exit ", "leave "
+        "go ",
+        "walk ",
+        "run ",
+        "move ",
+        "travel ",
+        "head ",
+        "proceed ",
+        "climb ",
+        "crawl ",
+        "swim ",
+        "fly ",
+        "jump ",
+        "step ",
+        "enter ",
+        "exit ",
+        "leave ",
     ]
-    
+
     for pattern in movement_patterns:
         if action_lower.startswith(pattern):
             return False  # This IS a movement command
-    
+
     # If we have a recognized direction, it's movement
     if normalize_direction(action_str) is not None:
         return False  # This IS a movement command
-    
+
     # Default: if unclear, assume it's NOT movement to be safe
     # This prevents spurious map connections
     return True
@@ -185,7 +243,7 @@ class MapGraph:
         if not room_name:
             return ""
         # Use title case for consistency (e.g., "West Of House")
-        return ' '.join(word.capitalize() for word in room_name.strip().split())
+        return " ".join(word.capitalize() for word in room_name.strip().split())
 
     def add_room(self, room_name: str) -> Room:
         normalized_name = self._normalize_room_name(room_name)
@@ -203,8 +261,10 @@ class MapGraph:
         for exit_name in new_exits:
             if not exit_name or not exit_name.strip():
                 continue  # Skip empty exits
-                
-            norm_exit = normalize_direction(exit_name)  # Try to normalize to canonical direction
+
+            norm_exit = normalize_direction(
+                exit_name
+            )  # Try to normalize to canonical direction
             if norm_exit:
                 # Use canonical direction (e.g., "north", "up")
                 normalized_new_exits.add(norm_exit)
@@ -233,7 +293,9 @@ class MapGraph:
         # Add the forward connection
         if from_room_normalized not in self.connections:
             self.connections[from_room_normalized] = {}
-        self.connections[from_room_normalized][processed_exit_taken] = to_room_normalized
+        self.connections[from_room_normalized][processed_exit_taken] = (
+            to_room_normalized
+        )
         self.rooms[from_room_normalized].add_exit(
             processed_exit_taken
         )  # Ensure exit is recorded for the room
@@ -246,7 +308,9 @@ class MapGraph:
             # Only add reverse connection if it doesn't overwrite an existing one from that direction
             # This handles cases where "north" from A leads to B, but "south" from B leads to C (unlikely but possible)
             if opposite_exit not in self.connections[to_room_normalized]:
-                self.connections[to_room_normalized][opposite_exit] = from_room_normalized
+                self.connections[to_room_normalized][opposite_exit] = (
+                    from_room_normalized
+                )
             self.rooms[to_room_normalized].add_exit(
                 opposite_exit
             )  # Ensure reverse exit is recorded
@@ -328,7 +392,9 @@ class MapGraph:
                         current_room_normalized in self.connections
                         and exit_dir in self.connections[current_room_normalized]
                     ):
-                        leads_to_room = self.connections[current_room_normalized][exit_dir]
+                        leads_to_room = self.connections[current_room_normalized][
+                            exit_dir
+                        ]
                         exit_details.append(f"{exit_dir} (leads to {leads_to_room})")
                     else:
                         exit_details.append(f"{exit_dir} (destination unknown)")
@@ -371,37 +437,48 @@ class MapGraph:
         for room_name in sorted_room_names:
             output_lines.append(f"\n[ {room_name} ]")
 
-            room_obj = self.rooms.get(room_name) # Get the Room object  
-            connections_exist = room_name in self.connections and self.connections[room_name]
+            room_obj = self.rooms.get(room_name)  # Get the Room object
+            connections_exist = (
+                room_name in self.connections and self.connections[room_name]
+            )
 
             if connections_exist:
                 # Sort exit actions for consistent output order
                 sorted_exit_actions = sorted(self.connections[room_name].keys())
                 for exit_action in sorted_exit_actions:
                     destination_room = self.connections[room_name][exit_action]
-                    output_lines.append(f"  --({exit_action})--> [ {destination_room} ]")
+                    output_lines.append(
+                        f"  --({exit_action})--> [ {destination_room} ]"
+                    )
 
             # Also list exits known to the Room object but not yet in connections (unmapped)
             if room_obj and room_obj.exits:
                 unmapped_exits = []
                 for room_exit in sorted(list(room_obj.exits)):
                     # Check if this room_exit is already covered by a connection display
-                    is_mapped = connections_exist and room_exit in self.connections[room_name]
+                    is_mapped = (
+                        connections_exist and room_exit in self.connections[room_name]
+                    )
                     if not is_mapped:
-                        unmapped_exits.append(f"  --({room_exit})--> ??? (Destination Unknown)")
+                        unmapped_exits.append(
+                            f"  --({room_exit})--> ??? (Destination Unknown)"
+                        )
 
                 if unmapped_exits:
-                    if not connections_exist: # Avoid printing "Exits:" twice if no connections
+                    if (
+                        not connections_exist
+                    ):  # Avoid printing "Exits:" twice if no connections
                         # No specific header needed if only unmapped exits, they stand alone
                         pass
                     output_lines.extend(unmapped_exits)
 
             if not connections_exist and (not room_obj or not room_obj.exits):
-                 output_lines.append("  (No exits known or mapped from this room)")
+                output_lines.append("  (No exits known or mapped from this room)")
 
         output_lines.append("\n=======================")
         output_lines.append("--- End of Map State ---")
         return "\n".join(output_lines)
+
 
 if __name__ == "__main__":
     # Example Usage

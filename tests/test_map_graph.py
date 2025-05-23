@@ -58,7 +58,9 @@ class TestMapGraph(unittest.TestCase):
         self.assertIn("down", cave_room.exits)
         self.assertIn("slide", cave_room.exits)
 
-    def test_add_connection_simple_and_bidirectional(self):  # Updated for normalized names
+    def test_add_connection_simple_and_bidirectional(
+        self,
+    ):  # Updated for normalized names
         self.map.add_connection("West of House", "north", "North of House")
         self.assertIn("West Of House", self.map.connections)  # Normalized
         self.assertEqual(
@@ -71,7 +73,9 @@ class TestMapGraph(unittest.TestCase):
         self.assertIn("north", self.map.rooms["West Of House"].exits)  # Normalized
         self.assertIn("south", self.map.rooms["North Of House"].exits)  # Normalized
 
-    def test_add_connection_with_normalization_in_add_connection(self):  # Updated for normalized names
+    def test_add_connection_with_normalization_in_add_connection(
+        self,
+    ):  # Updated for normalized names
         self.map.add_connection("Living Room", "west", "Kitchen")
         self.assertEqual(self.map.connections["Living Room"]["west"], "Kitchen")
         self.assertEqual(self.map.connections["Kitchen"]["east"], "Living Room")
@@ -83,7 +87,9 @@ class TestMapGraph(unittest.TestCase):
         )
         self.assertNotIn("Dark Tunnel", self.map.connections)
 
-    def test_add_connection_one_way_if_opposite_exists(self):  # Updated for normalized names
+    def test_add_connection_one_way_if_opposite_exists(
+        self,
+    ):  # Updated for normalized names
         self.map.add_connection("RoomA", "north", "RoomB")
         self.map.add_connection("RoomC", "south", "RoomB")
         self.assertEqual(self.map.connections["Roomb"]["south"], "Rooma")  # Normalized
@@ -103,7 +109,9 @@ class TestMapGraph(unittest.TestCase):
             "window (closed)", info
         )  # Assuming "window (closed)" is not normalized by normalize_direction
 
-    def test_connection_overwrite_preserves_symmetry_if_possible(self):  # Updated for normalized names
+    def test_connection_overwrite_preserves_symmetry_if_possible(
+        self,
+    ):  # Updated for normalized names
         self.map.add_connection("B", "north", "C")
         self.map.add_connection("B", "south", "A")
         self.assertEqual(self.map.connections["B"]["north"], "C")
@@ -115,7 +123,9 @@ class TestMapGraph(unittest.TestCase):
         # This test expects that the new connection from D overwrites B's south connection
         # But the current implementation only adds reverse connections if they don't exist
         # So B's south connection to A should remain
-        self.assertEqual(self.map.connections["B"]["south"], "A")  # Should remain A, not change to D
+        self.assertEqual(
+            self.map.connections["B"]["south"], "A"
+        )  # Should remain A, not change to D
         self.assertEqual(self.map.connections["A"]["north"], "B")
 
     # --- Updated tests for get_context_for_prompt ---
