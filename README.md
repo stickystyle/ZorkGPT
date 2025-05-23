@@ -24,37 +24,6 @@ The primary goal is to create an agent that can intelligently navigate Zork, sol
 
 You can view an example run of agent here: [ZorkGPT Example Run](example_episode.txt).
 
-## Architecture Overview
-
-The system is built around a class-based architecture centered on the `ZorkAgent` class, which encapsulates all the components and manages their interactions:
-
-### ZorkAgent Class
-
-The `ZorkAgent` class is the central component that orchestrates all interactions and maintains episode state:
-
-```python
-from main import ZorkAgent
-
-# Create an agent with custom settings
-agent = ZorkAgent(
-    agent_model="gpt-4o",
-    critic_model="gpt-4.1", 
-    max_turns_per_episode=100,
-    episode_log_file="my_episode.log",
-    experiences_file="my_experiences.json"
-)
-
-# Play an episode
-with ZorkInterface() as zork_game:
-    experiences, final_score = agent.play_episode(zork_game)
-```
-
-**Key Features:**
-- **State Management**: Encapsulates all episode state (turn count, inventory, action history, etc.)
-- **Integrated Logging**: Each agent has its own structured logger and experience tracker
-- **Memory Management**: Maintains structured memory of game observations and spatial mapping
-- **Configuration**: Flexible configuration through constructor parameters with environment variable defaults
-- **Reusability**: Can create multiple agent instances with different configurations
 
 ## Core Components
 
@@ -173,10 +142,6 @@ formatted_data = format_experiences_for_rl(experiences)
 
 Each episode receives a unique episode ID that is an ISO8601 timestamp with resolution to seconds of when the episode started. This ID is included in all log entries for that episode, making it easy to correlate logs across an episode.
 
-#### Episode ID Format
-- Format: `YYYY-MM-DDTHH:MM:SS` (e.g., `2024-01-15T10:30:15`)
-- Generated at episode start using `datetime.now().strftime("%Y-%m-%dT%H:%M:%S")`
-- Included in all log entries as `episode_id` field in the `extras` section
 
 #### Example Log Entry
 ```json
@@ -195,8 +160,6 @@ Each episode receives a unique episode ID that is an ISO8601 timestamp with reso
 ```
 
 ### Episode Analysis Tools
-
-A new `episodes` command has been added to `log_tools.py` that generates markdown tables showing episode performance details, sorted by score (descending).
 
 #### Usage
 
@@ -259,13 +222,6 @@ Example output:
 - **Best score:** 85
 ```
 
-#### Benefits of Episode Logging
-
-1. **Episode Correlation**: Easy to trace all events within a specific episode using episode IDs
-2. **Performance Analysis**: Compare performance across different model configurations
-3. **Debugging**: Isolate issues to specific episodes for targeted analysis
-4. **Experiment Tracking**: Track results across multiple experimental runs
-5. **Report Generation**: Generate professional markdown reports for documentation and sharing
 
 ## System Flow
 
