@@ -1,7 +1,6 @@
 import json
 from openai import OpenAI
 from zork_api import ZorkInterface
-import time
 import re
 from pydantic import BaseModel
 from collections import Counter
@@ -87,6 +86,12 @@ class ZorkAgent:
         max_turns_per_episode: int = 200,
         client_base_url: str = None,
         client_api_key: str = None,
+        # Dynamic turn limit parameters
+        absolute_max_turns: int = 1000,
+        turn_limit_increment: int = 50,
+        performance_check_interval: int = 20,
+        performance_threshold: float = 0.7,
+        min_turns_for_increase: int = 50,
     ):
         """
         Initialize the ZorkAgent.
@@ -98,9 +103,14 @@ class ZorkAgent:
             episode_log_file: Path for human-readable episode logs
             json_log_file: Path for JSON logs
             experiences_file: Path for experience data
-            max_turns_per_episode: Maximum turns per episode
+            max_turns_per_episode: Initial maximum turns per episode
             client_base_url: OpenAI client base URL
             client_api_key: OpenAI client API key
+            absolute_max_turns: Absolute maximum turns to prevent runaway costs
+            turn_limit_increment: How much to increase turn limit when performance threshold is met
+            performance_check_interval: How often (in turns) to check performance for turn limit increases
+            performance_threshold: Average critic score threshold to trigger turn limit increase
+            min_turns_for_increase: Minimum turns before first turn limit increase is possible
         """
         # Configuration from environment or parameters
         self.agent_model = agent_model or env.str("AGENT_MODEL", "qwen3-30b-a3b-mlx")
@@ -115,7 +125,15 @@ class ZorkAgent:
         self.experiences_file = experiences_file
 
         # Game settings
-        self.max_turns_per_episode = max_turns_per_episode
+        self.base_max_turns_per_episode = max_turns_per_episode  # Store the initial/base value
+        self.max_turns_per_episode = max_turns_per_episode  # Current dynamic limit
+        
+        # Dynamic turn limit configuration
+        self.absolute_max_turns = absolute_max_turns
+        self.turn_limit_increment = turn_limit_increment
+        self.performance_check_interval = performance_check_interval
+        self.performance_threshold = performance_threshold
+        self.min_turns_for_increase = min_turns_for_increase
 
         # Model parameters
         self.max_tokens_agent = None
@@ -171,6 +189,14 @@ class ZorkAgent:
         self.episode_id = None
         # Add failed actions tracking by location
         self.failed_actions_by_location = {}  # location_name -> set of failed actions
+        
+        # Reset dynamic turn limit for the new episode
+        self.max_turns_per_episode = self.base_max_turns_per_episode
+        
+        # Performance tracking for dynamic turn limits
+        self.critic_scores_history = []  # Store all critic scores for this episode
+        self.turn_limit_increases = 0  # Track how many times we've increased the limit this episode
+        self.last_performance_check_turn = 0  # Track when we last checked performance
 
     def get_agent_action(
         self,
@@ -191,7 +217,11 @@ class ZorkAgent:
         Returns:
             The agent's chosen action as a string
         """
-        messages = [{"role": "system", "content": self.agent_system_prompt}]
+        if "o1" in self.agent_model:
+            # Use user prompt for o1 models
+            messages = [{"role": "user", "content": self.agent_system_prompt}]
+        else:
+            messages = [{"role": "system", "content": self.agent_system_prompt}]
 
         # Add history if provided
         if previous_actions_and_responses:
@@ -211,7 +241,11 @@ class ZorkAgent:
                     memory_context += ", ".join(repeated_actions)
                     memory_context += ". According to your instructions, you must AVOID repeating failed actions and try completely different approaches.\n"
 
-            messages.append({"role": "system", "content": memory_context})
+            if "o1" in self.agent_model:
+                # o1 models use user role for all messages
+                messages.append({"role": "user", "content": memory_context})
+            else:
+                messages.append({"role": "system", "content": memory_context})
 
         # Combine game state with relevant memories if available
         user_content = game_state_text
@@ -227,12 +261,17 @@ class ZorkAgent:
                 stop=None,
                 temperature=self.temperature_agent,
                 max_tokens=self.max_tokens_agent,
+                extra_headers={
+                    "X-Title": "ZorkGPT",
+                }
             )
 
             response = self.client.chat.completions.create(**client_args)
             action = response.choices[0].message.content.strip()
             # Clean up the action: remove any thinking
             action = re.sub(r"<think>.*?</think>\s*", "", action, flags=re.DOTALL)
+            action = re.sub(r"<thinking>.*?</thinking>\s*", "", action, flags=re.DOTALL)
+            action = re.sub(r"<reflection>.*?</reflection>\s*", "", action, flags=re.DOTALL)
             # Basic cleaning: Zork commands are usually lowercase
             action = action.lower()
 
@@ -242,7 +281,6 @@ class ZorkAgent:
                     "Agent returned empty action, using 'look' as fallback"
                 )
                 action = "look"
-
             return action
         except Exception as e:
             self.logger.error(f"Error getting agent action: {e}")
@@ -299,6 +337,9 @@ Evaluate this action based on your criteria. Respond in JSON format.
                 temperature=self.temperature_critic,
                 max_tokens=self.max_tokens_critic,
                 response_format={"type": "json_object"},
+                extra_headers={
+                    "X-Title": "ZorkGPT",
+                }
             )
 
             response_content = response.choices[0].message.content
@@ -356,6 +397,9 @@ Evaluate this action based on your criteria. Respond in JSON format.
                 temperature=self.temperature_info_ext,
                 max_tokens=self.max_tokens_info_ext,
                 response_format={"type": "json_object"},
+                extra_headers={
+                    "X-Title": "ZorkGPT",
+                }
             )
 
             response_content = response.choices[0].message.content
@@ -532,6 +576,13 @@ Evaluate this action based on your criteria. Respond in JSON format.
                     "critic_model": self.critic_model,
                     "info_ext_model": self.info_ext_model,
                     "timestamp": datetime.now().isoformat(),
+                    # Dynamic turn limit configuration
+                    "base_max_turns": self.base_max_turns_per_episode,
+                    "absolute_max_turns": self.absolute_max_turns,
+                    "turn_limit_increment": self.turn_limit_increment,
+                    "performance_check_interval": self.performance_check_interval,
+                    "performance_threshold": self.performance_threshold,
+                    "min_turns_for_increase": self.min_turns_for_increase,
                 }
             },
         )
@@ -775,6 +826,12 @@ Evaluate this action based on your criteria. Respond in JSON format.
                         }
                     },
                 )
+
+            # Track critic score for performance evaluation
+            self.critic_scores_history.append(critic_score_val)
+            
+            # Evaluate performance and potentially increase turn limit
+            self.evaluate_performance_and_adjust_turn_limit()
 
             # 3. Send the chosen action to Zork
             # Store current state for map connection before action is taken
@@ -1242,6 +1299,14 @@ Evaluate this action based on your criteria. Respond in JSON format.
                     "zork_score": self.previous_zork_score,
                     "max_score": max_zork_score,
                     "total_reward": self.total_episode_reward,
+                    # Dynamic turn limit information
+                    "base_max_turns": self.base_max_turns_per_episode,
+                    "final_max_turns": self.max_turns_per_episode,
+                    "turn_limit_increases": self.turn_limit_increases,
+                    "absolute_max_turns": self.absolute_max_turns,
+                    # Performance metrics
+                    "avg_critic_score": sum(self.critic_scores_history) / len(self.critic_scores_history) if self.critic_scores_history else 0,
+                    "total_critic_evaluations": len(self.critic_scores_history),
                 }
             },
         )
@@ -1251,19 +1316,108 @@ Evaluate this action based on your criteria. Respond in JSON format.
 
         return self.experience_tracker.get_experiences(), self.previous_zork_score
 
+    def evaluate_performance_and_adjust_turn_limit(self) -> bool:
+        """
+        Evaluate recent performance and potentially increase the turn limit.
+        
+        Returns:
+            True if the turn limit was increased, False otherwise
+        """
+        # Don't check too early in the episode
+        if self.turn_count < self.min_turns_for_increase:
+            return False
+            
+        # Don't check too frequently
+        turns_since_last_check = self.turn_count - self.last_performance_check_turn
+        if turns_since_last_check < self.performance_check_interval:
+            return False
+            
+        # Don't exceed absolute maximum
+        if self.max_turns_per_episode >= self.absolute_max_turns:
+            return False
+            
+        # Need sufficient critic score history to evaluate
+        if len(self.critic_scores_history) < self.performance_check_interval:
+            return False
+            
+        # Calculate recent performance metrics
+        recent_scores = self.critic_scores_history[-self.performance_check_interval:]
+        avg_recent_critic_score = sum(recent_scores) / len(recent_scores)
+        
+        # Additional performance indicators
+        recent_rewards = []
+        if hasattr(self, 'experience_tracker') and self.experience_tracker.experiences:
+            recent_experiences = self.experience_tracker.experiences[-self.performance_check_interval:]
+            recent_rewards = [exp['reward'] for exp in recent_experiences]
+        
+        avg_recent_reward = sum(recent_rewards) / len(recent_rewards) if recent_rewards else 0
+        
+        # Count recent exploration (new rooms discovered in recent turns)
+        recent_exploration_count = 0
+        if len(self.action_history) >= self.performance_check_interval:
+            recent_actions = self.action_history[-self.performance_check_interval:]
+            # This is a proxy - in a more sophisticated version, we'd track when rooms were first discovered
+            movement_actions = [action for action, _ in recent_actions 
+                             if any(direction in action.lower() for direction in ['north', 'south', 'east', 'west', 'up', 'down', 'enter', 'climb', 'go'])]
+            recent_exploration_count = len(movement_actions)
+        
+        # Determine if performance warrants an increase
+        performance_criteria_met = (
+            avg_recent_critic_score >= self.performance_threshold and
+            avg_recent_reward >= 0.1 and  # Positive average reward
+            recent_exploration_count >= 2  # Some exploration activity
+        )
+        
+        self.last_performance_check_turn = self.turn_count
+        
+        if performance_criteria_met:
+            new_limit = min(
+                self.max_turns_per_episode + self.turn_limit_increment,
+                self.absolute_max_turns
+            )
+            
+            old_limit = self.max_turns_per_episode
+            self.max_turns_per_episode = new_limit
+            self.turn_limit_increases += 1
+            
+            # Log the turn limit increase
+            self.logger.info(
+                f"Turn limit increased from {old_limit} to {new_limit} due to good performance",
+                extra={
+                    "extras": {
+                        "event_type": "turn_limit_increase",
+                        "episode_id": self.episode_id,
+                        "turn": self.turn_count,
+                        "old_limit": old_limit,
+                        "new_limit": new_limit,
+                        "avg_critic_score": avg_recent_critic_score,
+                        "avg_reward": avg_recent_reward,
+                        "exploration_count": recent_exploration_count,
+                        "total_increases": self.turn_limit_increases,
+                    }
+                },
+            )
+            
+            return True
+            
+        return False
+
 
 if __name__ == "__main__":
     # Create ZorkAgent instance with default settings
-    agent = ZorkAgent(
-        agent_model="qwen/qwen3-14b:free",
-        critic_model="google/gemini-2.5-flash-preview-05-20",
-        info_ext_model="google/gemini-2.5-flash-preview-05-20",
-    )
+    agent = ZorkAgent()
 
     with ZorkInterface(timeout=1.0) as zork_game:  # Increased timeout for stability
         try:
             episode_experiences, final_score = agent.play_episode(zork_game)
             print(f"\nPlayed one episode. Final Zork score: {final_score}")
+            print(f"Turns taken: {agent.turn_count}")
+            print(f"Base max turns: {agent.base_max_turns_per_episode}")
+            print(f"Final max turns: {agent.max_turns_per_episode}")
+            print(f"Turn limit increases: {agent.turn_limit_increases}")
+            if agent.critic_scores_history:
+                avg_critic_score = sum(agent.critic_scores_history) / len(agent.critic_scores_history)
+                print(f"Average critic score: {avg_critic_score:.3f}")
             print(agent.game_map.render_ascii())
         except RuntimeError as e:
             print(f"ZorkInterface runtime error: {e}")
