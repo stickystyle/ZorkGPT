@@ -42,14 +42,19 @@ class LLMStrategyGenerator:
         # Model for analysis
         self.analysis_model = env.str("ANALYSIS_MODEL", "gpt-4")
         
+        # Sliding window configuration
+        self.sliding_window_size = env.int("EPISODE_SLIDING_WINDOW_SIZE", 10)
+        
     def generate_strategy_guide(self) -> str:
         """
         Generate a strategy guide using LLM analysis of episode logs.
+        Uses cumulative knowledge merging when episodes exceed sliding window size.
         
         Returns:
             Complete strategy guide as markdown string
         """
         print("🧠 Generating LLM-based strategy guide...")
+        print(f"  ⚙️ Sliding window size: {self.sliding_window_size} episodes")
         
         # Parse episodes from logs
         print("  📚 Parsing episode logs...")
@@ -61,11 +66,11 @@ class LLMStrategyGenerator:
         
         print(f"  📖 Found {len(episodes)} episodes to analyze")
         
-        # Analyze each episode with LLM
+        # Analyze recent episodes with LLM (sliding window)
         print("  🔍 Analyzing individual episodes...")
         episode_analyses = []
-        for i, episode in enumerate(episodes[-10:], 1):  # Analyze last 10 episodes
-            print(f"    Episode {i}/{min(10, len(episodes))}...")
+        for i, episode in enumerate(episodes[-self.sliding_window_size:], 1):  # Analyze recent episodes
+            print(f"    Episode {i}/{min(self.sliding_window_size, len(episodes))}...")
             analysis = self._analyze_episode_with_llm(episode, i)
             if analysis:
                 episode_analyses.append(analysis)
@@ -76,14 +81,26 @@ class LLMStrategyGenerator:
             print("  ⚠️ No successful episode analyses")
             return self._generate_empty_guide("Episode analysis failed - check API configuration and episode data")
         
-        # Generate overall strategic guide
-        print("  📋 Generating overall strategic guide...")
-        strategic_guide = self._generate_overall_guide(episode_analyses)
+        # Generate strategic guide from recent episodes
+        print("  📋 Generating strategic guide from recent episodes...")
+        new_strategic_guide = self._generate_overall_guide(episode_analyses)
         
-        # Build and add ASCII map at the end
-        ascii_map = self._build_map_from_episodes(episodes)
+        # If we have more episodes than sliding window and existing knowledge, merge with previous knowledge
+        if len(episodes) >= self.sliding_window_size + 1:
+            print("  🔄 Attempting knowledge merging with existing guide...")
+            merged_guide = self._merge_with_existing_knowledge(new_strategic_guide)
+            if merged_guide:
+                strategic_guide = merged_guide
+            else:
+                print("  ⚠️ Knowledge merging failed, using new guide only")
+                strategic_guide = new_strategic_guide
+        else:
+            strategic_guide = new_strategic_guide
+        
+        # Build and add ASCII map at the end (using sliding window)
+        ascii_map = self._build_map_from_episodes(episodes[-self.sliding_window_size:])
         if ascii_map:
-            strategic_guide += f"\n\n## 🗺️ CURRENT WORLD MAP\n\n```\n{ascii_map}\n```\n"
+            strategic_guide += f"\n\n## CURRENT WORLD MAP\n\n```\n{ascii_map}\n```\n"
         
         return strategic_guide
         
@@ -99,6 +116,10 @@ class LLMStrategyGenerator:
                     try:
                         log_entry = json.loads(line.strip())
                         episode_id = log_entry.get('episode_id')
+                        
+                        # Skip entries with null episode_id
+                        if episode_id is None:
+                            continue
                         
                         if episode_id != current_episode_id:
                             if current_episode:
@@ -188,6 +209,17 @@ class LLMStrategyGenerator:
                 episode_data['final_score'] = log_entry.get('zork_score', 0)
                 episode_data['max_score'] = log_entry.get('max_score', 585)
                 episode_data['turn_count'] = log_entry.get('turn_count', 0)
+            elif event_type == 'episode_end_debug':
+                # Extract end reason from debug event
+                reasons = log_entry.get('reasons', [])
+                if reasons:
+                    primary_reason = reasons[0]
+                    if 'max_turns_reached' in primary_reason:
+                        episode_data['outcome'] = 'turn_limit'
+                    elif 'zork_process_not_running' in primary_reason:
+                        episode_data['outcome'] = 'process_ended'
+                    else:
+                        episode_data['outcome'] = 'other_end'
             elif event_type == 'game_over':
                 reason = log_entry.get('reason', '')
                 if 'died' in reason.lower():
@@ -521,6 +553,82 @@ Return only the final ASCII map in the exact same format as the input maps, star
             formatted_parts.append("")  # Empty line separator
         
         return "\n".join(formatted_parts)
+    
+    def _merge_with_existing_knowledge(self, new_guide: str) -> Optional[str]:
+        """
+        Merge new strategic guide with existing knowledgebase.md.
+        
+        Args:
+            new_guide: Newly generated strategic guide
+            
+        Returns:
+            Merged strategic guide, or None if merging failed
+        """
+        existing_guide_path = Path(self.output_file)
+        
+        if not existing_guide_path.exists():
+            print("    📝 No existing knowledgebase found, using new guide")
+            return new_guide
+        
+        try:
+            # Read existing guide
+            with open(existing_guide_path, 'r', encoding='utf-8') as f:
+                existing_guide = f.read()
+            
+            print(f"    📖 Loaded existing guide ({len(existing_guide)} chars)")
+            print(f"    🆕 New guide ({len(new_guide)} chars)")
+            
+            # Create merging prompt
+            prompt = self._create_knowledge_merging_prompt(existing_guide, new_guide)
+            
+            print("    🔗 Making API call for knowledge merging...")
+            response = self.client.chat.completions.create(
+                model=self.analysis_model,
+                messages=[
+                    {"role": "system", "content": "You are an expert at merging and consolidating strategic knowledge. You identify reinforced patterns, add new insights, and remove outdated information."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.2,  # Lower temperature for consistency
+                max_tokens=4000
+            )
+            
+            merged_guide = response.choices[0].message.content.strip()
+            print(f"    ✅ Knowledge merged successfully ({len(merged_guide)} chars)")
+            return merged_guide
+            
+        except Exception as e:
+            print(f"    ⚠️ Failed to merge knowledge: {e}")
+            return None
+
+    def _create_knowledge_merging_prompt(self, existing_guide: str, new_guide: str) -> str:
+        """Create prompt for merging existing and new knowledge."""
+        
+        prompt = f"""You are merging two strategic guides for playing Zork. The EXISTING guide contains accumulated knowledge from previous episodes, while the NEW guide contains insights from the most recent {self.sliding_window_size} episodes.
+
+Your task is to create a consolidated guide that:
+1. **REINFORCES** strategies/knowledge that appear in both guides
+2. **ADDS** new insights from the recent episodes
+3. **UPDATES** outdated information if recent episodes show better approaches
+4. **MAINTAINS** valuable knowledge from the existing guide that doesn't conflict with new findings
+
+EXISTING STRATEGIC GUIDE:
+{existing_guide}
+
+NEW STRATEGIC GUIDE (from recent episodes):
+{new_guide}
+
+MERGING INSTRUCTIONS:
+- Keep the same section structure as the guides
+- When knowledge appears in both guides, emphasize it as "proven/reinforced"
+- Add new discoveries from recent episodes
+- If recent episodes contradict old knowledge, update with the newer information
+- Preserve the timestamp and indicate this is a "merged/updated" version
+- Keep the guide practical and actionable
+- Do NOT include the map section - that will be added separately
+
+Return the complete merged strategic guide in the same markdown format."""
+        
+        return prompt
     
     def _generate_empty_guide(self, reason: str) -> str:
         """Generate an empty guide when no knowledge is available."""
