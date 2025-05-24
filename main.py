@@ -482,6 +482,20 @@ The following strategic guide has been compiled from analyzing previous episodes
             )
             
             if should_override:
+                # Log the critic evaluation even when overridden
+                self.logger.info(
+                    f"Critic evaluation: Score={evaluation.score:.2f}, Justification='{evaluation.justification}'",
+                    extra={
+                        "extras": {
+                            "event_type": "critic_evaluation",
+                            "episode_id": self.episode_id,
+                            "critic_score": evaluation.score,
+                            "critic_justification": evaluation.justification,
+                            "critic_confidence": evaluation.confidence,
+                        }
+                    },
+                )
+                
                 self.logger.info(
                     f"Overriding critic rejection: {override_reason}",
                     extra={
@@ -508,6 +522,19 @@ The following strategic guide has been compiled from analyzing previous episodes
             confidence_adjusted_threshold = rejection_threshold * evaluation.confidence
             
             if evaluation.score > confidence_adjusted_threshold:
+                # Log the accepted critic evaluation
+                self.logger.info(
+                    f"Critic evaluation: Score={evaluation.score:.2f}, Justification='{evaluation.justification}'",
+                    extra={
+                        "extras": {
+                            "event_type": "critic_evaluation",
+                            "episode_id": self.episode_id,
+                            "critic_score": evaluation.score,
+                            "critic_justification": evaluation.justification,
+                            "critic_confidence": evaluation.confidence,
+                        }
+                    },
+                )
                 return agent_action, evaluation, was_overridden
             
             # Action rejected - prepare feedback for next attempt

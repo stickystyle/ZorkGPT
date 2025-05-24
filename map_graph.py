@@ -384,6 +384,8 @@ class MapGraph:
                     f"You arrived from '{previous_room_name}' by going {action_desc}."
                 )
 
+            # Keep the exit processing logic for internal map tracking, but don't include
+            # the "mapped exits are" text in the prompt to avoid confusion with consensus map
             if room.exits:
                 exit_details = []
                 # Sort exits for consistent output order
@@ -398,20 +400,11 @@ class MapGraph:
                         exit_details.append(f"{exit_dir} (leads to {leads_to_room})")
                     else:
                         exit_details.append(f"{exit_dir} (destination unknown)")
-                if exit_details:
-                    context_parts.append(
-                        "From here, mapped exits are: " + ", ".join(exit_details) + "."
-                    )
-                else:
-                    # This case implies room.exits has entries but none are in self.connections for this room.
-                    # This could happen if update_room_exits was called but no connections made yet.
-                    context_parts.append(
-                        "Exits are noted for this room, but their specific connections are not yet mapped."
-                    )
-            else:  # room.exits is empty
-                context_parts.append(
-                    "No exits are currently known or mapped from this location."
-                )
+                
+                # Note: We build exit_details for internal consistency but don't add them to context_parts
+                # This keeps the mapping logic intact while cleaning up the agent prompt
+            
+            # No exit information added to context_parts - the consensus map will provide navigation info
         else:  # current_room_name is not in self.rooms
             context_parts.append(
                 f"Map: Location '{current_room_name}' is new or not yet mapped. No detailed map data available for it yet."

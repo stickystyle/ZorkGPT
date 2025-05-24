@@ -202,7 +202,7 @@ class LLMStrategyGenerator:
         for log_entry in episode_logs:
             event_type = log_entry.get('event_type', '')
             
-            if event_type == 'agent_action':
+            if event_type == 'final_action_selection':
                 current_action = log_entry.get('agent_action', '')
             elif event_type == 'zork_response' and current_action:
                 response = log_entry.get('zork_response', '')
@@ -311,10 +311,8 @@ Document proven tactics and action sequences that work well.
 ## COMMON MISTAKES
 List actions and approaches that typically fail or waste time.
 
-## QUICK START GUIDE
-Provide an optimal opening sequence for new attempts.
-
-Focus on actionable advice that will directly improve gameplay performance. Be specific about locations, items, and action sequences. Prioritize information that appears consistently across multiple episodes."""
+Focus on actionable advice that will directly improve gameplay performance. Be specific about locations, items, and action sequences. Prioritize information that appears consistently across multiple episodes.
+**IMPORTANT:** This guide is for an LLM playing Zork, not a human player. Use clear, concise language and avoid unnecessary details."""
         
         try:
             print("  🔗 Making API call for overall guide generation...")
@@ -338,24 +336,51 @@ Focus on actionable advice that will directly improve gameplay performance. Be s
     
     def _build_map_from_episodes(self, episodes: List[List[Dict]]) -> Optional[str]:
         """
-        Build a proper map using MapGraph and movement_analyzer from episode logs.
+        Build consensus map using LLM analysis of individual episode maps.
         
         Args:
             episodes: List of episodes to analyze for movement patterns
             
         Returns:
-            ASCII map string or None if map building failed
+            ASCII consensus map string or None if map building failed
         """
         try:
-            print("  🗺️ Building map from episode movement data...")
+            print("  🗺️ Building individual episode maps...")
+            episode_maps = self._build_individual_episode_maps(episodes)
             
-            # Initialize map and movement analyzer
-            game_map = MapGraph()
-            movement_analyzer = MovementAnalyzer()
+            if not episode_maps:
+                print("  ⚠️ No valid episode maps generated")
+                return None
+                
+            print(f"  🤖 Building LLM consensus map from {len(episode_maps)} episode maps...")
+            consensus_map = self._build_consensus_map_with_llm(episode_maps)
             
-            # Process all episodes to build comprehensive map
-            for episode_idx, episode_logs in enumerate(episodes):
-                print(f"    Processing episode {episode_idx + 1}/{len(episodes)} for map data...")
+            print("  ✅ LLM consensus map generated")
+            return consensus_map
+            
+        except Exception as e:
+            print(f"  ⚠️ Failed to build consensus map: {e}")
+            return None
+    
+    def _build_individual_episode_maps(self, episodes: List[List[Dict]]) -> List[str]:
+        """
+        Build ASCII map for each episode separately.
+        
+        Args:
+            episodes: List of episodes to process
+            
+        Returns:
+            List of ASCII map strings, one per episode
+        """
+        episode_maps = []
+        
+        for episode_idx, episode_logs in enumerate(episodes):
+            try:
+                print(f"    Building map for episode {episode_idx + 1}/{len(episodes)}...")
+                
+                # Create fresh MapGraph for this episode only
+                game_map = MapGraph()
+                movement_analyzer = MovementAnalyzer()
                 
                 # Track location state through the episode
                 current_location = None
@@ -405,17 +430,97 @@ Focus on actionable advice that will directly improve gameplay performance. Be s
                                     exit_taken=result.action,
                                     to_room_name=result.to_location
                                 )
-                                print(f"      Added connection: {result.from_location} --{result.action}--> {result.to_location}")
+                
+                # Generate ASCII map for this episode
+                connection_count = sum(len(room_connections) for room_connections in game_map.connections.values())
+                if len(game_map.rooms) > 0:  # Only include maps with actual rooms
+                    ascii_map = game_map.render_ascii()
+                    episode_maps.append(ascii_map)
+                    print(f"      Episode {episode_idx + 1}: {len(game_map.rooms)} rooms, {connection_count} connections")
+                else:
+                    print(f"      Episode {episode_idx + 1}: No rooms found, skipping")
+                    
+            except Exception as e:
+                print(f"      Episode {episode_idx + 1}: Failed to build map - {e}")
+                continue
+        
+        return episode_maps
+    
+    def _build_consensus_map_with_llm(self, episode_maps: List[str]) -> str:
+        """
+        Use LLM to build consensus map from individual episode maps.
+        
+        Args:
+            episode_maps: List of ASCII map strings from individual episodes
             
-            # Generate ASCII map
-            connection_count = sum(len(room_connections) for room_connections in game_map.connections.values())
-            print(f"  ✅ Map built with {len(game_map.rooms)} rooms and {connection_count} connections")
-            ascii_map = game_map.render_ascii()
-            return ascii_map
+        Returns:
+            Consensus ASCII map string
+        """
+        # Format episode maps for the prompt
+        formatted_maps = self._format_episode_maps_for_prompt(episode_maps)
+        
+        prompt = f"""You are analyzing {len(episode_maps)} different maps of the same game world, each built from a separate gameplay session. Your task is to create a single, accurate consensus map that includes only the connections that appear consistently across multiple episodes.
+
+INDIVIDUAL EPISODE MAPS:
+{formatted_maps}
+
+INSTRUCTIONS:
+1. Identify rooms that appear in multiple episodes with the same or very similar names
+2. Identify connections (room A -> room B via direction X) that appear consistently
+3. DISCARD connections that only appear in one episode or seem erroneous
+4. DISCARD rooms that have inconsistent connections across episodes
+5. Normalize room names to the most common/clear version
+6. Create a final ASCII map using the same format as the input maps
+
+CRITERIA FOR INCLUSION:
+- Rooms: Must appear in at least 2 episodes OR have multiple consistent connections
+- Connections: Must appear in at least 2 episodes with the same direction
+- Names: Use the most frequently occurring or clearest room name variant
+
+OUTPUT FORMAT:
+Return only the final ASCII map in the exact same format as the input maps, starting with "--- ASCII Map State ---" and ending with "--- End of Map State ---".
+"""
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.analysis_model,
+                messages=[
+                    {"role": "system", "content": "You are an expert at analyzing and merging spatial/geographic data. You identify patterns and inconsistencies to create accurate composite maps."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.1,  # Low temperature for consistency
+                max_tokens=4000
+            )
+            
+            consensus_map = response.choices[0].message.content.strip()
+            return consensus_map
             
         except Exception as e:
-            print(f"  ⚠️ Failed to build map from episodes: {e}")
-            return None
+            print(f"  ⚠️ Failed to generate LLM consensus map: {e}")
+            # Fallback: return the first episode map if available
+            if episode_maps:
+                print("  📋 Using first episode map as fallback")
+                return episode_maps[0]
+            return "-- No consensus map available --"
+    
+    def _format_episode_maps_for_prompt(self, episode_maps: List[str]) -> str:
+        """
+        Format episode maps for inclusion in LLM prompt.
+        
+        Args:
+            episode_maps: List of ASCII map strings
+            
+        Returns:
+            Formatted string with numbered episode maps
+        """
+        formatted_parts = []
+        
+        for i, episode_map in enumerate(episode_maps, 1):
+            formatted_parts.append(f"=== EPISODE {i} MAP ===")
+            formatted_parts.append(episode_map)
+            formatted_parts.append("")  # Empty line separator
+        
+        return "\n".join(formatted_parts)
     
     def _generate_empty_guide(self, reason: str) -> str:
         """Generate an empty guide when no knowledge is available."""
