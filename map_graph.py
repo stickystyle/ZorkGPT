@@ -400,10 +400,10 @@ class MapGraph:
                         exit_details.append(f"{exit_dir} (leads to {leads_to_room})")
                     else:
                         exit_details.append(f"{exit_dir} (destination unknown)")
-                
+
                 # Note: We build exit_details for internal consistency but don't add them to context_parts
                 # This keeps the mapping logic intact while cleaning up the agent prompt
-            
+
             # No exit information added to context_parts - the consensus map will provide navigation info
         else:  # current_room_name is not in self.rooms
             context_parts.append(

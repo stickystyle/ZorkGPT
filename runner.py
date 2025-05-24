@@ -15,7 +15,9 @@ for i in range(0, 100):
             print(f"Final max turns: {agent.max_turns_per_episode}")
             print(f"Turn limit increases: {agent.turn_limit_increases}")
             if agent.critic_scores_history:
-                avg_critic_score = sum(agent.critic_scores_history) / len(agent.critic_scores_history)
+                avg_critic_score = sum(agent.critic_scores_history) / len(
+                    agent.critic_scores_history
+                )
                 print(f"Average critic score: {avg_critic_score:.3f}")
             print(agent.game_map.render_ascii())
         except RuntimeError as e:

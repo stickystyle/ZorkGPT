@@ -8,7 +8,12 @@ from typing import List, Optional, Tuple
 import environs
 from datetime import datetime
 from map_graph import MapGraph, normalize_direction, is_non_movement_command
-from movement_analyzer import MovementAnalyzer, MovementContext, MovementResult, create_movement_context
+from movement_analyzer import (
+    MovementAnalyzer,
+    MovementContext,
+    MovementResult,
+    create_movement_context,
+)
 from logger import setup_logging, ZorkExperienceTracker
 import os
 
@@ -131,16 +136,18 @@ class ZorkAgent:
         self.experiences_file = experiences_file
 
         # Game settings
-        self.base_max_turns_per_episode = max_turns_per_episode  # Store the initial/base value
+        self.base_max_turns_per_episode = (
+            max_turns_per_episode  # Store the initial/base value
+        )
         self.max_turns_per_episode = max_turns_per_episode  # Current dynamic limit
-        
+
         # Dynamic turn limit configuration
         self.absolute_max_turns = absolute_max_turns
         self.turn_limit_increment = turn_limit_increment
         self.performance_check_interval = performance_check_interval
         self.performance_threshold = performance_threshold
         self.min_turns_for_increase = min_turns_for_increase
-        
+
         # Knowledge base configuration
         self.auto_update_knowledge = auto_update_knowledge
 
@@ -181,10 +188,12 @@ class ZorkAgent:
             # Load base agent prompt
             with open("agent.md") as fh:
                 base_agent_prompt = fh.read()
-            
+
             # Try to enhance with knowledge base
-            self.agent_system_prompt = self._enhance_prompt_with_knowledge(base_agent_prompt)
-            
+            self.agent_system_prompt = self._enhance_prompt_with_knowledge(
+                base_agent_prompt
+            )
+
             with open("critic.md") as fh:
                 self.critic_system_prompt = fh.read()
             with open("extractor.md") as fh:
@@ -196,14 +205,14 @@ class ZorkAgent:
     def _enhance_prompt_with_knowledge(self, base_prompt: str) -> str:
         """Enhance the agent prompt with accumulated knowledge."""
         knowledge_file = "knowledgebase.md"
-        
+
         if not os.path.exists(knowledge_file):
             return base_prompt
-        
+
         try:
-            with open(knowledge_file, 'r', encoding='utf-8') as f:
+            with open(knowledge_file, "r", encoding="utf-8") as f:
                 knowledge_content = f.read()
-            
+
             # Insert strategic guide before the "Output Format" section
             knowledge_section = f"""
 
@@ -216,18 +225,24 @@ The following strategic guide has been compiled from analyzing previous episodes
 **END OF STRATEGIC GUIDE**
 
 """
-            
+
             if "**Output Format" in base_prompt:
                 insertion_point = base_prompt.find("**Output Format")
-                enhanced_prompt = base_prompt[:insertion_point] + knowledge_section + base_prompt[insertion_point:]
+                enhanced_prompt = (
+                    base_prompt[:insertion_point]
+                    + knowledge_section
+                    + base_prompt[insertion_point:]
+                )
             else:
                 enhanced_prompt = base_prompt + knowledge_section
-            
+
             # Log knowledge integration
-            self.logger.info(f"Enhanced prompt with knowledge base ({len(knowledge_content):,} characters)")
-            
+            self.logger.info(
+                f"Enhanced prompt with knowledge base ({len(knowledge_content):,} characters)"
+            )
+
             return enhanced_prompt
-            
+
         except Exception as e:
             self.logger.warning(f"Could not load knowledge from {knowledge_file}: {e}")
             return base_prompt
@@ -251,13 +266,15 @@ The following strategic guide has been compiled from analyzing previous episodes
         self.action_leading_to_current_room_for_prompt_context: Optional[str] = None
         # Reset movement analyzer for new episode
         self.movement_analyzer.clear_pending_connections()
-        
+
         # Reset dynamic turn limit for the new episode
         self.max_turns_per_episode = self.base_max_turns_per_episode
-        
+
         # Performance tracking for dynamic turn limits
         self.critic_scores_history = []  # Store all critic scores for this episode
-        self.turn_limit_increases = 0  # Track how many times we've increased the limit this episode
+        self.turn_limit_increases = (
+            0  # Track how many times we've increased the limit this episode
+        )
         self.last_performance_check_turn = 0  # Track when we last checked performance
 
     def get_agent_action(
@@ -325,7 +342,7 @@ The following strategic guide has been compiled from analyzing previous episodes
                 max_tokens=self.max_tokens_agent,
                 extra_headers={
                     "X-Title": "ZorkGPT",
-                }
+                },
             )
 
             response = self.client.chat.completions.create(**client_args)
@@ -333,7 +350,9 @@ The following strategic guide has been compiled from analyzing previous episodes
             # Clean up the action: remove any thinking
             action = re.sub(r"<think>.*?</think>\s*", "", action, flags=re.DOTALL)
             action = re.sub(r"<thinking>.*?</thinking>\s*", "", action, flags=re.DOTALL)
-            action = re.sub(r"<reflection>.*?</reflection>\s*", "", action, flags=re.DOTALL)
+            action = re.sub(
+                r"<reflection>.*?</reflection>\s*", "", action, flags=re.DOTALL
+            )
             # Basic cleaning: Zork commands are usually lowercase
             action = action.lower()
 
@@ -358,34 +377,37 @@ The following strategic guide has been compiled from analyzing previous episodes
     ) -> CriticResponse:
         """
         Get a robust critic evaluation with confidence scoring and consensus mechanism.
-        
+
         Args:
             game_state_text: Current game state text
             proposed_action: The action to evaluate
             action_counts: Counter of action frequencies
             previous_actions_and_responses: Recent action history
             max_attempts: Maximum number of evaluation attempts for consensus
-            
+
         Returns:
             CriticResponse with score, justification, and confidence
         """
         evaluations = []
-        
+
         for attempt in range(max_attempts):
             evaluation = self.get_critic_evaluation(
-                game_state_text, proposed_action, action_counts, previous_actions_and_responses
+                game_state_text,
+                proposed_action,
+                action_counts,
+                previous_actions_and_responses,
             )
             evaluations.append(evaluation)
-            
+
             # Early exit if highly confident
             if evaluation.confidence > 0.9:
                 break
-        
+
         # Use consensus or most confident evaluation
         if len(evaluations) > 1:
             scores = [e.score for e in evaluations]
             score_range = max(scores) - min(scores)
-            
+
             if score_range > 0.4:  # High disagreement between evaluations
                 # Use most confident evaluation
                 best_eval = max(evaluations, key=lambda e: e.confidence)
@@ -404,13 +426,15 @@ The following strategic guide has been compiled from analyzing previous episodes
             else:
                 # Use average with combined confidence
                 avg_score = sum(scores) / len(scores)
-                avg_confidence = sum(e.confidence for e in evaluations) / len(evaluations)
+                avg_confidence = sum(e.confidence for e in evaluations) / len(
+                    evaluations
+                )
                 return CriticResponse(
                     score=avg_score,
                     justification=f"Consensus evaluation (range: {score_range:.2f})",
-                    confidence=avg_confidence
+                    confidence=avg_confidence,
                 )
-        
+
         return evaluations[0]
 
     def get_action_with_safeguards(
@@ -423,14 +447,14 @@ The following strategic guide has been compiled from analyzing previous episodes
     ) -> Tuple[str, CriticResponse, bool]:
         """
         Get an agent action with critic-based rejection and override safeguards.
-        
+
         Args:
             game_state_text: Current game state text
             previous_actions_and_responses: Recent action history
             action_counts: Counter of action frequencies
             relevant_memories: Relevant memories for agent prompt
             max_rejection_attempts: Maximum number of rejection attempts
-            
+
         Returns:
             Tuple of (selected_action, critic_evaluation, was_overridden)
         """
@@ -438,49 +462,81 @@ The following strategic guide has been compiled from analyzing previous episodes
         attempted_actions = []
         rejection_feedback = ""
         was_overridden = False
-        
+
         # Reset per-turn tracking
         self.action_rejection_system.reset_turn()
-        
+
         while rejection_attempt < max_rejection_attempts:
             # Get agent action (with accumulated rejection feedback)
             enhanced_memories = relevant_memories
             if rejection_feedback:
-                enhanced_memories = f"{relevant_memories}\n\n--- CRITIC FEEDBACK ---\n{rejection_feedback}" if relevant_memories else f"--- CRITIC FEEDBACK ---\n{rejection_feedback}"
-            
+                enhanced_memories = (
+                    f"{relevant_memories}\n\n--- CRITIC FEEDBACK ---\n{rejection_feedback}"
+                    if relevant_memories
+                    else f"--- CRITIC FEEDBACK ---\n{rejection_feedback}"
+                )
+
             agent_action = self.get_agent_action(
-                game_state_text, 
-                previous_actions_and_responses, 
-                action_counts, 
-                enhanced_memories
+                game_state_text,
+                previous_actions_and_responses,
+                action_counts,
+                enhanced_memories,
             )
             attempted_actions.append(agent_action)
-            
+
             # Skip critic evaluation for meta commands
-            if agent_action.lower() in ["score", "inventory", "quit", "save", "restore"]:
-                return agent_action, CriticResponse(score=0.05, justification="Meta-command execution.", confidence=1.0), False
-            
+            if agent_action.lower() in [
+                "score",
+                "inventory",
+                "quit",
+                "save",
+                "restore",
+            ]:
+                return (
+                    agent_action,
+                    CriticResponse(
+                        score=0.05,
+                        justification="Meta-command execution.",
+                        confidence=1.0,
+                    ),
+                    False,
+                )
+
             # Get robust critic evaluation
             evaluation = self.get_robust_action_evaluation(
-                game_state_text, agent_action, action_counts, previous_actions_and_responses
+                game_state_text,
+                agent_action,
+                action_counts,
+                previous_actions_and_responses,
             )
-            
+
             # Get context for override decisions
-            current_location = getattr(self, 'current_room_name_for_map', 'unknown_location')
-            failed_actions = set()
-            if hasattr(self, 'failed_actions_by_location') and current_location in self.failed_actions_by_location:
-                failed_actions = self.failed_actions_by_location[current_location]
-            
-            context = {
-                'turns_since_movement': getattr(self.action_rejection_system, 'turns_since_movement', 0),
-                'recent_critic_scores': self.critic_scores_history[-10:] if self.critic_scores_history else [],
-            }
-            
-            # Check for override conditions
-            should_override, override_reason = self.action_rejection_system.should_override_rejection(
-                agent_action, current_location, failed_actions, context
+            current_location = getattr(
+                self, "current_room_name_for_map", "unknown_location"
             )
-            
+            failed_actions = set()
+            if (
+                hasattr(self, "failed_actions_by_location")
+                and current_location in self.failed_actions_by_location
+            ):
+                failed_actions = self.failed_actions_by_location[current_location]
+
+            context = {
+                "turns_since_movement": getattr(
+                    self.action_rejection_system, "turns_since_movement", 0
+                ),
+                "recent_critic_scores": self.critic_scores_history[-10:]
+                if self.critic_scores_history
+                else [],
+            }
+
+            # Check for override conditions
+            should_override, override_reason = (
+                self.action_rejection_system.should_override_rejection(
+                    agent_action, current_location, failed_actions, context
+                )
+            )
+
             if should_override:
                 # Log the critic evaluation even when overridden
                 self.logger.info(
@@ -495,7 +551,7 @@ The following strategic guide has been compiled from analyzing previous episodes
                         }
                     },
                 )
-                
+
                 self.logger.info(
                     f"Overriding critic rejection: {override_reason}",
                     extra={
@@ -510,17 +566,19 @@ The following strategic guide has been compiled from analyzing previous episodes
                 )
                 was_overridden = True
                 return agent_action, evaluation, was_overridden
-            
+
             # Adjust rejection threshold based on trust and confidence
             base_threshold = -0.6
             if self.critic_trust_tracker.should_be_conservative():
                 base_threshold = -0.8  # More conservative when trust is low
-                
-            rejection_threshold = self.critic_trust_tracker.get_rejection_threshold(base_threshold)
-            
+
+            rejection_threshold = self.critic_trust_tracker.get_rejection_threshold(
+                base_threshold
+            )
+
             # Adjust threshold based on confidence
             confidence_adjusted_threshold = rejection_threshold * evaluation.confidence
-            
+
             if evaluation.score > confidence_adjusted_threshold:
                 # Log the accepted critic evaluation
                 self.logger.info(
@@ -536,11 +594,11 @@ The following strategic guide has been compiled from analyzing previous episodes
                     },
                 )
                 return agent_action, evaluation, was_overridden
-            
+
             # Action rejected - prepare feedback for next attempt
             self.action_rejection_system.rejected_actions_this_turn.append(agent_action)
             rejection_feedback += f"- REJECTED: '{agent_action}' (Score: {evaluation.score:.2f}, Confidence: {evaluation.confidence:.2f}). {evaluation.justification}\n"
-            
+
             self.logger.info(
                 f"Critic rejected action '{agent_action}' (Score: {evaluation.score:.2f}, Confidence: {evaluation.confidence:.2f})",
                 extra={
@@ -555,21 +613,31 @@ The following strategic guide has been compiled from analyzing previous episodes
                     }
                 },
             )
-            
+
             rejection_attempt += 1
-        
+
         # Final fallback: pick least bad attempted action or safe default
         if attempted_actions:
             # Re-evaluate all attempted actions and pick the best
             best_action = attempted_actions[0]
-            best_evaluation = self.get_critic_evaluation(game_state_text, best_action, action_counts, previous_actions_and_responses)
-            
+            best_evaluation = self.get_critic_evaluation(
+                game_state_text,
+                best_action,
+                action_counts,
+                previous_actions_and_responses,
+            )
+
             for action in attempted_actions[1:]:
-                eval_result = self.get_critic_evaluation(game_state_text, action, action_counts, previous_actions_and_responses)
+                eval_result = self.get_critic_evaluation(
+                    game_state_text,
+                    action,
+                    action_counts,
+                    previous_actions_and_responses,
+                )
                 if eval_result.score > best_evaluation.score:
                     best_action = action
                     best_evaluation = eval_result
-                    
+
             self.logger.info(
                 f"All actions rejected, using least bad: '{best_action}' (Score: {best_evaluation.score:.2f})",
                 extra={
@@ -585,14 +653,18 @@ The following strategic guide has been compiled from analyzing previous episodes
         else:
             # Ultimate fallback
             safe_action = "look"
-            safe_evaluation = CriticResponse(score=0.1, justification="Safe fallback action.", confidence=1.0)
+            safe_evaluation = CriticResponse(
+                score=0.1, justification="Safe fallback action.", confidence=1.0
+            )
             return safe_action, safe_evaluation, was_overridden
 
-    def track_rejection_outcome(self, rejected_actions: List[str], actual_action: str, outcome: str):
+    def track_rejection_outcome(
+        self, rejected_actions: List[str], actual_action: str, outcome: str
+    ):
         """Track whether critic rejections were justified based on actual outcomes."""
         if not rejected_actions:
             return
-            
+
         # Define patterns that indicate the action failed
         failure_patterns = [
             "i don't understand",
@@ -602,12 +674,12 @@ The following strategic guide has been compiled from analyzing previous episodes
             "not possible",
             "doesn't work",
             "nothing happens",
-            "that doesn't make sense"
+            "that doesn't make sense",
         ]
-        
+
         # Check if the actual action resulted in a parser failure
         action_failed = any(pattern in outcome.lower() for pattern in failure_patterns)
-        
+
         # If the actual action failed, rejections were likely correct
         # If the actual action succeeded, we can't easily determine if rejections were wrong
         # (since we don't know what the rejected actions would have done)
@@ -619,12 +691,25 @@ The following strategic guide has been compiled from analyzing previous episodes
             # unless we have strong evidence the rejection was wrong
             pass
 
-    def update_movement_tracking(self, action: str, location_before: str, location_after: str):
+    def update_movement_tracking(
+        self, action: str, location_before: str, location_after: str
+    ):
         """Update movement tracking for the action rejection system."""
         # Check if this was a movement action that succeeded
-        movement_words = ['north', 'south', 'east', 'west', 'up', 'down', 'enter', 'exit', 'climb', 'go']
+        movement_words = [
+            "north",
+            "south",
+            "east",
+            "west",
+            "up",
+            "down",
+            "enter",
+            "exit",
+            "climb",
+            "go",
+        ]
         is_movement = any(word in action.lower() for word in movement_words)
-        
+
         if is_movement and location_before != location_after:
             # Reset movement counter on successful movement
             self.action_rejection_system.turns_since_movement = 0
@@ -685,7 +770,7 @@ Evaluate this action based on your criteria. Respond in JSON format.
                 response_format={"type": "json_object"},
                 extra_headers={
                     "X-Title": "ZorkGPT",
-                }
+                },
             )
 
             response_content = response.choices[0].message.content
@@ -745,7 +830,7 @@ Evaluate this action based on your criteria. Respond in JSON format.
                 response_format={"type": "json_object"},
                 extra_headers={
                     "X-Title": "ZorkGPT",
-                }
+                },
             )
 
             response_content = response.choices[0].message.content
@@ -883,29 +968,31 @@ Evaluate this action based on your criteria. Respond in JSON format.
 
         # Remove leading/trailing whitespace
         text = text.strip().replace(">", "")
-        
+
         # Look for "You are..." patterns which indicate room descriptions
         # Capture everything until we hit a period followed by a capital letter (new sentence)
         # or period followed by end of text/multiple spaces
-        you_are_match = re.search(r"You are (.+?)\.(?:\s*[A-Z]|\s*$|  )", text, re.IGNORECASE | re.DOTALL)
+        you_are_match = re.search(
+            r"You are (.+?)\.(?:\s*[A-Z]|\s*$|  )", text, re.IGNORECASE | re.DOTALL
+        )
         if you_are_match:
             location = you_are_match.group(1).strip()
-            
+
             # Clean up line breaks and extra whitespace
-            location = re.sub(r'\s+', ' ', location).strip()
-            
+            location = re.sub(r"\s+", " ", location).strip()
+
             # Remove trailing periods
-            location = location.rstrip('.')
-            
+            location = location.rstrip(".")
+
             # Clean up common prefixes
-            location = re.sub(r"^(in |at |on |standing |sitting )", "", location, flags=re.IGNORECASE)
-            
+            location = re.sub(
+                r"^(in |at |on |standing |sitting )", "", location, flags=re.IGNORECASE
+            )
+
             if location and len(location) > 3:  # Avoid very short matches
                 return location
-        
+
         return None
-
-
 
     def play_episode(self, zork_interface_instance) -> Tuple[List, int]:
         """
@@ -1130,17 +1217,19 @@ Evaluate this action based on your criteria. Respond in JSON format.
             )
 
             # 1. Get action with critic safeguards and rejection handling
-            agent_action, critic_evaluation, was_overridden = self.get_action_with_safeguards(
-                current_game_state,  # This is next_game_state from previous turn, or initial state
-                self.action_history,
-                self.action_counts,
-                relevant_memories,
+            agent_action, critic_evaluation, was_overridden = (
+                self.get_action_with_safeguards(
+                    current_game_state,  # This is next_game_state from previous turn, or initial state
+                    self.action_history,
+                    self.action_counts,
+                    relevant_memories,
+                )
             )
-            
+
             # Extract values from evaluation
             critic_score_val = critic_evaluation.score
             critic_justification = critic_evaluation.justification
-            critic_confidence = getattr(critic_evaluation, 'confidence', 0.8)
+            critic_confidence = getattr(critic_evaluation, "confidence", 0.8)
 
             # Log final selected action
             self.logger.info(
@@ -1162,7 +1251,7 @@ Evaluate this action based on your criteria. Respond in JSON format.
 
             # Track critic score for performance evaluation
             self.critic_scores_history.append(critic_score_val)
-            
+
             # Evaluate performance and potentially increase turn limit
             self.evaluate_performance_and_adjust_turn_limit()
 
@@ -1335,9 +1424,15 @@ Evaluate this action based on your criteria. Respond in JSON format.
                     )
 
                 # Track rejection outcomes and update movement tracking
-                rejected_actions = getattr(self.action_rejection_system, 'rejected_actions_this_turn', [])
-                self.track_rejection_outcome(rejected_actions, action_taken, next_game_state)
-                self.update_movement_tracking(action_taken, room_before_action, final_current_room_name)
+                rejected_actions = getattr(
+                    self.action_rejection_system, "rejected_actions_this_turn", []
+                )
+                self.track_rejection_outcome(
+                    rejected_actions, action_taken, next_game_state
+                )
+                self.update_movement_tracking(
+                    action_taken, room_before_action, final_current_room_name
+                )
 
                 # Use shared MovementAnalyzer for consistent movement detection
                 movement_context = MovementContext(
@@ -1345,24 +1440,28 @@ Evaluate this action based on your criteria. Respond in JSON format.
                     previous_location=room_before_action,
                     action=action_taken,
                     game_response=next_game_state,
-                    turn_number=self.turn_count
+                    turn_number=self.turn_count,
                 )
-                
-                movement_result = self.movement_analyzer.analyze_movement(movement_context)
-                
+
+                movement_result = self.movement_analyzer.analyze_movement(
+                    movement_context
+                )
+
                 # Handle movement result
                 if movement_result.connection_created:
                     # Create map connection
                     self.game_map.add_connection(
                         movement_result.from_location,
                         movement_result.action,
-                        movement_result.to_location
+                        movement_result.to_location,
                     )
-                    
+
                     # Update prompt context
                     self.prev_room_for_prompt_context = movement_result.from_location
-                    self.action_leading_to_current_room_for_prompt_context = movement_result.action
-                    
+                    self.action_leading_to_current_room_for_prompt_context = (
+                        movement_result.action
+                    )
+
                     # Log the connection
                     if movement_result.is_pending:
                         self.logger.info(
@@ -1376,7 +1475,7 @@ Evaluate this action based on your criteria. Respond in JSON format.
                                     "to_room": movement_result.to_location,
                                     "environmental_factors": movement_result.environmental_factors,
                                 }
-                            }
+                            },
                         )
                     else:
                         self.logger.debug(
@@ -1390,9 +1489,9 @@ Evaluate this action based on your criteria. Respond in JSON format.
                                     "to_room": movement_result.to_location,
                                     "environmental_factors": movement_result.environmental_factors,
                                 }
-                            }
+                            },
                         )
-                
+
                 elif movement_result.is_pending:
                     # Log pending connection creation
                     self.logger.info(
@@ -1404,11 +1503,13 @@ Evaluate this action based on your criteria. Respond in JSON format.
                                 "from_room": movement_result.from_location,
                                 "action": movement_result.action,
                                 "environmental_factors": movement_result.environmental_factors,
-                                "game_response": next_game_state[:100] + "..." if len(next_game_state) > 100 else next_game_state
+                                "game_response": next_game_state[:100] + "..."
+                                if len(next_game_state) > 100
+                                else next_game_state,
                             }
-                        }
+                        },
                     )
-                
+
                 # Check if room name changed but it wasn't actual movement
                 if (
                     final_current_room_name != room_before_action
@@ -1429,13 +1530,17 @@ Evaluate this action based on your criteria. Respond in JSON format.
                             }
                         },
                     )
-                
+
                 # Add intermediate actions to pending connections for non-movement actions
                 if not movement_result.movement_occurred and action_taken:
-                    self.movement_analyzer.add_intermediate_action_to_pending(action_taken, self.turn_count)
-                
+                    self.movement_analyzer.add_intermediate_action_to_pending(
+                        action_taken, self.turn_count
+                    )
+
                 # Cleanup expired pending connections
-                expired_connections = self.movement_analyzer.cleanup_expired_pending(self.turn_count)
+                expired_connections = self.movement_analyzer.cleanup_expired_pending(
+                    self.turn_count
+                )
                 for expired in expired_connections:
                     self.logger.debug(
                         "Pending connection expired",
@@ -1445,7 +1550,7 @@ Evaluate this action based on your criteria. Respond in JSON format.
                                 "episode_id": self.episode_id,
                                 "pending_connection": expired.to_dict(),
                             }
-                        }
+                        },
                     )
 
                 # Update current_room_name_for_map for the next iteration.
@@ -1640,7 +1745,7 @@ Evaluate this action based on your criteria. Respond in JSON format.
             )
 
             current_game_state = next_game_state
-            
+
             # Update current room name for next iteration
             self.current_room_name_for_map = final_current_room_name
 
@@ -1687,7 +1792,10 @@ Evaluate this action based on your criteria. Respond in JSON format.
                     "turn_limit_increases": self.turn_limit_increases,
                     "absolute_max_turns": self.absolute_max_turns,
                     # Performance metrics
-                    "avg_critic_score": sum(self.critic_scores_history) / len(self.critic_scores_history) if self.critic_scores_history else 0,
+                    "avg_critic_score": sum(self.critic_scores_history)
+                    / len(self.critic_scores_history)
+                    if self.critic_scores_history
+                    else 0,
                     "total_critic_evaluations": len(self.critic_scores_history),
                 }
             },
@@ -1705,67 +1813,87 @@ Evaluate this action based on your criteria. Respond in JSON format.
     def evaluate_performance_and_adjust_turn_limit(self) -> bool:
         """
         Evaluate recent performance and potentially increase the turn limit.
-        
+
         Returns:
             True if the turn limit was increased, False otherwise
         """
         # Don't check too early in the episode
         if self.turn_count < self.min_turns_for_increase:
             return False
-            
+
         # Don't check too frequently
         turns_since_last_check = self.turn_count - self.last_performance_check_turn
         if turns_since_last_check < self.performance_check_interval:
             return False
-            
+
         # Don't exceed absolute maximum
         if self.max_turns_per_episode >= self.absolute_max_turns:
             return False
-            
+
         # Need sufficient critic score history to evaluate
         if len(self.critic_scores_history) < self.performance_check_interval:
             return False
-            
+
         # Calculate recent performance metrics
-        recent_scores = self.critic_scores_history[-self.performance_check_interval:]
+        recent_scores = self.critic_scores_history[-self.performance_check_interval :]
         avg_recent_critic_score = sum(recent_scores) / len(recent_scores)
-        
+
         # Additional performance indicators
         recent_rewards = []
-        if hasattr(self, 'experience_tracker') and self.experience_tracker.experiences:
-            recent_experiences = self.experience_tracker.experiences[-self.performance_check_interval:]
-            recent_rewards = [exp['reward'] for exp in recent_experiences]
-        
-        avg_recent_reward = sum(recent_rewards) / len(recent_rewards) if recent_rewards else 0
-        
+        if hasattr(self, "experience_tracker") and self.experience_tracker.experiences:
+            recent_experiences = self.experience_tracker.experiences[
+                -self.performance_check_interval :
+            ]
+            recent_rewards = [exp["reward"] for exp in recent_experiences]
+
+        avg_recent_reward = (
+            sum(recent_rewards) / len(recent_rewards) if recent_rewards else 0
+        )
+
         # Count recent exploration (new rooms discovered in recent turns)
         recent_exploration_count = 0
         if len(self.action_history) >= self.performance_check_interval:
-            recent_actions = self.action_history[-self.performance_check_interval:]
+            recent_actions = self.action_history[-self.performance_check_interval :]
             # This is a proxy - in a more sophisticated version, we'd track when rooms were first discovered
-            movement_actions = [action for action, _ in recent_actions 
-                             if any(direction in action.lower() for direction in ['north', 'south', 'east', 'west', 'up', 'down', 'enter', 'climb', 'go'])]
+            movement_actions = [
+                action
+                for action, _ in recent_actions
+                if any(
+                    direction in action.lower()
+                    for direction in [
+                        "north",
+                        "south",
+                        "east",
+                        "west",
+                        "up",
+                        "down",
+                        "enter",
+                        "climb",
+                        "go",
+                    ]
+                )
+            ]
             recent_exploration_count = len(movement_actions)
-        
+
         # Determine if performance warrants an increase
         performance_criteria_met = (
-            avg_recent_critic_score >= self.performance_threshold and
-            avg_recent_reward >= 0.1 and  # Positive average reward
-            recent_exploration_count >= 2  # Some exploration activity
+            avg_recent_critic_score >= self.performance_threshold
+            and avg_recent_reward >= 0.1  # Positive average reward
+            and recent_exploration_count >= 2  # Some exploration activity
         )
-        
+
         self.last_performance_check_turn = self.turn_count
-        
+
         if performance_criteria_met:
             new_limit = min(
                 self.max_turns_per_episode + self.turn_limit_increment,
-                self.absolute_max_turns
+                self.absolute_max_turns,
             )
-            
+
             old_limit = self.max_turns_per_episode
             self.max_turns_per_episode = new_limit
             self.turn_limit_increases += 1
-            
+
             # Log the turn limit increase
             self.logger.info(
                 f"Turn limit increased from {old_limit} to {new_limit} due to good performance",
@@ -1783,9 +1911,9 @@ Evaluate this action based on your criteria. Respond in JSON format.
                     }
                 },
             )
-            
+
             return True
-            
+
         return False
 
     def _auto_update_knowledge_base(self) -> None:
@@ -1801,24 +1929,26 @@ Evaluate this action based on your criteria. Respond in JSON format.
                         "event_type": "auto_knowledge_update_start",
                         "episode_id": self.episode_id,
                     }
-                }
+                },
             )
-            
-            # Use our integrated knowledge system 
+
+            # Use our integrated knowledge system
             from integrated_knowledge_system import create_integrated_knowledge_base
+
             output_file = create_integrated_knowledge_base(self.json_log_file)
-            
+
             # Get file size and content stats for logging
             import os
+
             if os.path.exists(output_file):
                 file_size = os.path.getsize(output_file)
-                with open(output_file, 'r', encoding='utf-8') as f:
+                with open(output_file, "r", encoding="utf-8") as f:
                     content = f.read()
                     char_count = len(content)
             else:
                 file_size = 0
                 char_count = 0
-            
+
             self.logger.info(
                 f"Comprehensive knowledge base updated successfully",
                 extra={
@@ -1829,9 +1959,9 @@ Evaluate this action based on your criteria. Respond in JSON format.
                         "file_size_bytes": file_size,
                         "character_count": char_count,
                     }
-                }
+                },
             )
-            
+
         except Exception as e:
             self.logger.warning(
                 f"Automatic knowledge base update failed: {e}",
@@ -1841,43 +1971,43 @@ Evaluate this action based on your criteria. Respond in JSON format.
                         "episode_id": self.episode_id,
                         "error": str(e),
                     }
-                }
+                },
             )
 
 
 class CriticTrustTracker:
     """Tracks critic performance and adjusts trust levels accordingly."""
-    
+
     def __init__(self):
         self.correct_rejections = 0  # Rejected actions that led to parser failures
         self.incorrect_rejections = 0  # Rejected actions that might have been good
         self.total_evaluations = 0
         self.trust_level = 0.8  # Start with high trust
         self.recent_outcomes = []  # Track recent decisions for moving average
-        
+
     def update_trust(self, was_rejection_correct: bool):
         """Update trust based on whether a rejection was justified."""
         self.total_evaluations += 1
         self.recent_outcomes.append(was_rejection_correct)
-        
+
         # Keep only recent outcomes (sliding window)
         if len(self.recent_outcomes) > 20:
             self.recent_outcomes.pop(0)
-            
+
         if was_rejection_correct:
             self.correct_rejections += 1
         else:
             self.incorrect_rejections += 1
-            
+
         # Calculate trust based on recent performance
         if len(self.recent_outcomes) >= 5:
             recent_accuracy = sum(self.recent_outcomes) / len(self.recent_outcomes)
             self.trust_level = min(0.95, max(0.3, recent_accuracy))
-    
+
     def get_rejection_threshold(self, base_threshold: float = -0.6) -> float:
         """Get adjusted rejection threshold based on current trust level."""
         return base_threshold * self.trust_level
-    
+
     def should_be_conservative(self) -> bool:
         """Return True if we should be more conservative due to low trust."""
         return self.trust_level < 0.5
@@ -1885,39 +2015,52 @@ class CriticTrustTracker:
 
 class ActionRejectionSystem:
     """Handles action rejection with override mechanisms."""
-    
+
     def __init__(self):
         self.rejected_actions_this_turn = []
         self.turns_since_movement = 0
         self.recent_critic_scores = []
-        
-    def should_override_rejection(self, action: str, current_location: str, 
-                                failed_actions: set, context: dict) -> Tuple[bool, str]:
+
+    def should_override_rejection(
+        self, action: str, current_location: str, failed_actions: set, context: dict
+    ) -> Tuple[bool, str]:
         """Determine if a critic rejection should be overridden."""
-        
+
         # Override if agent is stuck and needs to explore
-        if context.get('turns_since_movement', 0) >= 5:
+        if context.get("turns_since_movement", 0) >= 5:
             return True, "exploration_stuck"
-            
+
         # Override for completely novel actions in this location
         if action.lower() not in failed_actions:
             # But only if it's a reasonable action type
-            reasonable_actions = ['north', 'south', 'east', 'west', 'up', 'down', 
-                                'enter', 'exit', 'climb', 'examine', 'take', 'open']
+            reasonable_actions = [
+                "north",
+                "south",
+                "east",
+                "west",
+                "up",
+                "down",
+                "enter",
+                "exit",
+                "climb",
+                "examine",
+                "take",
+                "open",
+            ]
             if any(keyword in action.lower() for keyword in reasonable_actions):
                 return True, "novel_action"
-            
+
         # Override if we're in a performance decline
-        recent_scores = context.get('recent_critic_scores', [])
+        recent_scores = context.get("recent_critic_scores", [])
         if len(recent_scores) >= 3 and sum(recent_scores[-3:]) / 3 < -0.3:
             return True, "emergency_exploration"
-            
+
         # Override if all recent action attempts have been rejected
         if len(self.rejected_actions_this_turn) >= 2:
             return True, "consensus_override"
-            
+
         return False, None
-    
+
     def reset_turn(self):
         """Reset per-turn tracking."""
         self.rejected_actions_this_turn = []
@@ -1936,7 +2079,9 @@ if __name__ == "__main__":
             print(f"Final max turns: {agent.max_turns_per_episode}")
             print(f"Turn limit increases: {agent.turn_limit_increases}")
             if agent.critic_scores_history:
-                avg_critic_score = sum(agent.critic_scores_history) / len(agent.critic_scores_history)
+                avg_critic_score = sum(agent.critic_scores_history) / len(
+                    agent.critic_scores_history
+                )
                 print(f"Average critic score: {avg_critic_score:.3f}")
             print(agent.game_map.render_ascii())
         except RuntimeError as e:
