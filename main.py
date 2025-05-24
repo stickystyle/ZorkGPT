@@ -196,8 +196,17 @@ class ZorkAgent:
 
             with open("critic.md") as fh:
                 self.critic_system_prompt = fh.read()
-            with open("extractor.md") as fh:
-                self.extractor_system_prompt = fh.read()
+            
+            # Try to use enhanced extractor, fall back to original if not found
+            try:
+                with open("enhanced_extractor.md") as fh:
+                    self.extractor_system_prompt = fh.read()
+                self.logger.info("Using enhanced extractor prompt")
+            except FileNotFoundError:
+                with open("extractor.md") as fh:
+                    self.extractor_system_prompt = fh.read()
+                self.logger.info("Using original extractor prompt")
+                
         except FileNotFoundError as e:
             self.logger.error(f"Failed to load system prompt file: {e}")
             raise
@@ -790,20 +799,21 @@ Evaluate this action based on your criteria. Respond in JSON format.
             )
 
     def get_extracted_info(
-        self, game_text_from_zork: str
+        self, game_text_from_zork: str, previous_location: Optional[str] = None
     ) -> Optional[ExtractorResponse]:
         """
-        Uses an LLM to extract structured information from Zork's game text.
+        Uses an LLM to extract structured information from Zork's game text with location persistence.
 
         Args:
             game_text_from_zork: The raw text output from the Zork game.
+            previous_location: The previous location name for persistence when no location change occurs.
 
         Returns:
             ExtractorResponse containing the extracted information, or None if extraction fails.
         """
         if not game_text_from_zork or not game_text_from_zork.strip():
             return ExtractorResponse(
-                current_location_name="Unknown (Empty Input)",
+                current_location_name=previous_location or "Unknown (Empty Input)",
                 exits=[],
                 visible_objects=[],
                 visible_characters=[],
@@ -837,14 +847,65 @@ Evaluate this action based on your criteria. Respond in JSON format.
 
             try:
                 parsed_data = json.loads(response_content)
-                return ExtractorResponse(**parsed_data)
+                extracted_response = ExtractorResponse(**parsed_data)
+                
+                # Handle location persistence for "Unknown Location" or similar responses
+                if (extracted_response.current_location_name in GENERIC_LOCATION_FALLBACKS 
+                    and previous_location 
+                    and previous_location not in GENERIC_LOCATION_FALLBACKS):
+                    
+                    # Log the location persistence
+                    self.logger.info(
+                        f"Location persistence applied: '{extracted_response.current_location_name}' → '{previous_location}'",
+                        extra={
+                            "extras": {
+                                "event_type": "location_persistence",
+                                "episode_id": getattr(self, 'episode_id', 'unknown'),
+                                "original_extraction": extracted_response.current_location_name,
+                                "persisted_location": previous_location,
+                                "game_text": game_text_from_zork[:100] + "..." if len(game_text_from_zork) > 100 else game_text_from_zork
+                            }
+                        }
+                    )
+                    
+                    # Create new response with persisted location
+                    extracted_response = ExtractorResponse(
+                        current_location_name=previous_location,
+                        exits=extracted_response.exits,
+                        visible_objects=extracted_response.visible_objects,
+                        visible_characters=extracted_response.visible_characters,
+                        important_messages=extracted_response.important_messages,
+                        in_combat=extracted_response.in_combat,
+                    )
+                
+                return extracted_response
+                
             except Exception as e:
                 self.logger.error(f"Error parsing extractor response: {e}")
                 self.logger.error(f"Response content: {response_content}")
-                return None
+                
+                # Fallback with location persistence
+                return ExtractorResponse(
+                    current_location_name=previous_location or "Extraction Failed",
+                    exits=[],
+                    visible_objects=[],
+                    visible_characters=[],
+                    important_messages=["Extraction failed"],
+                    in_combat=False,
+                )
+                
         except Exception as e:
             self.logger.error(f"Error getting extracted info: {e}")
-            return None
+            
+            # Fallback with location persistence
+            return ExtractorResponse(
+                current_location_name=previous_location or "LLM Request Failed",
+                exits=[],
+                visible_objects=[],
+                visible_characters=[],
+                important_messages=["LLM request failed"],
+                in_combat=False,
+            )
 
     def get_relevant_memories_for_prompt(
         self,
@@ -961,39 +1022,6 @@ Evaluate this action based on your criteria. Respond in JSON format.
             return ""
         return "\n".join(final_output_parts) + "\n"
 
-    def extract_location_from_text(self, text: str) -> Optional[str]:
-        """Extract location name from game text using regex patterns."""
-        if not text:
-            return None
-
-        # Remove leading/trailing whitespace
-        text = text.strip().replace(">", "")
-
-        # Look for "You are..." patterns which indicate room descriptions
-        # Capture everything until we hit a period followed by a capital letter (new sentence)
-        # or period followed by end of text/multiple spaces
-        you_are_match = re.search(
-            r"You are (.+?)\.(?:\s*[A-Z]|\s*$|  )", text, re.IGNORECASE | re.DOTALL
-        )
-        if you_are_match:
-            location = you_are_match.group(1).strip()
-
-            # Clean up line breaks and extra whitespace
-            location = re.sub(r"\s+", " ", location).strip()
-
-            # Remove trailing periods
-            location = location.rstrip(".")
-
-            # Clean up common prefixes
-            location = re.sub(
-                r"^(in |at |on |standing |sitting )", "", location, flags=re.IGNORECASE
-            )
-
-            if location and len(location) > 3:  # Avoid very short matches
-                return location
-
-        return None
-
     def play_episode(self, zork_interface_instance) -> Tuple[List, int]:
         """
         Play a single episode of Zork.
@@ -1059,7 +1087,7 @@ Evaluate this action based on your criteria. Respond in JSON format.
         )
 
         # Extract initial info and store in memory log
-        extracted_info = self.get_extracted_info(current_game_state)
+        extracted_info = self.get_extracted_info(current_game_state)  # No previous location for initial extraction
         self.memory_log_history.append(extracted_info)
 
         # Log extracted info
@@ -1345,80 +1373,23 @@ Evaluate this action based on your criteria. Respond in JSON format.
                 # current_room_name_for_map holds this value from the previous iteration or initial setup.
                 room_before_action = self.current_room_name_for_map
 
-                # 1. Get location using legacy regex-based function
-                legacy_location_name = self.extract_location_from_text(next_game_state)
-
-                # 2. Get location and other info using LLM-based extractor
+                # 2. Extract information using enhanced LLM extractor
                 llm_extracted_info = self.get_extracted_info(
-                    next_game_state
-                )  # Renamed to avoid confusion
+                    next_game_state, room_before_action
+                )
 
-                final_current_room_name = ""
-                source_of_location = ""
+                # Use the extracted location directly - the enhanced extractor handles persistence internally
+                if llm_extracted_info:
+                    final_current_room_name = llm_extracted_info.current_location_name
+                    source_of_location = "Enhanced LLM"
+                else:
+                    # Fallback only if extraction completely fails
+                    final_current_room_name = room_before_action or "Unknown Location"
+                    source_of_location = "Fallback (Extraction Failed)"
 
-                if legacy_location_name:  # Regex succeeded
-                    final_current_room_name = legacy_location_name
-                    source_of_location = "Regex"
-                elif llm_extracted_info:  # Regex failed, try LLM
-                    # Use original casing for map storage, but lowercase for comparison
-                    llm_room_name_original_case = (
-                        llm_extracted_info.current_location_name.strip()
-                    )
-                    llm_room_name_lower = llm_room_name_original_case.lower()
-
-                    if (
-                        not llm_room_name_original_case
-                        or llm_room_name_lower in GENERIC_LOCATION_FALLBACKS
-                    ):
-                        # LLM gave a generic name or empty string.
-                        # Persist room_before_action if it's valid (i.e., not None or empty).
-                        if (
-                            room_before_action and room_before_action.strip()
-                        ):  # Ensure room_before_action is substantial
-                            final_current_room_name = room_before_action
-                            source_of_location = f"Persisted ('{room_before_action}')"
-                        else:
-                            # This case occurs if regex failed AND LLM is generic AND it's the start of the game (room_before_action is None/empty)
-                            # Fallback to a default name or the (generic) LLM name if it's not empty.
-                            final_current_room_name = (
-                                llm_room_name_original_case
-                                if llm_room_name_original_case
-                                else "Default Start Area"
-                            )
-                            source_of_location = (
-                                "LLM (Initial Generic)"
-                                if llm_room_name_original_case
-                                else "Initial Default"
-                            )
-                    else:
-                        # LLM gave a new, non-generic name. Use it.
-                        final_current_room_name = (
-                            llm_room_name_original_case  # Use original casing for map
-                        )
-                        source_of_location = "LLM (New)"
-                else:  # Both regex and LLM extraction failed (e.g., llm_extracted_info is None)
-                    if room_before_action and room_before_action.strip():
-                        final_current_room_name = room_before_action
-                        source_of_location = f"Persisted (Extraction Fail Fallback to '{room_before_action}')"
-                    else:
-                        # Absolute fallback, e.g. very first turn and all extractions failed
-                        final_current_room_name = "Central Unknown Hub"
-                        source_of_location = "Critical Fallback"
-
-                # Ensure final_current_room_name is never an empty string at this point.
-                if not final_current_room_name.strip():
-                    # This is an ultimate safety net. If all logic above somehow results in an empty name.
-                    final_current_room_name = "SafetyNet Unknown Place"
-                    source_of_location += (
-                        " (SafetyNet)" if source_of_location else "SafetyNet Default"
-                    )
-
-                # Use final_current_room_name for all map logic and state updates.
                 # Update map with the new room and its exits
                 self.game_map.add_room(final_current_room_name)
-                # Exits should still come from the LLM extractor, as it's designed for that.
-                # (and other fields like objects, characters, messages)
-                if llm_extracted_info:  # Check if llm_extracted_info is not None before accessing its attributes
+                if llm_extracted_info:
                     self.game_map.update_room_exits(
                         final_current_room_name, llm_extracted_info.exits
                     )
