@@ -29,16 +29,15 @@ You can view an example run of agent here: [ZorkGPT Example Run](example_episode
 ZorkGPT features a **fully automated learning system** that continuously improves agent performance without manual intervention:
 
 - **🤖 Automatic Learning**: After each episode, the system extracts knowledge from gameplay logs and updates strategic guidance
-- **📊 Pattern Recognition**: Identifies locations, items, dangerous actions (like troll encounters), successful strategies, and common mistakes  
-- **🧠 Strategic Summarization**: Uses GPT-4 to compress verbose knowledge into focused, actionable insights
-- **🎯 Continuous Improvement**: Each episode benefits from accumulated experience, achieving better exploration and higher scores
-- **⚡ Efficient Integration**: 8x compression ratio (87.5% token reduction) while maintaining strategic focus
+- **🎯 Strategic Intelligence**: Generates actionable strategy guides focused on priority items, optimal navigation routes, and successful tactics
+- **⚠️ Danger Awareness**: Learns from dangerous encounters and failed actions to avoid repeating mistakes  
+- **📋 Quick Reference**: Provides optimal starting strategies and item location guides for efficient gameplay
+- **⚡ Performance Focus**: Each episode benefits from strategic insights, achieving better exploration and higher scores
 
 The system automatically generates and maintains:
-- `knowledgebase.md` - Raw accumulated knowledge from all episodes
-- `zork_strategy_guide.md` - Strategic insights focused on exploration, survival, and game progression
+- `knowledgebase.md` - Strategic gameplay guide with priority items, navigation strategies, safety information, and quick reference
 
-This enables the agent to learn from mistakes, remember dangerous encounters, and develop increasingly sophisticated gameplay strategies over time.
+This enables the agent to focus on what works, avoid known dangers, and systematically improve performance through strategic learning.
 
 ## Core Components
 
@@ -107,8 +106,8 @@ This enables the agent to learn from mistakes, remember dangerous encounters, an
 *   **Purpose:** To automatically learn from each episode and continuously improve agent performance without manual intervention.
 *   **Components:**
     *   **Knowledge Extractor:** Analyzes episode logs to extract patterns about locations, items, dangerous actions, and successful strategies.
-    *   **Strategic Summarizer:** Uses GPT-4 (temperature=0.1) to compress verbose raw knowledge into focused, actionable strategic insights.
-    *   **Auto-Integration:** Automatically loads the latest strategic guide for each new episode.
+    *   **Spatial Analyzer:** Combines traditional knowledge with spatial intelligence for comprehensive understanding.
+    *   **Auto-Integration:** Automatically loads the latest comprehensive knowledge for each new episode.
 *   **Functionality:**
     *   **Episode Analysis:** After each episode completion, extracts knowledge from `zork_episode_log.jsonl` including:
         *   Location knowledge (exits, objects, successful/failed actions, danger notes)
@@ -116,14 +115,12 @@ This enables the agent to learn from mistakes, remember dangerous encounters, an
         *   Dangerous actions and combat situations (e.g., troll encounters)
         *   Score-gaining actions and puzzle solutions
         *   Common mistakes and effective strategies
-    *   **Strategic Guide Generation:** Transforms raw accumulated knowledge into a concise strategic guide with:
-        *   Exploration philosophy (promotes discovery over rigid paths)
-        *   Critical dangers & survival (troll warnings, grue threats, death avoidance)
-        *   Key items & treasure opportunities (both indoor and outdoor locations)
-        *   Flexible exploration strategies and navigation tips
-        *   Problem-solving insights and learning from failures
-    *   **Continuous Learning:** Achieves 8x compression (87.5% token reduction) while maintaining strategic focus
-*   **Integration:** The strategic guide (`zork_strategy_guide.md`) is automatically loaded into the agent's system prompt for subsequent episodes, enabling continuous improvement without manual knowledge management.
+    *   **Spatial Analysis:** Combines traditional knowledge with spatial intelligence including:
+        *   Movement patterns and room connections
+        *   Hub rooms and navigation efficiency
+        *   Spatial layout understanding for better exploration
+    *   **Integrated Knowledge:** Creates comprehensive understanding combining gameplay patterns with spatial insights
+*   **Integration:** The comprehensive knowledge base (`knowledgebase.md`) is automatically loaded into the agent's system prompt for subsequent episodes, enabling continuous improvement without manual knowledge management.
 
 ## Structured Logging System
 
@@ -287,8 +284,8 @@ The interaction between components follows this sequence within the `ZorkAgent.p
     *   Final episode statistics are logged
     *   Experiences are saved to the specified file
     *   **Automatic Knowledge Update:** If enabled (`auto_update_knowledge=True` by default):
-        *   The Knowledge Extractor analyzes all episode logs to extract patterns and update `knowledgebase.md`
-        *   The Strategic Summarizer uses GPT-4 to create a focused strategic guide (`zork_strategy_guide.md`)
+        *   The Integrated Knowledge System analyzes all episode logs to extract patterns and update `knowledgebase.md`
+        *   Traditional gameplay knowledge is combined with spatial intelligence for comprehensive understanding
         *   Knowledge update events are logged for monitoring and debugging
     *   The agent returns the collected experiences and final game score
 
@@ -304,14 +301,13 @@ sequenceDiagram
     participant MemoryStore as Memory Store
     participant Critic_LM as Critic LM
     participant Logger as Structured Logger
-    participant KnowledgeSystem as Knowledge System
-    participant StrategicLM as Strategic LM (GPT-4)
+    participant KnowledgeSystem as Integrated Knowledge System
 
     User->>ZorkAgent: play_episode(zork_interface)
     activate ZorkAgent
     
     ZorkAgent->>ZorkAgent: reset_episode_state()
-    ZorkAgent->>ZorkAgent: _load_system_prompts() [includes strategic guide]
+    ZorkAgent->>ZorkAgent: _load_system_prompts() [includes comprehensive knowledge]
     ZorkAgent->>Logger: Log episode start
     
     ZorkAgent->>ZorkGame: Start Game
@@ -374,21 +370,17 @@ sequenceDiagram
         ZorkAgent->>Logger: Log auto knowledge update start
         ZorkAgent->>KnowledgeSystem: Extract knowledge from episode logs
         activate KnowledgeSystem
-        KnowledgeSystem->>KnowledgeSystem: Analyze patterns, locations, items, dangers
-        KnowledgeSystem-->>ZorkAgent: Raw knowledge updated (knowledgebase.md)
+        KnowledgeSystem->>KnowledgeSystem: Analyze patterns, locations, items, dangers, spatial relationships
+        KnowledgeSystem-->>ZorkAgent: Comprehensive knowledge updated (knowledgebase.md)
         deactivate KnowledgeSystem
         
-        ZorkAgent->>StrategicLM: Summarize raw knowledge into strategic guide
-        activate StrategicLM
-        StrategicLM-->>ZorkAgent: Strategic guide updated (zork_strategy_guide.md)
-        deactivate StrategicLM
         ZorkAgent->>Logger: Log auto knowledge update success
     end
     
     ZorkAgent-->>User: (experiences, final_score)
     deactivate ZorkAgent
     
-    Note over ZorkAgent, StrategicLM: Next episode will automatically load<br/>updated strategic guide for improved performance
+    Note over ZorkAgent, KnowledgeSystem: Next episode will automatically load<br/>updated comprehensive knowledge for improved performance
 ```
 
 ## Configuration and Customization
@@ -458,11 +450,11 @@ for episode_num in range(5):
 print("\nGenerated Map:")
 print(agent.game_map.render_ascii())
 
-# Check if strategic knowledge was generated
+# Check if comprehensive knowledge was generated
 import os
-if os.path.exists("zork_strategy_guide.md"):
-    print("\n✅ Strategic guide generated and available for future episodes")
-    with open("zork_strategy_guide.md", "r") as f:
-        guide_content = f.read()
-        print(f"Strategic guide length: {len(guide_content)} characters")
+if os.path.exists("knowledgebase.md"):
+    print("\n✅ Comprehensive knowledge base generated and available for future episodes")
+    with open("knowledgebase.md", "r") as f:
+        knowledge_content = f.read()
+        print(f"Knowledge base length: {len(knowledge_content)} characters")
 ```

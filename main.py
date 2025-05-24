@@ -8,6 +8,7 @@ from typing import List, Optional, Tuple
 import environs
 from datetime import datetime
 from map_graph import MapGraph, normalize_direction, is_non_movement_command
+from movement_analyzer import MovementAnalyzer, MovementContext, MovementResult, create_movement_context
 from logger import setup_logging, ZorkExperienceTracker
 import os
 
@@ -84,7 +85,7 @@ class ZorkAgent:
         episode_log_file: str = "zork_episode_log.txt",
         json_log_file: str = "zork_episode_log.jsonl",
         experiences_file: str = "zork_experiences.json",
-        max_turns_per_episode: int = 200,
+        max_turns_per_episode: int = 50,
         client_base_url: str = None,
         client_api_key: str = None,
         # Dynamic turn limit parameters
@@ -163,11 +164,11 @@ class ZorkAgent:
             api_key=client_api_key or env.str("CLIENT_API_KEY", None),
         )
 
+        # Initialize shared movement analyzer for consistent movement detection
+        self.movement_analyzer = MovementAnalyzer()
+
         # Episode state (reset for each episode)
         self.reset_episode_state()
-
-        # Add pending connection tracking for dark room scenarios
-        self.pending_connection: Optional[dict] = None  # Stores {from_room, action, turn_created}
 
     def _load_system_prompts(self) -> None:
         """Load system prompts from markdown files."""
@@ -189,50 +190,25 @@ class ZorkAgent:
 
     def _enhance_prompt_with_knowledge(self, base_prompt: str) -> str:
         """Enhance the agent prompt with accumulated knowledge."""
-        # Prefer strategic guide if available, otherwise use raw knowledge base
-        strategic_guide_file = "zork_strategy_guide.md"
-        raw_knowledge_file = "knowledgebase.md"
+        knowledge_file = "knowledgebase.md"
         
-        knowledge_file = None
-        knowledge_type = None
-        
-        if os.path.exists(strategic_guide_file):
-            knowledge_file = strategic_guide_file
-            knowledge_type = "Strategic Guide"
-        elif os.path.exists(raw_knowledge_file):
-            knowledge_file = raw_knowledge_file
-            knowledge_type = "Raw Knowledge Base"
-        
-        if not knowledge_file:
+        if not os.path.exists(knowledge_file):
             return base_prompt
         
         try:
             with open(knowledge_file, 'r', encoding='utf-8') as f:
                 knowledge_content = f.read()
             
-            # Insert knowledge before the "Output Format" section
-            if knowledge_type == "Strategic Guide":
-                knowledge_section = f"""
+            # Insert strategic guide before the "Output Format" section
+            knowledge_section = f"""
 
-**STRATEGIC KNOWLEDGE FROM PREVIOUS EPISODES:**
+**STRATEGIC GUIDE FROM PREVIOUS EPISODES:**
 
-The following strategic guide has been compiled from analyzing many previous episodes. This contains the most important strategies and insights for efficient gameplay:
-
-{knowledge_content}
-
-**END OF STRATEGIC KNOWLEDGE**
-
-"""
-            else:
-                knowledge_section = f"""
-
-**ACCUMULATED KNOWLEDGE FROM PREVIOUS EPISODES:**
-
-The following knowledge has been learned from analyzing previous episodes. Use this information to make better decisions and avoid known pitfalls:
+The following strategic guide has been compiled from analyzing previous episodes. Use this guide to improve your performance, prioritize important items, navigate efficiently, and avoid known dangers:
 
 {knowledge_content}
 
-**END OF ACCUMULATED KNOWLEDGE**
+**END OF STRATEGIC GUIDE**
 
 """
             
@@ -242,8 +218,8 @@ The following knowledge has been learned from analyzing previous episodes. Use t
             else:
                 enhanced_prompt = base_prompt + knowledge_section
             
-            # Log which knowledge source was used
-            self.logger.info(f"Enhanced prompt with {knowledge_type} ({len(knowledge_content):,} characters)")
+            # Log knowledge integration
+            self.logger.info(f"Enhanced prompt with knowledge base ({len(knowledge_content):,} characters)")
             
             return enhanced_prompt
             
@@ -268,8 +244,8 @@ The following knowledge has been learned from analyzing previous episodes. Use t
         self.current_room_name_for_map = ""  # Track current room for map updates
         self.prev_room_for_prompt_context: Optional[str] = None
         self.action_leading_to_current_room_for_prompt_context: Optional[str] = None
-        # Reset pending connection tracking
-        self.pending_connection = None
+        # Reset movement analyzer for new episode
+        self.movement_analyzer.clear_pending_connections()
         
         # Reset dynamic turn limit for the new episode
         self.max_turns_per_episode = self.base_max_turns_per_episode
@@ -645,76 +621,7 @@ Evaluate this action based on your criteria. Respond in JSON format.
         
         return None
 
-    def is_dark_room_response(self, game_text: str) -> bool:
-        """Check if the game response indicates the player is in a dark room."""
-        dark_room_indicators = [
-            "it is pitch dark",
-            "pitch black",
-            "too dark to see",
-            "darkness",
-            "you are likely to be eaten by a grue"
-        ]
 
-        game_text_lower = game_text.lower()
-        return any(indicator in game_text_lower for indicator in dark_room_indicators)
-
-    def check_and_resolve_pending_connection(self, current_location: str, current_turn: int) -> bool:
-        """
-        Check if there's a pending connection that can now be resolved.
-        Returns True if a connection was resolved.
-        """
-        if not self.pending_connection:
-            return False
-            
-        # Don't keep pending connections for too long (max 3 turns)
-        if current_turn - self.pending_connection['turn_created'] > 3:
-            self.logger.debug(
-                "Pending connection expired",
-                extra={
-                    "extras": {
-                        "event_type": "pending_connection_expired",
-                        "episode_id": self.episode_id,
-                        "pending_connection": self.pending_connection,
-                    }
-                }
-            )
-            self.pending_connection = None
-            return False
-            
-        # If we now have a clear location name that's different from where we started
-        if (current_location and 
-            current_location != self.pending_connection['from_room'] and
-            current_location.lower() not in GENERIC_LOCATION_FALLBACKS):
-            
-            # Create the connection
-            self.game_map.add_connection(
-                self.pending_connection['from_room'],
-                self.pending_connection['action'],
-                current_location
-            )
-            
-            self.logger.info(
-                "Resolved pending connection",
-                extra={
-                    "extras": {
-                        "event_type": "pending_connection_resolved",
-                        "episode_id": self.episode_id,
-                        "from_room": self.pending_connection['from_room'],
-                        "action": self.pending_connection['action'],
-                        "to_room": current_location,
-                        "turns_delayed": current_turn - self.pending_connection['turn_created']
-                    }
-                }
-            )
-            
-            # Update context for future prompts
-            self.prev_room_for_prompt_context = self.pending_connection['from_room']
-            self.action_leading_to_current_room_for_prompt_context = self.pending_connection['action']
-            
-            self.pending_connection = None
-            return True
-            
-        return False
 
     def play_episode(self, zork_interface_instance) -> Tuple[List, int]:
         """
@@ -1169,9 +1076,76 @@ Evaluate this action based on your criteria. Respond in JSON format.
                         final_current_room_name, llm_extracted_info.exits
                     )
 
-                # Check for pending connection resolution first
-                connection_resolved = self.check_and_resolve_pending_connection(final_current_room_name, self.turn_count)
-
+                # Use shared MovementAnalyzer for consistent movement detection
+                movement_context = MovementContext(
+                    current_location=final_current_room_name,
+                    previous_location=room_before_action,
+                    action=action_taken,
+                    game_response=next_game_state,
+                    turn_number=self.turn_count
+                )
+                
+                movement_result = self.movement_analyzer.analyze_movement(movement_context)
+                
+                # Handle movement result
+                if movement_result.connection_created:
+                    # Create map connection
+                    self.game_map.add_connection(
+                        movement_result.from_location,
+                        movement_result.action,
+                        movement_result.to_location
+                    )
+                    
+                    # Update prompt context
+                    self.prev_room_for_prompt_context = movement_result.from_location
+                    self.action_leading_to_current_room_for_prompt_context = movement_result.action
+                    
+                    # Log the connection
+                    if movement_result.is_pending:
+                        self.logger.info(
+                            "Resolved pending connection",
+                            extra={
+                                "extras": {
+                                    "event_type": "pending_connection_resolved",
+                                    "episode_id": self.episode_id,
+                                    "from_room": movement_result.from_location,
+                                    "action": movement_result.action,
+                                    "to_room": movement_result.to_location,
+                                    "environmental_factors": movement_result.environmental_factors,
+                                }
+                            }
+                        )
+                    else:
+                        self.logger.debug(
+                            "Immediate movement connection created",
+                            extra={
+                                "extras": {
+                                    "event_type": "movement_connection_created",
+                                    "episode_id": self.episode_id,
+                                    "from_room": movement_result.from_location,
+                                    "action": movement_result.action,
+                                    "to_room": movement_result.to_location,
+                                    "environmental_factors": movement_result.environmental_factors,
+                                }
+                            }
+                        )
+                
+                elif movement_result.is_pending:
+                    # Log pending connection creation
+                    self.logger.info(
+                        "Created pending connection",
+                        extra={
+                            "extras": {
+                                "event_type": "pending_connection_created",
+                                "episode_id": self.episode_id,
+                                "from_room": movement_result.from_location,
+                                "action": movement_result.action,
+                                "environmental_factors": movement_result.environmental_factors,
+                                "game_response": next_game_state[:100] + "..." if len(next_game_state) > 100 else next_game_state
+                            }
+                        }
+                    )
+                
                 # Check if room name changed but it wasn't actual movement
                 if (
                     final_current_room_name != room_before_action
@@ -1192,51 +1166,24 @@ Evaluate this action based on your criteria. Respond in JSON format.
                             }
                         },
                     )
-
-                # Handle movement and connection mapping
-                if (
-                    room_before_action
-                    and not is_non_movement_command(action_taken)
-                    and not connection_resolved  # Don't double-process if we just resolved a pending connection
-                ):
-                    normalized_exit_taken = normalize_direction(action_taken)
-                    effective_exit_for_connection = normalized_exit_taken or action_taken.lower()
-                    effective_exit_for_prompt = normalized_exit_taken or action_taken.lower()
-
-                    if effective_exit_for_connection:  # Ensure it's not empty
-                        # Check if we moved into a dark room
-                        is_dark = self.is_dark_room_response(next_game_state)
-                        
-                        if is_dark and final_current_room_name == room_before_action:
-                            # We're in a dark room and location extraction failed/persisted
-                            # Create a pending connection for later resolution
-                            self.pending_connection = {
-                                'from_room': room_before_action,
-                                'action': effective_exit_for_connection,
-                                'turn_created': self.turn_count
+                
+                # Add intermediate actions to pending connections for non-movement actions
+                if not movement_result.movement_occurred and action_taken:
+                    self.movement_analyzer.add_intermediate_action_to_pending(action_taken, self.turn_count)
+                
+                # Cleanup expired pending connections
+                expired_connections = self.movement_analyzer.cleanup_expired_pending(self.turn_count)
+                for expired in expired_connections:
+                    self.logger.debug(
+                        "Pending connection expired",
+                        extra={
+                            "extras": {
+                                "event_type": "pending_connection_expired",
+                                "episode_id": self.episode_id,
+                                "pending_connection": expired.to_dict(),
                             }
-                            
-                            self.logger.info(
-                                "Created pending connection for dark room",
-                                extra={
-                                    "extras": {
-                                        "event_type": "pending_connection_created",
-                                        "episode_id": self.episode_id,
-                                        "from_room": room_before_action,
-                                        "action": effective_exit_for_connection,
-                                        "game_response": next_game_state[:100] + "..." if len(next_game_state) > 100 else next_game_state
-                                    }
-                                }
-                            )
-                        elif final_current_room_name != room_before_action:
-                            # Normal case: location changed and we have a clear destination
-                            self.game_map.add_connection(
-                                room_before_action,
-                                effective_exit_for_connection,
-                                final_current_room_name,
-                            )
-                            self.prev_room_for_prompt_context = room_before_action
-                            self.action_leading_to_current_room_for_prompt_context = effective_exit_for_prompt
+                        }
+                    )
 
                 # Update current_room_name_for_map for the next iteration.
                 self.current_room_name_for_map = final_current_room_name
@@ -1372,29 +1319,13 @@ Evaluate this action based on your criteria. Respond in JSON format.
                 "huh?",
             ]
 
-            # TODO: In the final version, we should not have `blocking_failure_phrases` - the LLM should be able to handle this.
-            # But for now, we need to track failed actions to prevent repetition and training.
             # Track failed actions by location
             action_failed = False
-            blocking_failure_phrases = [
-                "there is a wall there",
-                "it is too narrow",
-                "you can't move the bolt",
-                "i can't see one here",
-                "pushing the bubble doesn't appear worthwhile",
-                "playing in this way with a bubble doesn't appear worthwhile",
-                "you certainly can't turn it with",
-                "the bolt won't turn with your best effort",
-            ]
 
             if any(
                 phrase in next_game_state.lower() for phrase in parser_failure_phrases
             ):
                 reward -= 0.2  # Small penalty
-                action_failed = True
-            elif any(
-                phrase in next_game_state.lower() for phrase in blocking_failure_phrases
-            ):
                 action_failed = True
 
             # Track failed actions to prevent repetition
@@ -1593,8 +1524,8 @@ Evaluate this action based on your criteria. Respond in JSON format.
 
     def _auto_update_knowledge_base(self) -> None:
         """
-        Automatically update the knowledge base and strategic guide after episode completion.
-        This runs asynchronously to avoid blocking the main episode loop.
+        Automatically update the comprehensive knowledge base after episode completion.
+        Uses the integrated knowledge system combining spatial and gameplay insights.
         """
         try:
             self.logger.info(
@@ -1607,42 +1538,30 @@ Evaluate this action based on your criteria. Respond in JSON format.
                 }
             )
             
-            # Update raw knowledge base from logs
-            from knowledge_extractor import update_knowledge_base
-            update_knowledge_base(self.json_log_file, "knowledgebase.md")
+            # Use our integrated knowledge system 
+            from integrated_knowledge_system import create_integrated_knowledge_base
+            output_file = create_integrated_knowledge_base(self.json_log_file)
             
-            # Generate strategic guide using the same client configuration
-            from knowledge_summarizer import KnowledgeSummarizer
-            
-            # Load raw knowledge
-            with open("knowledgebase.md", 'r', encoding='utf-8') as f:
-                raw_knowledge = f.read()
-            
-            # Use this agent's client for consistency
-            summarizer = KnowledgeSummarizer(
-                model="gpt-4",
-                temperature=0.1,
-                client=self.client
-            )
-            
-            # Generate and save strategic guide
-            strategic_guide = summarizer.summarize_knowledge_base(raw_knowledge)
-            
-            with open("zork_strategy_guide.md", 'w', encoding='utf-8') as f:
-                f.write(strategic_guide)
-            
-            # Log successful update with compression stats
-            compression_ratio = len(raw_knowledge) / len(strategic_guide) if len(strategic_guide) > 0 else 0
+            # Get file size and content stats for logging
+            import os
+            if os.path.exists(output_file):
+                file_size = os.path.getsize(output_file)
+                with open(output_file, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    char_count = len(content)
+            else:
+                file_size = 0
+                char_count = 0
             
             self.logger.info(
-                f"Knowledge base automatically updated successfully",
+                f"Comprehensive knowledge base updated successfully",
                 extra={
                     "extras": {
                         "event_type": "auto_knowledge_update_success",
                         "episode_id": self.episode_id,
-                        "raw_knowledge_chars": len(raw_knowledge),
-                        "strategic_guide_chars": len(strategic_guide),
-                        "compression_ratio": compression_ratio,
+                        "output_file": output_file,
+                        "file_size_bytes": file_size,
+                        "character_count": char_count,
                     }
                 }
             )

@@ -244,3 +244,5 @@ cython_debug/
 zork_episode_log.jsonl
 zork_experiences.json
 zork_episode_log.txt
+
+knowledgebase.md
