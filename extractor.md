@@ -28,4 +28,22 @@ Example JSON Output:
 }
 ```
 
+Example Input Game Text:
+```
+You are facing the north side of a white house.  There is no door here,
+and all the windows are barred.
+```
+
+Example JSON Output:
+```json
+{
+  "current_location_name": "north side of a white house",
+  "exits": [],
+  "visible_objects": ["white house", "windows"],
+  "visible_characters": [],
+  "important_messages": ["There is no door here", "all the windows are barred"],
+  "in_combat": false
+}
+```
+
 Instruction: Provide only the JSON object as your response. Do not include any explanatory text before or after the JSON.

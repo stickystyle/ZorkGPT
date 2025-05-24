@@ -56,10 +56,18 @@ For each "Current Game State" and "Proposed Agent Action" you receive, provide:
 
 2.  **A Brief Justification (1-2 sentences):** Explain your score based on the criteria above. Highlight why the action is good, bad, or neutral in this specific context. This **must** be a single line with no newlines.
 
+3.  **A Confidence Level:** On a scale of 0.0 to 1.0, indicating how confident you are in your evaluation:
+    *   **0.9-1.0:** Very confident - clear evidence for your assessment
+    *   **0.7-0.8:** Confident - good reasoning based on available information
+    *   **0.5-0.6:** Moderately confident - some uncertainty due to missing context
+    *   **0.3-0.4:** Low confidence - limited information or ambiguous situation
+    *   **0.0-0.2:** Very uncertain - insufficient context to make a reliable judgment
+
 **Example Output you might provide:**
 
 *   **score:** -0.3
 *   **justification:** "Drinking unknown murky water in a dark room is risky and unlikely to progress the game; examining the chest or exploring exits would be more strategic."
+*   **confidence:** 0.8
 
 **Specific Guidance for Repetitive Actions:**
 - **IMMEDIATE -0.8 TO -1.0 PENALTY:** If the agent repeats any action that has already failed 2+ times in the same location/context, especially:
