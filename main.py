@@ -44,6 +44,7 @@ TEMPERATURE_INFO_EXT = 0.1  # Low temperature for deterministic extraction
 class CriticResponse(BaseModel):
     score: float
     justification: str
+    confidence: float = 0.8  # Default confidence level
 
 
 class ExtractorResponse(BaseModel):
@@ -85,7 +86,7 @@ class ZorkAgent:
         episode_log_file: str = "zork_episode_log.txt",
         json_log_file: str = "zork_episode_log.jsonl",
         experiences_file: str = "zork_experiences.json",
-        max_turns_per_episode: int = 50,
+        max_turns_per_episode: int = 200,
         client_base_url: str = None,
         client_api_key: str = None,
         # Dynamic turn limit parameters
@@ -166,6 +167,10 @@ class ZorkAgent:
 
         # Initialize shared movement analyzer for consistent movement detection
         self.movement_analyzer = MovementAnalyzer()
+
+        # Initialize critic trust tracking and action rejection systems
+        self.critic_trust_tracker = CriticTrustTracker()
+        self.action_rejection_system = ActionRejectionSystem()
 
         # Episode state (reset for each episode)
         self.reset_episode_state()
@@ -342,6 +347,263 @@ The following strategic guide has been compiled from analyzing previous episodes
         except Exception as e:
             self.logger.error(f"Error getting agent action: {e}")
             return "look"  # Default safe action on error
+
+    def get_robust_action_evaluation(
+        self,
+        game_state_text: str,
+        proposed_action: str,
+        action_counts: Optional[Counter] = None,
+        previous_actions_and_responses: Optional[List[Tuple[str, str]]] = None,
+        max_attempts: int = 3,
+    ) -> CriticResponse:
+        """
+        Get a robust critic evaluation with confidence scoring and consensus mechanism.
+        
+        Args:
+            game_state_text: Current game state text
+            proposed_action: The action to evaluate
+            action_counts: Counter of action frequencies
+            previous_actions_and_responses: Recent action history
+            max_attempts: Maximum number of evaluation attempts for consensus
+            
+        Returns:
+            CriticResponse with score, justification, and confidence
+        """
+        evaluations = []
+        
+        for attempt in range(max_attempts):
+            evaluation = self.get_critic_evaluation(
+                game_state_text, proposed_action, action_counts, previous_actions_and_responses
+            )
+            evaluations.append(evaluation)
+            
+            # Early exit if highly confident
+            if evaluation.confidence > 0.9:
+                break
+        
+        # Use consensus or most confident evaluation
+        if len(evaluations) > 1:
+            scores = [e.score for e in evaluations]
+            score_range = max(scores) - min(scores)
+            
+            if score_range > 0.4:  # High disagreement between evaluations
+                # Use most confident evaluation
+                best_eval = max(evaluations, key=lambda e: e.confidence)
+                self.logger.info(
+                    f"High disagreement in critic evaluations (range: {score_range:.2f}), using most confident",
+                    extra={
+                        "extras": {
+                            "event_type": "critic_consensus",
+                            "episode_id": self.episode_id,
+                            "score_range": score_range,
+                            "selected_confidence": best_eval.confidence,
+                        }
+                    },
+                )
+                return best_eval
+            else:
+                # Use average with combined confidence
+                avg_score = sum(scores) / len(scores)
+                avg_confidence = sum(e.confidence for e in evaluations) / len(evaluations)
+                return CriticResponse(
+                    score=avg_score,
+                    justification=f"Consensus evaluation (range: {score_range:.2f})",
+                    confidence=avg_confidence
+                )
+        
+        return evaluations[0]
+
+    def get_action_with_safeguards(
+        self,
+        game_state_text: str,
+        previous_actions_and_responses: Optional[List[Tuple[str, str]]] = None,
+        action_counts: Optional[Counter] = None,
+        relevant_memories: Optional[str] = None,
+        max_rejection_attempts: int = 3,
+    ) -> Tuple[str, CriticResponse, bool]:
+        """
+        Get an agent action with critic-based rejection and override safeguards.
+        
+        Args:
+            game_state_text: Current game state text
+            previous_actions_and_responses: Recent action history
+            action_counts: Counter of action frequencies
+            relevant_memories: Relevant memories for agent prompt
+            max_rejection_attempts: Maximum number of rejection attempts
+            
+        Returns:
+            Tuple of (selected_action, critic_evaluation, was_overridden)
+        """
+        rejection_attempt = 0
+        attempted_actions = []
+        rejection_feedback = ""
+        was_overridden = False
+        
+        # Reset per-turn tracking
+        self.action_rejection_system.reset_turn()
+        
+        while rejection_attempt < max_rejection_attempts:
+            # Get agent action (with accumulated rejection feedback)
+            enhanced_memories = relevant_memories
+            if rejection_feedback:
+                enhanced_memories = f"{relevant_memories}\n\n--- CRITIC FEEDBACK ---\n{rejection_feedback}" if relevant_memories else f"--- CRITIC FEEDBACK ---\n{rejection_feedback}"
+            
+            agent_action = self.get_agent_action(
+                game_state_text, 
+                previous_actions_and_responses, 
+                action_counts, 
+                enhanced_memories
+            )
+            attempted_actions.append(agent_action)
+            
+            # Skip critic evaluation for meta commands
+            if agent_action.lower() in ["score", "inventory", "quit", "save", "restore"]:
+                return agent_action, CriticResponse(score=0.05, justification="Meta-command execution.", confidence=1.0), False
+            
+            # Get robust critic evaluation
+            evaluation = self.get_robust_action_evaluation(
+                game_state_text, agent_action, action_counts, previous_actions_and_responses
+            )
+            
+            # Get context for override decisions
+            current_location = getattr(self, 'current_room_name_for_map', 'unknown_location')
+            failed_actions = set()
+            if hasattr(self, 'failed_actions_by_location') and current_location in self.failed_actions_by_location:
+                failed_actions = self.failed_actions_by_location[current_location]
+            
+            context = {
+                'turns_since_movement': getattr(self.action_rejection_system, 'turns_since_movement', 0),
+                'recent_critic_scores': self.critic_scores_history[-10:] if self.critic_scores_history else [],
+            }
+            
+            # Check for override conditions
+            should_override, override_reason = self.action_rejection_system.should_override_rejection(
+                agent_action, current_location, failed_actions, context
+            )
+            
+            if should_override:
+                self.logger.info(
+                    f"Overriding critic rejection: {override_reason}",
+                    extra={
+                        "extras": {
+                            "event_type": "critic_override",
+                            "episode_id": self.episode_id,
+                            "action": agent_action,
+                            "critic_score": evaluation.score,
+                            "override_reason": override_reason,
+                        }
+                    },
+                )
+                was_overridden = True
+                return agent_action, evaluation, was_overridden
+            
+            # Adjust rejection threshold based on trust and confidence
+            base_threshold = -0.6
+            if self.critic_trust_tracker.should_be_conservative():
+                base_threshold = -0.8  # More conservative when trust is low
+                
+            rejection_threshold = self.critic_trust_tracker.get_rejection_threshold(base_threshold)
+            
+            # Adjust threshold based on confidence
+            confidence_adjusted_threshold = rejection_threshold * evaluation.confidence
+            
+            if evaluation.score > confidence_adjusted_threshold:
+                return agent_action, evaluation, was_overridden
+            
+            # Action rejected - prepare feedback for next attempt
+            self.action_rejection_system.rejected_actions_this_turn.append(agent_action)
+            rejection_feedback += f"- REJECTED: '{agent_action}' (Score: {evaluation.score:.2f}, Confidence: {evaluation.confidence:.2f}). {evaluation.justification}\n"
+            
+            self.logger.info(
+                f"Critic rejected action '{agent_action}' (Score: {evaluation.score:.2f}, Confidence: {evaluation.confidence:.2f})",
+                extra={
+                    "extras": {
+                        "event_type": "critic_rejection",
+                        "episode_id": self.episode_id,
+                        "action": agent_action,
+                        "critic_score": evaluation.score,
+                        "confidence": evaluation.confidence,
+                        "threshold": confidence_adjusted_threshold,
+                        "attempt": rejection_attempt + 1,
+                    }
+                },
+            )
+            
+            rejection_attempt += 1
+        
+        # Final fallback: pick least bad attempted action or safe default
+        if attempted_actions:
+            # Re-evaluate all attempted actions and pick the best
+            best_action = attempted_actions[0]
+            best_evaluation = self.get_critic_evaluation(game_state_text, best_action, action_counts, previous_actions_and_responses)
+            
+            for action in attempted_actions[1:]:
+                eval_result = self.get_critic_evaluation(game_state_text, action, action_counts, previous_actions_and_responses)
+                if eval_result.score > best_evaluation.score:
+                    best_action = action
+                    best_evaluation = eval_result
+                    
+            self.logger.info(
+                f"All actions rejected, using least bad: '{best_action}' (Score: {best_evaluation.score:.2f})",
+                extra={
+                    "extras": {
+                        "event_type": "fallback_action",
+                        "episode_id": self.episode_id,
+                        "action": best_action,
+                        "critic_score": best_evaluation.score,
+                    }
+                },
+            )
+            return best_action, best_evaluation, was_overridden
+        else:
+            # Ultimate fallback
+            safe_action = "look"
+            safe_evaluation = CriticResponse(score=0.1, justification="Safe fallback action.", confidence=1.0)
+            return safe_action, safe_evaluation, was_overridden
+
+    def track_rejection_outcome(self, rejected_actions: List[str], actual_action: str, outcome: str):
+        """Track whether critic rejections were justified based on actual outcomes."""
+        if not rejected_actions:
+            return
+            
+        # Define patterns that indicate the action failed
+        failure_patterns = [
+            "i don't understand",
+            "there is a wall",
+            "too narrow",
+            "can't do that",
+            "not possible",
+            "doesn't work",
+            "nothing happens",
+            "that doesn't make sense"
+        ]
+        
+        # Check if the actual action resulted in a parser failure
+        action_failed = any(pattern in outcome.lower() for pattern in failure_patterns)
+        
+        # If the actual action failed, rejections were likely correct
+        # If the actual action succeeded, we can't easily determine if rejections were wrong
+        # (since we don't know what the rejected actions would have done)
+        if action_failed:
+            # Rejections were probably correct
+            self.critic_trust_tracker.update_trust(was_rejection_correct=True)
+        else:
+            # This is more complex - we'll be conservative and not penalize the critic
+            # unless we have strong evidence the rejection was wrong
+            pass
+
+    def update_movement_tracking(self, action: str, location_before: str, location_after: str):
+        """Update movement tracking for the action rejection system."""
+        # Check if this was a movement action that succeeded
+        movement_words = ['north', 'south', 'east', 'west', 'up', 'down', 'enter', 'exit', 'climb', 'go']
+        is_movement = any(word in action.lower() for word in movement_words)
+        
+        if is_movement and location_before != location_after:
+            # Reset movement counter on successful movement
+            self.action_rejection_system.turns_since_movement = 0
+        else:
+            # Increment counter for non-movement or failed movement
+            self.action_rejection_system.turns_since_movement += 1
 
     def get_critic_evaluation(
         self,
@@ -845,62 +1107,36 @@ Evaluate this action based on your criteria. Respond in JSON format.
                 },
             )
 
-            # 1. Agent proposes an action with memory context and relevant memories
-            agent_action = self.get_agent_action(
+            # 1. Get action with critic safeguards and rejection handling
+            agent_action, critic_evaluation, was_overridden = self.get_action_with_safeguards(
                 current_game_state,  # This is next_game_state from previous turn, or initial state
                 self.action_history,
                 self.action_counts,
                 relevant_memories,
             )
+            
+            # Extract values from evaluation
+            critic_score_val = critic_evaluation.score
+            critic_justification = critic_evaluation.justification
+            critic_confidence = getattr(critic_evaluation, 'confidence', 0.8)
 
-            # Log agent action
+            # Log final selected action
             self.logger.info(
-                f"RAW AGENT PROPOSAL: {agent_action}",
+                f"SELECTED ACTION: {agent_action} (Score: {critic_score_val:.2f}, Confidence: {critic_confidence:.2f}, Override: {was_overridden})",
                 extra={
                     "extras": {
-                        "event_type": "agent_action",
+                        "event_type": "final_action_selection",
                         "episode_id": self.episode_id,
                         "agent_action": agent_action,
+                        "critic_score": critic_score_val,
+                        "critic_confidence": critic_confidence,
+                        "was_overridden": was_overridden,
                     }
                 },
             )
 
             # Update action count for repetition tracking
             self.action_counts[agent_action] += 1
-
-            # Critic doesn't need to evaluate 'score' or 'inventory' as these are meta-actions
-            if agent_action.lower() in [
-                "score",
-                "inventory",
-                "quit",
-                "save",
-                "restore",
-            ]:  # Handle meta commands
-                critic_score_val = 0.05  # Small positive for useful meta commands
-                critic_justification = "Meta-command execution."
-            else:
-                # 2. Critic evaluates the action with repetition context
-                critic_evaluation = self.get_critic_evaluation(
-                    current_game_state,
-                    agent_action,
-                    self.action_counts,
-                    self.action_history,
-                )
-                critic_score_val = critic_evaluation.score
-                critic_justification = critic_evaluation.justification
-
-                # Log critic evaluation
-                self.logger.info(
-                    "Critic evaluation",
-                    extra={
-                        "extras": {
-                            "event_type": "critic_evaluation",
-                            "episode_id": self.episode_id,
-                            "critic_score": critic_score_val,
-                            "critic_justification": critic_justification,
-                        }
-                    },
-                )
 
             # Track critic score for performance evaluation
             self.critic_scores_history.append(critic_score_val)
@@ -1075,6 +1311,11 @@ Evaluate this action based on your criteria. Respond in JSON format.
                     self.game_map.update_room_exits(
                         final_current_room_name, llm_extracted_info.exits
                     )
+
+                # Track rejection outcomes and update movement tracking
+                rejected_actions = getattr(self.action_rejection_system, 'rejected_actions_this_turn', [])
+                self.track_rejection_outcome(rejected_actions, action_taken, next_game_state)
+                self.update_movement_tracking(action_taken, room_before_action, final_current_room_name)
 
                 # Use shared MovementAnalyzer for consistent movement detection
                 movement_context = MovementContext(
@@ -1377,6 +1618,9 @@ Evaluate this action based on your criteria. Respond in JSON format.
             )
 
             current_game_state = next_game_state
+            
+            # Update current room name for next iteration
+            self.current_room_name_for_map = final_current_room_name
 
         # Debug: Log why the episode ended
         end_reasons = []
@@ -1577,6 +1821,84 @@ Evaluate this action based on your criteria. Respond in JSON format.
                     }
                 }
             )
+
+
+class CriticTrustTracker:
+    """Tracks critic performance and adjusts trust levels accordingly."""
+    
+    def __init__(self):
+        self.correct_rejections = 0  # Rejected actions that led to parser failures
+        self.incorrect_rejections = 0  # Rejected actions that might have been good
+        self.total_evaluations = 0
+        self.trust_level = 0.8  # Start with high trust
+        self.recent_outcomes = []  # Track recent decisions for moving average
+        
+    def update_trust(self, was_rejection_correct: bool):
+        """Update trust based on whether a rejection was justified."""
+        self.total_evaluations += 1
+        self.recent_outcomes.append(was_rejection_correct)
+        
+        # Keep only recent outcomes (sliding window)
+        if len(self.recent_outcomes) > 20:
+            self.recent_outcomes.pop(0)
+            
+        if was_rejection_correct:
+            self.correct_rejections += 1
+        else:
+            self.incorrect_rejections += 1
+            
+        # Calculate trust based on recent performance
+        if len(self.recent_outcomes) >= 5:
+            recent_accuracy = sum(self.recent_outcomes) / len(self.recent_outcomes)
+            self.trust_level = min(0.95, max(0.3, recent_accuracy))
+    
+    def get_rejection_threshold(self, base_threshold: float = -0.6) -> float:
+        """Get adjusted rejection threshold based on current trust level."""
+        return base_threshold * self.trust_level
+    
+    def should_be_conservative(self) -> bool:
+        """Return True if we should be more conservative due to low trust."""
+        return self.trust_level < 0.5
+
+
+class ActionRejectionSystem:
+    """Handles action rejection with override mechanisms."""
+    
+    def __init__(self):
+        self.rejected_actions_this_turn = []
+        self.turns_since_movement = 0
+        self.recent_critic_scores = []
+        
+    def should_override_rejection(self, action: str, current_location: str, 
+                                failed_actions: set, context: dict) -> Tuple[bool, str]:
+        """Determine if a critic rejection should be overridden."""
+        
+        # Override if agent is stuck and needs to explore
+        if context.get('turns_since_movement', 0) >= 5:
+            return True, "exploration_stuck"
+            
+        # Override for completely novel actions in this location
+        if action.lower() not in failed_actions:
+            # But only if it's a reasonable action type
+            reasonable_actions = ['north', 'south', 'east', 'west', 'up', 'down', 
+                                'enter', 'exit', 'climb', 'examine', 'take', 'open']
+            if any(keyword in action.lower() for keyword in reasonable_actions):
+                return True, "novel_action"
+            
+        # Override if we're in a performance decline
+        recent_scores = context.get('recent_critic_scores', [])
+        if len(recent_scores) >= 3 and sum(recent_scores[-3:]) / 3 < -0.3:
+            return True, "emergency_exploration"
+            
+        # Override if all recent action attempts have been rejected
+        if len(self.rejected_actions_this_turn) >= 2:
+            return True, "consensus_override"
+            
+        return False, None
+    
+    def reset_turn(self):
+        """Reset per-turn tracking."""
+        self.rejected_actions_this_turn = []
 
 
 if __name__ == "__main__":
