@@ -838,14 +838,9 @@ Evaluate this action based on your criteria. Respond in JSON format.
                 )
 
         if memory_log_history:
+            # Always use the most recent memory entry
+            # This contains the result from the last action taken
             relevant_history_index = -1
-            if (
-                len(memory_log_history) > 1
-            ):  # If there's more than the current observation
-                relevant_history_index = (
-                    -2
-                )  # Use the one before current (last turn's result)
-
             last_turn_info = memory_log_history[relevant_history_index]
             important_msgs = last_turn_info.important_messages
             action_results = [
