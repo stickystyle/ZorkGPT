@@ -87,8 +87,7 @@ Before taking any action, ask yourself:
     - Try a synonym for the verb (e.g., "look at" instead of "examine")
     - Try a completely different approach to the same goal
 9.  **Handle Ambiguity & Parser Clarifications:** If the parser asks for clarification (e.g., "Which bottle do you mean?"), provide the specific object name or an adjective to differentiate (e.g., `glass bottle`).
-10. **Sword Wisdom:** The sword is a weapon that can be used to attack enemies. It is important to keep it in your inventory for combat situations. Its glow intensity is an important cue indicating danger.
-11. **Think Step-by-Step:** Don't try to solve everything at once. What is the *one* most logical or promising action to take *right now* to learn more or make progress? **Prioritize actions you haven't tried yet over actions you've already attempted.**
+10. **Think Step-by-Step:** Don't try to solve everything at once. What is the *one* most logical or promising action to take *right now* to learn more or make progress? **Prioritize actions you haven't tried yet over actions you've already attempted.**
 
 **Parser Understanding (Key Details from Game Help):**
 1.  **Actions:** Common verbs like TAKE, PUT, DROP, OPEN, CLOSE, EXAMINE, READ, ATTACK, GO, etc. Fairly general forms like PICK UP, PUT DOWN are often understood.
