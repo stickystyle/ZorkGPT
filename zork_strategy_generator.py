@@ -95,10 +95,10 @@ class ZorkStrategyGenerator:
         else:
             strategic_guide = new_strategic_guide
 
-        # Build and add ASCII map at the end (using sliding window)
-        ascii_map = self._build_map_from_episodes(episodes[-self.sliding_window_size :])
-        if ascii_map:
-            strategic_guide += f"\n\n## CURRENT WORLD MAP\n\n```\n{ascii_map}\n```\n"
+        # Build and add Mermaid map at the end (using sliding window)
+        mermaid_map = self._build_map_from_episodes(episodes[-self.sliding_window_size :])
+        if mermaid_map:
+            strategic_guide += f"\n\n## CURRENT WORLD MAP\n\n```mermaid\n{mermaid_map}\n```\n"
 
         return strategic_guide
 
@@ -106,7 +106,7 @@ class ZorkStrategyGenerator:
         """Parse episodes from JSON log file."""
         episodes = []
         current_episode = []
-        current_episode_id = None
+        current_episode_start_time = None
 
         try:
             with open(self.log_file, "r", encoding="utf-8") as f:
@@ -114,18 +114,26 @@ class ZorkStrategyGenerator:
                     try:
                         log_entry = json.loads(line.strip())
                         episode_id = log_entry.get("episode_id")
+                        event_type = log_entry.get("event_type", "")
 
                         # Skip entries with null episode_id
                         if episode_id is None:
                             continue
 
-                        if episode_id != current_episode_id:
+                        # Normalize episode_id to handle format inconsistencies
+                        normalized_episode_id = self._normalize_episode_id(episode_id)
+
+                        # Detect new episode by episode_start event or significant time gap
+                        if event_type == "episode_start":
+                            # Start of a new episode
                             if current_episode:
                                 episodes.append(current_episode)
                             current_episode = []
-                            current_episode_id = episode_id
+                            current_episode_start_time = normalized_episode_id
 
-                        current_episode.append(log_entry)
+                        # Only include entries that belong to the current episode
+                        if current_episode_start_time and normalized_episode_id == current_episode_start_time:
+                            current_episode.append(log_entry)
 
                     except json.JSONDecodeError:
                         continue
@@ -138,6 +146,31 @@ class ZorkStrategyGenerator:
             return []
 
         return episodes
+
+    def _normalize_episode_id(self, episode_id: str) -> str:
+        """
+        Normalize episode_id to handle format inconsistencies.
+        
+        Converts both "2025-05-25T07:47:56" and "20250525_074756" 
+        to the same normalized format.
+        """
+        if not episode_id:
+            return ""
+            
+        # Handle ISO format: "2025-05-25T07:47:56"
+        if "T" in episode_id and "-" in episode_id:
+            # Extract date and time parts
+            date_part, time_part = episode_id.split("T")
+            date_clean = date_part.replace("-", "")
+            time_clean = time_part.replace(":", "")
+            return f"{date_clean}_{time_clean}"
+        
+        # Handle underscore format: "20250525_074756" 
+        if "_" in episode_id and len(episode_id) == 15:
+            return episode_id
+            
+        # For any other format, return as-is
+        return episode_id
 
     def _analyze_episode_with_llm(
         self, episode_logs: List[Dict], episode_num: int
@@ -301,7 +334,9 @@ Focus on actionable insights that would help improve future gameplay. Be specifi
 **Episode Analyses:**
 {combined_analyses}
 
-Create a strategic guide with these sections:
+Output ONLY the strategic guide content in markdown format, starting directly with the first section header. Do not include any conversational text, introductions, or explanations about the guide itself.
+
+Use exactly this structure:
 
 ## PRIORITY OBJECTIVES
 - Most important goals to pursue first
@@ -355,7 +390,15 @@ Make this guide practical and actionable. Use specific locations, items, and com
             return self._generate_empty_guide("Failed to generate strategic guide")
 
     def _build_map_from_episodes(self, episodes: List[List[Dict]]) -> Optional[str]:
-        """Build ASCII map from episode data."""
+        """
+        Build Mermaid diagram from episode data.
+        
+        Uses Mermaid instead of ASCII because:
+        - LLMs can parse structured Mermaid syntax more reliably
+        - Easier to merge multiple maps programmatically  
+        - Standard syntax that LLMs are trained on
+        - Can easily extend with metadata (room types, items, etc.)
+        """
         # Build individual episode maps
         episode_maps = self._build_individual_episode_maps(episodes)
 
@@ -403,10 +446,10 @@ Make this guide practical and actionable. Use specific locations, items, and com
                         if from_room and to_room and action:
                             episode_map.add_connection(from_room, action, to_room)
 
-                # Generate ASCII representation
-                ascii_map = episode_map.render_ascii()
-                if ascii_map and ascii_map.strip():
-                    episode_maps.append(ascii_map)
+                # Generate Mermaid representation (easier for LLMs to parse)
+                mermaid_map = episode_map.render_mermaid()
+                if mermaid_map and mermaid_map.strip():
+                    episode_maps.append(mermaid_map)
 
             except Exception as e:
                 print(f"    ⚠️ Failed to build map for episode {episode_idx}: {e}")
@@ -418,7 +461,7 @@ Make this guide practical and actionable. Use specific locations, items, and com
         """Build a consensus map using LLM analysis of multiple episode maps."""
         maps_text = self._format_episode_maps_for_prompt(episode_maps)
 
-        prompt = f"""Based on these ASCII maps from different Zork episodes, create a single consensus map that represents the most accurate and complete world layout:
+        prompt = f"""Based on these Mermaid diagrams from different Zork episodes, create a single consensus map that represents the most accurate and complete world layout:
 
 {maps_text}
 
@@ -426,11 +469,12 @@ Rules for creating the consensus map:
 1. Rooms that appear in multiple maps are definitely real
 2. Connections that appear consistently should be included
 3. If maps conflict, prefer the more detailed/complete version
-4. Use standard ASCII map format with rooms as [Room Name] and connections as lines
-5. Keep the layout clear and readable
+4. Use proper Mermaid syntax: graph TD with nodes like R1["Room Name"] and connections like R1 -->|"direction"| R2
+5. Keep node IDs consistent and meaningful
 6. Include all important rooms discovered across episodes
+7. Use solid arrows (-->) for confirmed connections and dotted arrows (-.->)  for uncertain ones
 
-Create a single, well-formatted ASCII map:
+Create a single, well-formatted Mermaid diagram using 'graph TD' format:
 """
 
         try:
@@ -457,7 +501,7 @@ Create a single, well-formatted ASCII map:
         """Format episode maps for LLM prompt."""
         formatted_maps = []
         for i, episode_map in enumerate(episode_maps, 1):
-            formatted_maps.append(f"**Episode {i} Map:**\n```\n{episode_map}\n```\n")
+            formatted_maps.append(f"**Episode {i} Map:**\n```mermaid\n{episode_map}\n```\n")
         return "\n".join(formatted_maps)
 
     def _merge_with_existing_knowledge(self, new_guide: str) -> Optional[str]:
