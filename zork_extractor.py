@@ -28,6 +28,7 @@ GENERIC_LOCATION_FALLBACKS = {
     "",  # Empty string also a fallback
 }
 
+
 def create_json_schema(model: Type[BaseModel]) -> Dict[str, Any]:
     schema = model.model_json_schema()
     return {
@@ -38,6 +39,7 @@ def create_json_schema(model: Type[BaseModel]) -> Dict[str, Any]:
             "schema": schema,
         },
     }
+
 
 class ExtractorResponse(BaseModel):
     current_location_name: str
@@ -193,7 +195,7 @@ class ZorkExtractor:
                         json_content = response_content[start_idx:].strip()
                 else:
                     json_content = response_content.strip()
-                
+
                 parsed_data = json.loads(json_content)
                 extracted_response = ExtractorResponse(**parsed_data)
 

@@ -1,10 +1,12 @@
 from zork_api import ZorkInterface
 from zork_orchestrator import ZorkOrchestrator
 
-orchestrator = ZorkOrchestrator(max_turns_per_episode=5000,
+orchestrator = ZorkOrchestrator(
+    max_turns_per_episode=5000,
     enable_adaptive_knowledge=True,
     knowledge_update_interval=100,
-    auto_update_knowledge=False)  # Use only adaptive system
+    auto_update_knowledge=False,
+)  # Use only adaptive system
 
 
 with ZorkInterface(timeout=1.0) as zork_game:

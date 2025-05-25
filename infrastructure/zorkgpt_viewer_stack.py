@@ -166,9 +166,7 @@ class ZorkGPTViewerStack(Stack):
 
         # Allow SSH access
         security_group.add_ingress_rule(
-            ec2.Peer.any_ipv4(),
-            ec2.Port.tcp(22),
-            "SSH access"
+            ec2.Peer.any_ipv4(), ec2.Port.tcp(22), "SSH access"
         )
 
         # Create IAM role for EC2 instance
@@ -184,7 +182,9 @@ class ZorkGPTViewerStack(Stack):
 
         # Add CloudWatch logs permissions
         ec2_role.add_managed_policy(
-            iam.ManagedPolicy.from_aws_managed_policy_name("CloudWatchAgentServerPolicy")
+            iam.ManagedPolicy.from_aws_managed_policy_name(
+                "CloudWatchAgentServerPolicy"
+            )
         )
 
         # Create user data script to set up the instance
@@ -193,29 +193,23 @@ class ZorkGPTViewerStack(Stack):
             "#!/bin/bash",
             "yum update -y",
             "yum install -y git python3 python3-pip",
-            
             # Install uv for faster Python package management
             "curl -LsSf https://astral.sh/uv/install.sh | sh",
             "source $HOME/.cargo/env",
-            
             # Create zorkgpt user
             "useradd -m -s /bin/bash zorkgpt",
             "mkdir -p /home/zorkgpt/.ssh",
             "chown zorkgpt:zorkgpt /home/zorkgpt/.ssh",
-            
             # Clone ZorkGPT repository
             "cd /home/zorkgpt",
             "git clone https://github.com/stickystyle/ZorkGPT.git",
             "chown -R zorkgpt:zorkgpt /home/zorkgpt/ZorkGPT",
-            
             # Set up Python environment using uv
             "cd /home/zorkgpt/ZorkGPT",
             "sudo -u zorkgpt /home/zorkgpt/.cargo/bin/uv sync",
-            
             # Set up environment variables
             f"echo 'export ZORK_S3_BUCKET={self.bucket.bucket_name}' >> /home/zorkgpt/.bashrc",
             "echo 'export PATH=/home/zorkgpt/.cargo/bin:$PATH' >> /home/zorkgpt/.bashrc",
-            
             # Create a simple startup script
             "cat > /home/zorkgpt/start_zorkgpt.sh << 'EOF'",
             "#!/bin/bash",
@@ -223,10 +217,8 @@ class ZorkGPTViewerStack(Stack):
             "export ZORK_S3_BUCKET=" + self.bucket.bucket_name,
             "/home/zorkgpt/.cargo/bin/uv run python main.py",
             "EOF",
-            
             "chmod +x /home/zorkgpt/start_zorkgpt.sh",
             "chown zorkgpt:zorkgpt /home/zorkgpt/start_zorkgpt.sh",
-            
             # Create systemd service for auto-start (optional)
             "cat > /etc/systemd/system/zorkgpt.service << 'EOF'",
             "[Unit]",
@@ -246,10 +238,8 @@ class ZorkGPTViewerStack(Stack):
             "[Install]",
             "WantedBy=multi-user.target",
             "EOF",
-            
             "systemctl daemon-reload",
             "systemctl enable zorkgpt.service",
-            
             # Log completion
             "echo 'ZorkGPT setup completed' > /var/log/zorkgpt-setup.log",
         )
@@ -327,4 +317,4 @@ class ZorkGPTViewerStack(Stack):
             "EC2SSHCommand",
             value=f"ssh -i ~/.ssh/parrishfamily.pem ec2-user@{self.ec2_instance.instance_public_ip}",
             description="SSH command to connect to the ZorkGPT instance",
-        ) 
+        )

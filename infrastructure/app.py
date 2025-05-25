@@ -17,4 +17,4 @@ ZorkGPTViewerStack(
     ),
 )
 
-app.synth() 
+app.synth()

@@ -13,6 +13,7 @@ import environs
 env = environs.Env()
 env.read_env()
 
+
 def create_json_schema(model: Type[BaseModel]) -> Dict[str, Any]:
     schema = model.model_json_schema()
     return {
@@ -23,6 +24,7 @@ def create_json_schema(model: Type[BaseModel]) -> Dict[str, Any]:
             "schema": schema,
         },
     }
+
 
 class CriticResponse(BaseModel):
     score: float
@@ -274,7 +276,7 @@ Evaluate this action based on your criteria. Respond with ONLY a JSON object in 
                         json_content = response_content[start_idx:].strip()
                 else:
                     json_content = response_content.strip()
-                
+
                 parsed_data = json.loads(json_content)
                 return CriticResponse(**parsed_data)
             except Exception as e:
@@ -355,7 +357,9 @@ Evaluate this action based on your criteria. Respond with ONLY a JSON object in 
                     evaluations
                 )
                 # Use the justification from the most confident evaluation
-                best_justification = max(evaluations, key=lambda e: e.confidence).justification
+                best_justification = max(
+                    evaluations, key=lambda e: e.confidence
+                ).justification
                 return CriticResponse(
                     score=avg_score,
                     justification=best_justification,

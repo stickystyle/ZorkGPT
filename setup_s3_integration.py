@@ -21,7 +21,7 @@ def get_bucket_name_from_stack():
             shell=True,
             capture_output=True,
             text=True,
-            check=True
+            check=True,
         )
         bucket_name = result.stdout.strip()
         if bucket_name and bucket_name != "None":
@@ -42,7 +42,7 @@ def get_viewer_url_from_stack():
             shell=True,
             capture_output=True,
             text=True,
-            check=True
+            check=True,
         )
         viewer_url = result.stdout.strip()
         if viewer_url and viewer_url != "None":
@@ -58,75 +58,75 @@ def get_viewer_url_from_stack():
 def main():
     print("🚀 ZorkGPT S3 Integration Setup")
     print("=" * 40)
-    
+
     # Check if infrastructure is deployed
     print("\n🔍 Checking deployed infrastructure...")
     bucket_name = get_bucket_name_from_stack()
     viewer_url = get_viewer_url_from_stack()
-    
+
     if not bucket_name:
         print("\n❌ No ZorkGPT infrastructure found!")
         print("Please deploy the infrastructure first:")
         print("  cd infrastructure")
         print("  python deploy.py")
         return
-    
+
     print(f"✅ Found S3 bucket: {bucket_name}")
     if viewer_url:
         print(f"✅ Found viewer URL: {viewer_url}")
-    
+
     # Show configuration options
     print("\n📋 Configuration Options:")
     print("\n1. Environment Variable (Recommended):")
     print(f"   export ZORK_S3_BUCKET={bucket_name}")
-    
+
     print("\n2. Constructor Parameter:")
     print("   orchestrator = ZorkOrchestrator(")
     print(f"       s3_bucket='{bucket_name}',")
     print("       enable_state_export=True")
     print("   )")
-    
+
     # Offer to set environment variable
     print(f"\n🔧 Would you like to set the environment variable now? (y/n): ", end="")
     response = input().lower().strip()
-    
-    if response in ['y', 'yes']:
+
+    if response in ["y", "yes"]:
         # Set environment variable for current session
-        os.environ['ZORK_S3_BUCKET'] = bucket_name
+        os.environ["ZORK_S3_BUCKET"] = bucket_name
         print(f"✅ Environment variable set for this session")
-        
+
         # Show how to make it permanent
         print("\n💡 To make this permanent, add this to your shell profile:")
         print(f"   echo 'export ZORK_S3_BUCKET={bucket_name}' >> ~/.bashrc")
         print("   # or ~/.zshrc for zsh users")
-    
+
     # Offer to run a test episode
     print(f"\n🎮 Would you like to run a test episode now? (y/n): ", end="")
     response = input().lower().strip()
-    
-    if response in ['y', 'yes']:
+
+    if response in ["y", "yes"]:
         print("\n🎮 Starting test episode...")
-        
+
         # Create orchestrator with S3 configuration
         orchestrator = ZorkOrchestrator(
             s3_bucket=bucket_name,
             enable_state_export=True,
-            max_turns_per_episode=10  # Short test episode
+            max_turns_per_episode=10,  # Short test episode
         )
-        
+
         try:
             with ZorkInterface(timeout=1.0) as zork_game:
                 episode_experiences, final_score = orchestrator.play_episode(zork_game)
                 print(f"\n✅ Test episode completed!")
                 print(f"   Final score: {final_score}")
                 print(f"   Turns taken: {orchestrator.turn_count}")
-                
+
                 if viewer_url:
                     print(f"\n🌐 View your live data at: {viewer_url}")
-                
+
         except Exception as e:
             print(f"\n❌ Test episode failed: {e}")
-    
+
     print("\n🎉 Setup complete!")
     if viewer_url:
         print(f"🌐 Your live viewer: {viewer_url}")
@@ -137,4 +137,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main() 
+    main()

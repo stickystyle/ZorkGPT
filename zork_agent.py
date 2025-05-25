@@ -289,21 +289,29 @@ The following strategic guide has been compiled from analyzing previous episodes
 
             # Extract reasoning from thinking tags
             reasoning_parts = []
-            
+
             # Extract <think> tags
-            think_matches = re.findall(r"<think>(.*?)</think>", raw_response, flags=re.DOTALL)
+            think_matches = re.findall(
+                r"<think>(.*?)</think>", raw_response, flags=re.DOTALL
+            )
             reasoning_parts.extend(think_matches)
-            
+
             # Extract <thinking> tags
-            thinking_matches = re.findall(r"<thinking>(.*?)</thinking>", raw_response, flags=re.DOTALL)
+            thinking_matches = re.findall(
+                r"<thinking>(.*?)</thinking>", raw_response, flags=re.DOTALL
+            )
             reasoning_parts.extend(thinking_matches)
-            
+
             # Extract <reflection> tags
-            reflection_matches = re.findall(r"<reflection>(.*?)</reflection>", raw_response, flags=re.DOTALL)
+            reflection_matches = re.findall(
+                r"<reflection>(.*?)</reflection>", raw_response, flags=re.DOTALL
+            )
             reasoning_parts.extend(reflection_matches)
 
             # Combine all reasoning
-            reasoning = "\n\n".join(part.strip() for part in reasoning_parts if part.strip())
+            reasoning = "\n\n".join(
+                part.strip() for part in reasoning_parts if part.strip()
+            )
 
             # Clean up the action: remove any thinking
             action = re.sub(r"<think>.*?</think>\s*", "", raw_response, flags=re.DOTALL)
@@ -321,11 +329,11 @@ The following strategic guide has been compiled from analyzing previous episodes
                         "Agent returned empty action, using 'look' as fallback"
                     )
                 action = "look"
-                
+
             return {
                 "action": action,
                 "reasoning": reasoning if reasoning else None,
-                "raw_response": raw_response
+                "raw_response": raw_response,
             }
         except Exception as e:
             if self.logger:
@@ -333,7 +341,7 @@ The following strategic guide has been compiled from analyzing previous episodes
             return {
                 "action": "look",
                 "reasoning": None,
-                "raw_response": None
+                "raw_response": None,
             }  # Default safe action on error
 
     def get_relevant_memories_for_prompt(
