@@ -59,8 +59,11 @@ class CriticTrustTracker:
             recent_accuracy = sum(self.recent_outcomes) / len(self.recent_outcomes)
             self.trust_level = min(0.95, max(0.3, recent_accuracy))
 
-    def get_rejection_threshold(self, base_threshold: float = -0.6) -> float:
+    def get_rejection_threshold(self, base_threshold: float = None) -> float:
         """Get adjusted rejection threshold based on current trust level."""
+        if base_threshold is None:
+            # Use environment variable or default to a more reasonable threshold
+            base_threshold = env.float("CRITIC_REJECTION_THRESHOLD", -0.05)
         return base_threshold * self.trust_level
 
     def should_be_conservative(self) -> bool:
@@ -215,7 +218,8 @@ class ZorkCritic:
 Proposed Agent Action:
 {proposed_action}{repetition_context}{recent_context}
 
-Evaluate this action based on your criteria. Respond in JSON format.
+Evaluate this action based on your criteria. Respond with ONLY a JSON object in this exact format:
+{{"score": 0.0, "justification": "Your justification here", "confidence": 0.8}}
 """
         messages = [
             {"role": "system", "content": self.system_prompt},
@@ -223,21 +227,55 @@ Evaluate this action based on your criteria. Respond in JSON format.
         ]
 
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                temperature=self.temperature,
-                max_tokens=self.max_tokens,
-                # response_format={"type": "json_object"},
-                response_format=create_json_schema(CriticResponse),
-                extra_headers={
-                    "X-Title": "ZorkGPT",
-                },
-            )
+            # Use structured output for OpenAI models, no response_format for others
+            if "gpt-" in self.model.lower() or "o1-" in self.model.lower():
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    temperature=self.temperature,
+                    max_tokens=self.max_tokens,
+                    response_format=create_json_schema(CriticResponse),
+                    extra_headers={
+                        "X-Title": "ZorkGPT",
+                    },
+                )
+            else:
+                # For non-OpenAI models, rely on prompt instructions for JSON format
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    temperature=self.temperature,
+                    max_tokens=self.max_tokens,
+                    extra_headers={
+                        "X-Title": "ZorkGPT",
+                    },
+                )
 
             response_content = response.choices[0].message.content
             try:
-                parsed_data = json.loads(response_content)
+                # Extract JSON from markdown code blocks if present
+                if "```json" in response_content:
+                    # Find the JSON content between ```json and ```
+                    start_marker = "```json"
+                    end_marker = "```"
+                    start_idx = response_content.find(start_marker) + len(start_marker)
+                    end_idx = response_content.find(end_marker, start_idx)
+                    if end_idx != -1:
+                        json_content = response_content[start_idx:end_idx].strip()
+                    else:
+                        json_content = response_content[start_idx:].strip()
+                elif "```" in response_content:
+                    # Handle generic code blocks
+                    start_idx = response_content.find("```") + 3
+                    end_idx = response_content.find("```", start_idx)
+                    if end_idx != -1:
+                        json_content = response_content[start_idx:end_idx].strip()
+                    else:
+                        json_content = response_content[start_idx:].strip()
+                else:
+                    json_content = response_content.strip()
+                
+                parsed_data = json.loads(json_content)
                 return CriticResponse(**parsed_data)
             except Exception as e:
                 if self.logger:
@@ -311,14 +349,16 @@ Evaluate this action based on your criteria. Respond in JSON format.
                     )
                 return best_eval
             else:
-                # Use average with combined confidence
+                # Use average with combined confidence, but keep the best justification
                 avg_score = sum(scores) / len(scores)
                 avg_confidence = sum(e.confidence for e in evaluations) / len(
                     evaluations
                 )
+                # Use the justification from the most confident evaluation
+                best_justification = max(evaluations, key=lambda e: e.confidence).justification
                 return CriticResponse(
                     score=avg_score,
-                    justification=f"Consensus evaluation (range: {score_range:.2f})",
+                    justification=best_justification,
                     confidence=avg_confidence,
                 )
 

@@ -145,22 +145,56 @@ class ZorkExtractor:
         ]
 
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                temperature=self.temperature,
-                max_tokens=self.max_tokens,
-                # response_format={"type": "json_object"},
-                response_format=create_json_schema(ExtractorResponse),
-                extra_headers={
-                    "X-Title": "ZorkGPT",
-                },
-            )
+            # Use structured output for OpenAI models, no response_format for others
+            if "gpt-" in self.model.lower() or "o1-" in self.model.lower():
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    temperature=self.temperature,
+                    max_tokens=self.max_tokens,
+                    response_format=create_json_schema(ExtractorResponse),
+                    extra_headers={
+                        "X-Title": "ZorkGPT",
+                    },
+                )
+            else:
+                # For non-OpenAI models, rely on prompt instructions for JSON format
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    temperature=self.temperature,
+                    max_tokens=self.max_tokens,
+                    extra_headers={
+                        "X-Title": "ZorkGPT",
+                    },
+                )
 
             response_content = response.choices[0].message.content
 
             try:
-                parsed_data = json.loads(response_content)
+                # Extract JSON from markdown code blocks if present
+                if "```json" in response_content:
+                    # Find the JSON content between ```json and ```
+                    start_marker = "```json"
+                    end_marker = "```"
+                    start_idx = response_content.find(start_marker) + len(start_marker)
+                    end_idx = response_content.find(end_marker, start_idx)
+                    if end_idx != -1:
+                        json_content = response_content[start_idx:end_idx].strip()
+                    else:
+                        json_content = response_content[start_idx:].strip()
+                elif "```" in response_content:
+                    # Handle generic code blocks
+                    start_idx = response_content.find("```") + 3
+                    end_idx = response_content.find("```", start_idx)
+                    if end_idx != -1:
+                        json_content = response_content[start_idx:end_idx].strip()
+                    else:
+                        json_content = response_content[start_idx:].strip()
+                else:
+                    json_content = response_content.strip()
+                
+                parsed_data = json.loads(json_content)
                 extracted_response = ExtractorResponse(**parsed_data)
 
                 # Handle location persistence for "Unknown Location" or similar responses

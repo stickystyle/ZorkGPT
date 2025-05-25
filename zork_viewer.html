@@ -341,10 +341,20 @@
 <body>
     <div class="game-container">
         <div class="game-info">
-            <h1>
-                <span class="status-indicator" id="connection-status"></span>
-                ZorkGPT Live Viewer
-            </h1>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <h1 style="margin: 0;">
+                    <span class="status-indicator" id="connection-status"></span>
+                    ZorkGPT Live Viewer
+                </h1>
+                <div style="display: flex; gap: 15px;">
+                    <a href="https://github.com/stickystyle/ZorkGPT" target="_blank" style="color: #007bff; text-decoration: none; font-weight: 500;">
+                        📁 Project
+                    </a>
+                    <a href="#faq" onclick="showFAQ()" style="color: #007bff; text-decoration: none; font-weight: 500; cursor: pointer;">
+                        ❓ FAQ
+                    </a>
+                </div>
+            </div>
             <div class="info-grid">
                 <div class="info-item">
                     <strong>Episode:</strong> <span id="episode-id">Loading...</span>
@@ -384,6 +394,83 @@
             <h3>Game Map</h3>
             <div id="map-diagram" class="loading">Loading map...</div>
             <div id="map-stats" class="map-stats"></div>
+        </div>
+    </div>
+
+    <!-- FAQ Modal -->
+    <div id="faq-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 2000;">
+        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 30px; border-radius: 12px; max-width: 600px; max-height: 80vh; overflow-y: auto; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2 style="margin: 0; color: #333;">ZorkGPT Live Viewer FAQ</h2>
+                <button onclick="hideFAQ()" style="background: none; border: none; font-size: 24px; cursor: pointer; color: #666;">&times;</button>
+            </div>
+            <div style="line-height: 1.6; color: #444;">
+                <h3>What is ZorkGPT?</h3>
+                <p>ZorkGPT is an AI agent system that plays the classic interactive fiction game "Zork" using Large Language Models (LLMs). It demonstrates how AI can understand and navigate complex text-based game worlds.</p>
+                
+                <h3>What is Zork?</h3>
+                <p><a href="https://en.wikipedia.org/wiki/Zork" target="_blank">Zork</a> is a legendary text adventure game first released in 1977, where players explore the Great Underground Empire by typing commands in natural language. Often considered the most famous piece of interactive fiction, Zork challenges players to solve puzzles, collect treasures, and navigate hundreds of locations using only text descriptions and typed commands.</p>
+                
+                <h3>Why Zork instead of Pokemon?</h3>
+                <p>I've seen the impressive Claude and Gemini plays Pokemon projects and wanted to explore what was possible with open source models. Why didn't I try making open source models play Pokemon? Because I'm not as smart as the guys who created those projects! 😉 I also wanted to limit myself to models that could reasonably run on home systems configured for LLM inference, making this more accessible to hobbyists and researchers without massive compute budgets.</p>
+                
+                <h3>What am I looking at?</h3>
+                <p>This live viewer shows real-time data from a running ZorkGPT session, including:</p>
+                <ul>
+                    <li><strong>Game Info:</strong> Current episode, turn count, score, and location</li>
+                    <li><strong>Knowledge Base:</strong> AI-generated strategic guides and learned patterns</li>
+                    <li><strong>Game Log:</strong> Recent actions, AI reasoning, and game responses</li>
+                    <li><strong>Map:</strong> Visual representation of discovered locations and connections</li>
+                </ul>
+                
+                <h3>How does the AI work?</h3>
+                <p>The system uses multiple AI components, each potentially running different open source models:</p>
+                <ul>
+                    <li><strong>Agent:</strong> Decides what actions to take</li>
+                    <li><strong>Extractor:</strong> Parses game text into structured data</li>
+                    <li><strong>Critic:</strong> Evaluates proposed actions before execution</li>
+                    <li><strong>Strategy Generator:</strong> Learns from experience to improve future play</li>
+                </ul>
+                <div id="current-models-info">
+                    <p><strong>Current Models:</strong></p>
+                    <ul>
+                        <li><strong>Agent:</strong> <span id="faq-agent-model">Loading...</span></li>
+                        <li><strong>Critic:</strong> <span id="faq-critic-model">Loading...</span></li>
+                        <li><strong>Extractor:</strong> <span id="faq-extractor-model">Loading...</span></li>
+                    </ul>
+                </div>
+                <p>These models may change as experiments progress to test different capabilities and performance characteristics.</p>
+                
+                <h3>Why isn't the data updating?</h3>
+                <p>The viewer polls for updates every 3 seconds. If you see a red connection indicator, either:</p>
+                <ul>
+                    <li>No ZorkGPT session is currently running</li>
+                    <li>The state file isn't being generated</li>
+                    <li>There's a network connectivity issue</li>
+                </ul>
+                
+                <h3>What do the log colors mean?</h3>
+                <ul>
+                    <li><span style="color: #ffeb3b;">💭 Yellow:</span> AI thinking/reasoning</li>
+                    <li><span style="color: #87ceeb;">🎯 Light Blue:</span> Proposed action (final action taken)</li>
+                    <li><span style="color: #ffa500;">🚫 Orange:</span> Rejected actions (if any) with critic justifications</li>
+                    <li><span style="color: #ffa500;">⚖️ Orange:</span> Final critic evaluation with detailed justification</li>
+                    <li><span style="color: #98fb98;">✅ Light Green:</span> Action taken</li>
+                    <li><span style="color: #90ee90;">🎮 Green:</span> Game response</li>
+                </ul>
+                
+                <h3>What does the critic evaluation show?</h3>
+                <p>The critic evaluation displays:</p>
+                <ul>
+                    <li><strong>Status:</strong> Whether the action was approved or rejected</li>
+                    <li><strong>Score:</strong> Numerical evaluation (positive = good, negative = bad)</li>
+                    <li><strong>Justification:</strong> Detailed reasoning for the evaluation</li>
+                    <li><strong>Override status:</strong> Whether a rejected action was overridden</li>
+                </ul>
+                
+                <h3>Can I interact with the game?</h3>
+                <p>No, this is a read-only viewer. The AI is playing autonomously. You can watch its decision-making process and see how it learns and adapts.</p>
+            </div>
         </div>
     </div>
 
@@ -512,6 +599,17 @@
                     current.inventory.length > 0 ? current.inventory.join(', ') : 'Empty';
                 document.getElementById('combat-status').textContent = 
                     current.in_combat ? '⚔️ Yes' : '✅ No';
+                
+                // Update FAQ model information
+                if (meta.models) {
+                    document.getElementById('faq-agent-model').textContent = meta.models.agent || 'Unknown';
+                    document.getElementById('faq-critic-model').textContent = meta.models.critic || 'Unknown';
+                    document.getElementById('faq-extractor-model').textContent = meta.models.extractor || 'Unknown';
+                } else {
+                    document.getElementById('faq-agent-model').textContent = 'Not available';
+                    document.getElementById('faq-critic-model').textContent = 'Not available';
+                    document.getElementById('faq-extractor-model').textContent = 'Not available';
+                }
             }
             
             async updateMap() {
@@ -608,11 +706,31 @@
                     // 2. Proposed Action (same as action for now, but could be different if critic rejects)
                     entryHtml += `<div class="log-proposed-action">🎯 <strong>Proposed Action:</strong> ${this.escapeHtml(entry.action)}</div>`;
                     
-                    // 3. Critic Justification (if available)
+                    // 3. Rejected Actions (if any)
+                    if (entry.rejected_actions && entry.rejected_actions.length > 0) {
+                        entryHtml += `<div class="log-critic">🚫 <strong>Rejected Actions:</strong></div>`;
+                        entry.rejected_actions.forEach((rejection, index) => {
+                            entryHtml += `<div class="log-critic" style="margin-left: 20px; font-size: 0.9em;">`;
+                            entryHtml += `${index + 1}. "${this.escapeHtml(rejection.action)}" (Score: ${rejection.score.toFixed(2)})<br>`;
+                            entryHtml += `<em>"${this.escapeHtml(rejection.justification)}"</em>`;
+                            entryHtml += `</div>`;
+                        });
+                    }
+                    
+                    // 4. Final Critic Evaluation (if available)
                     if (entry.critic_score !== undefined) {
                         const overrideText = entry.was_overridden ? ' (Action was overridden despite rejection)' : '';
                         const criticStatus = entry.critic_score >= 0 ? 'approved' : 'rejected';
-                        entryHtml += `<div class="log-critic">⚖️ <strong>Critic:</strong> Action ${criticStatus}${overrideText}</div>`;
+                        const scoreText = `(Score: ${entry.critic_score.toFixed(2)})`;
+                        
+                        let criticText = `⚖️ <strong>Final Critic Evaluation:</strong> Action ${criticStatus} ${scoreText}${overrideText}`;
+                        
+                        // Add detailed justification if available
+                        if (entry.critic_justification) {
+                            criticText += `<br><em>"${this.escapeHtml(entry.critic_justification)}"</em>`;
+                        }
+                        
+                        entryHtml += `<div class="log-critic">${criticText}</div>`;
                     }
                     
                     // 4. Action Taken
@@ -779,6 +897,30 @@
                 return div.innerHTML;
             }
         }
+
+        // FAQ Modal Functions
+        function showFAQ() {
+            document.getElementById('faq-modal').style.display = 'block';
+        }
+        
+        function hideFAQ() {
+            document.getElementById('faq-modal').style.display = 'none';
+        }
+        
+        // Close modal when clicking outside of it
+        document.addEventListener('click', function(event) {
+            const modal = document.getElementById('faq-modal');
+            if (event.target === modal) {
+                hideFAQ();
+            }
+        });
+        
+        // Close modal with Escape key
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape') {
+                hideFAQ();
+            }
+        });
 
         // Initialize the viewer
         // Check which state file is available

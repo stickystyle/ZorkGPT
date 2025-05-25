@@ -19,6 +19,7 @@ import json
 from openai import OpenAI
 from zork_api import ZorkInterface
 from map_graph import MapGraph
+from enhanced_map_graph import EnhancedMapGraph
 from movement_analyzer import MovementAnalyzer, MovementContext
 from logger import setup_logging, ZorkExperienceTracker
 
@@ -26,7 +27,7 @@ from logger import setup_logging, ZorkExperienceTracker
 from zork_agent import ZorkAgent as AgentModule
 from zork_extractor import ZorkExtractor, ExtractorResponse
 from zork_critic import ZorkCritic, CriticResponse
-from zork_strategy_generator import create_integrated_knowledge_base
+from zork_strategy_generator import create_integrated_knowledge_base, AdaptiveKnowledgeManager
 
 # Optional S3 support
 try:
@@ -65,6 +66,9 @@ class ZorkOrchestrator:
         client_api_key: str = None,
         # Automatic knowledge base updating
         auto_update_knowledge: bool = True,
+        # Turn-based knowledge updating
+        enable_adaptive_knowledge: bool = True,
+        knowledge_update_interval: int = 100,
         # State export configuration
         enable_state_export: bool = True,
         state_export_file: str = "current_state.json",
@@ -80,6 +84,11 @@ class ZorkOrchestrator:
         # Game settings
         self.max_turns_per_episode = max_turns_per_episode
         self.auto_update_knowledge = auto_update_knowledge
+
+        # Adaptive knowledge management
+        self.enable_adaptive_knowledge = enable_adaptive_knowledge
+        self.knowledge_update_interval = knowledge_update_interval
+        self.last_knowledge_update_turn = 0
 
         # State export configuration
         self.enable_state_export = enable_state_export
@@ -124,6 +133,15 @@ class ZorkOrchestrator:
         # Initialize shared movement analyzer
         self.movement_analyzer = MovementAnalyzer()
 
+        # Initialize adaptive knowledge manager
+        if self.enable_adaptive_knowledge:
+            self.adaptive_knowledge_manager = AdaptiveKnowledgeManager(
+                log_file=self.json_log_file,
+                output_file="knowledgebase.md"
+            )
+        else:
+            self.adaptive_knowledge_manager = None
+
         # Episode state (reset for each episode)
         self.reset_episode_state()
 
@@ -138,7 +156,8 @@ class ZorkOrchestrator:
         self.previous_zork_score = 0
         self.turn_count = 0
         self.total_episode_reward = 0
-        self.game_map = MapGraph()
+        # Use enhanced map graph for single-episode optimization if adaptive knowledge is enabled
+        self.game_map = EnhancedMapGraph() if self.enable_adaptive_knowledge else MapGraph()
         self.current_room_name_for_map = ""
         self.prev_room_for_prompt_context: Optional[str] = None
         self.action_leading_to_current_room_for_prompt_context: Optional[str] = None
@@ -149,6 +168,9 @@ class ZorkOrchestrator:
 
         # Agent reasoning tracking for state export
         self.action_reasoning_history = []
+
+        # Reset adaptive knowledge tracking for new episode
+        self.last_knowledge_update_turn = 0
 
         # Update episode IDs in components
         self.agent.update_episode_id(self.episode_id)
@@ -370,11 +392,18 @@ class ZorkOrchestrator:
             critic_justification = critic_response.justification
             critic_confidence = getattr(critic_response, "confidence", 0.8)
 
-            # Check for action rejection and override logic
+            # Check for action rejection and override logic with retry loop
             was_overridden = False
             rejection_threshold = self.critic.trust_tracker.get_rejection_threshold()
+            max_rejections = 3  # Prevent infinite loops
+            
+            # Track all rejected actions and their justifications for transparency
+            rejected_actions_with_justifications = []
 
-            if critic_score_val < rejection_threshold:
+            for rejection_attempt in range(max_rejections):
+                if critic_score_val >= rejection_threshold:
+                    break  # Action is acceptable, exit loop
+
                 # Action was rejected by critic
                 override_needed, override_reason = (
                     self.critic.rejection_system.should_override_rejection(
@@ -401,19 +430,43 @@ class ZorkOrchestrator:
                                 "episode_id": self.episode_id,
                                 "reason": override_reason,
                                 "original_score": critic_score_val,
+                                "rejection_attempt": rejection_attempt + 1,
                             }
                         },
                     )
+                    break  # Override accepted, exit loop
                 else:
+                    # Track rejected action with its justification
+                    rejected_actions_with_justifications.append({
+                        "action": agent_action,
+                        "score": critic_score_val,
+                        "justification": critic_justification
+                    })
+                    
                     # Track rejected action and get a new one
                     self.critic.rejection_system.rejected_actions_this_turn.append(
                         agent_action
                     )
 
+                    self.logger.info(
+                        f"Action rejected (attempt {rejection_attempt + 1}/{max_rejections}): {agent_action} (score: {critic_score_val:.2f})",
+                        extra={
+                            "extras": {
+                                "event_type": "action_rejected",
+                                "episode_id": self.episode_id,
+                                "rejected_action": agent_action,
+                                "rejection_score": critic_score_val,
+                                "rejection_attempt": rejection_attempt + 1,
+                                "justification": critic_justification,
+                            }
+                        },
+                    )
+
                     # Get new action from agent with reasoning
+                    rejected_actions_context = ", ".join(self.critic.rejection_system.rejected_actions_this_turn)
                     agent_response = self.agent.get_action_with_reasoning(
                         game_state_text=current_game_state
-                        + f"\n\n[Previous action '{agent_action}' was rejected by critic: {critic_justification}]",
+                        + f"\n\n[Previous action(s) '{rejected_actions_context}' were rejected by critic: {critic_justification}]",
                         previous_actions_and_responses=self.action_history[-5:],
                         action_counts=self.action_counts,
                         relevant_memories=relevant_memories,
@@ -431,13 +484,30 @@ class ZorkOrchestrator:
                     critic_score_val = critic_response.score
                     critic_justification = critic_response.justification
 
+            # If we've exhausted all rejection attempts, log a warning
+            if critic_score_val < rejection_threshold and not was_overridden:
+                self.logger.warning(
+                    f"Exhausted rejection attempts, proceeding with low-scoring action: {agent_action} (score: {critic_score_val:.2f})",
+                    extra={
+                        "extras": {
+                            "event_type": "rejection_attempts_exhausted",
+                            "episode_id": self.episode_id,
+                            "final_action": agent_action,
+                            "final_score": critic_score_val,
+                            "threshold": rejection_threshold,
+                        }
+                    },
+                )
+
             # Store reasoning for state export
             self.action_reasoning_history.append({
                 "turn": self.turn_count,
                 "action": agent_action,
                 "reasoning": agent_reasoning,
                 "critic_score": critic_score_val,
-                "was_overridden": was_overridden
+                "critic_justification": critic_justification,
+                "was_overridden": was_overridden,
+                "rejected_actions": rejected_actions_with_justifications if rejected_actions_with_justifications else None
             })
 
             # Log final selected action
@@ -723,6 +793,9 @@ class ZorkOrchestrator:
             # Reset critic rejection system for next turn
             self.critic.rejection_system.reset_turn()
 
+            # Check for adaptive knowledge update
+            self._check_adaptive_knowledge_update()
+
             # Export current state after each turn
             self.export_current_state()
 
@@ -784,7 +857,104 @@ class ZorkOrchestrator:
 
         return self.experience_tracker.get_experiences(), self.previous_zork_score
 
+    def _check_adaptive_knowledge_update(self) -> None:
+        """Check if it's time for an adaptive knowledge update and perform it if needed."""
+        if not self.enable_adaptive_knowledge or not self.adaptive_knowledge_manager:
+            return
+            
+        # Check if enough turns have passed since last update
+        turns_since_last_update = self.turn_count - self.last_knowledge_update_turn
+        
+        if turns_since_last_update >= self.knowledge_update_interval:
+            # Calculate turn window for analysis
+            start_turn = max(1, self.last_knowledge_update_turn + 1)
+            end_turn = self.turn_count
+            
+            self.logger.info(
+                f"Attempting adaptive knowledge update for turns {start_turn}-{end_turn}",
+                extra={
+                    "extras": {
+                        "event_type": "adaptive_knowledge_update_start",
+                        "episode_id": self.episode_id,
+                        "start_turn": start_turn,
+                        "end_turn": end_turn,
+                        "turns_since_last_update": turns_since_last_update,
+                    }
+                },
+            )
+            
+            try:
+                # Include map quality metrics if using enhanced map
+                map_metrics = None
+                if isinstance(self.game_map, EnhancedMapGraph):
+                    map_metrics = self.game_map.get_map_quality_metrics()
+                    self.logger.info(f"📊 Map Quality: {map_metrics['average_confidence']:.2f} avg confidence, "
+                                   f"{map_metrics['high_confidence_ratio']:.1%} high confidence, "
+                                   f"{map_metrics['verified_connections']} verified connections")
+                
+                # Attempt knowledge update
+                update_success = self.adaptive_knowledge_manager.update_knowledge_from_turns(
+                    episode_id=self.episode_id,
+                    start_turn=start_turn,
+                    end_turn=end_turn
+                )
+                
+                if update_success:
+                    self.last_knowledge_update_turn = self.turn_count
+                    self.logger.info(
+                        "Adaptive knowledge update completed successfully",
+                        extra={
+                            "extras": {
+                                "event_type": "adaptive_knowledge_update_success",
+                                "episode_id": self.episode_id,
+                                "updated_turn": self.turn_count,
+                            }
+                        },
+                    )
+                    
+                    # Reload knowledge in agent for immediate use
+                    self._reload_agent_knowledge()
+                    
+                else:
+                    self.logger.info(
+                        "Adaptive knowledge update skipped (low quality data)",
+                        extra={
+                            "extras": {
+                                "event_type": "adaptive_knowledge_update_skipped",
+                                "episode_id": self.episode_id,
+                                "reason": "low_quality_data",
+                            }
+                        },
+                    )
+                    
+            except Exception as e:
+                self.logger.warning(
+                    f"Adaptive knowledge update failed: {e}",
+                    extra={
+                        "extras": {
+                            "event_type": "adaptive_knowledge_update_failed",
+                            "episode_id": self.episode_id,
+                            "error": str(e),
+                        }
+                    },
+                )
 
+    def _reload_agent_knowledge(self) -> None:
+        """Reload the knowledge base in the agent for immediate use."""
+        try:
+            # The agent will automatically reload the knowledge base on next action
+            # since it reads from the file each time _enhance_prompt_with_knowledge is called
+            self.logger.info(
+                "Knowledge base reloaded for agent use",
+                extra={
+                    "extras": {
+                        "event_type": "agent_knowledge_reload",
+                        "episode_id": self.episode_id,
+                    }
+                },
+            )
+        except Exception as e:
+            self.logger.warning(f"Failed to reload agent knowledge: {e}")
 
     def _update_movement_tracking(
         self, action: str, from_room: str, to_room: str
@@ -826,7 +996,12 @@ class ZorkOrchestrator:
                 "game_over": False,  # TODO: Track this properly
                 "score": self.previous_zork_score,
                 "total_reward": self.total_episode_reward,
-                "max_turns": self.max_turns_per_episode
+                "max_turns": self.max_turns_per_episode,
+                "models": {
+                    "agent": self.agent.model,
+                    "critic": self.critic.model,
+                    "extractor": self.extractor.model
+                }
             },
             "current_state": {
                 "location": self.current_room_name_for_map,
@@ -839,6 +1014,9 @@ class ZorkOrchestrator:
                 "current_room": self.current_room_name_for_map,
                 "total_rooms": len(self.game_map.rooms),
                 "total_connections": sum(len(connections) for connections in self.game_map.connections.values()),
+                # Enhanced map metrics if available
+                "quality_metrics": self.game_map.get_map_quality_metrics() if isinstance(self.game_map, EnhancedMapGraph) else None,
+                "confidence_report": self.game_map.render_confidence_report() if isinstance(self.game_map, EnhancedMapGraph) else None,
                 # Optional: Include raw data for advanced frontends
                 "raw_data": {
                     "rooms": {name: {"exits": list(room.exits)} for name, room in self.game_map.rooms.items()},
@@ -881,7 +1059,9 @@ class ZorkOrchestrator:
             if reasoning_entry:
                 log_entry["reasoning"] = reasoning_entry["reasoning"]
                 log_entry["critic_score"] = reasoning_entry["critic_score"]
+                log_entry["critic_justification"] = reasoning_entry.get("critic_justification")
                 log_entry["was_overridden"] = reasoning_entry["was_overridden"]
+                log_entry["rejected_actions"] = reasoning_entry.get("rejected_actions")
             
             # Add extraction info if available
             if i < len(recent_extractions):
