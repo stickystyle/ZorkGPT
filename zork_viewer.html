@@ -1,0 +1,964 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZorkGPT Live Viewer</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f5f5f5;
+        }
+        
+        .game-container {
+            display: grid;
+            grid-template-columns: 1fr 2fr 1fr;
+            grid-template-rows: auto 1fr;
+            gap: 20px;
+            padding: 20px;
+            height: 100vh;
+            box-sizing: border-box;
+        }
+        
+        .game-info {
+            grid-column: 1 / -1;
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        
+        .info-item {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 8px;
+            border-left: 4px solid #007bff;
+        }
+        
+        .map-container {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            overflow: auto;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .game-log {
+            background: #1e1e1e;
+            color: #00ff00;
+            font-family: 'Courier New', monospace;
+            padding: 20px;
+            border-radius: 12px;
+            overflow-y: auto;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .knowledge-section {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            overflow-y: auto;
+        }
+        
+        .current-room {
+            background: #ffeb3b;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-weight: bold;
+            color: #333;
+        }
+        
+        .log-entry {
+            margin-bottom: 20px;
+            border-bottom: 1px solid #333;
+            padding-bottom: 15px;
+        }
+        
+        .log-turn-header {
+            color: #00bfff;
+            font-weight: bold;
+            margin-bottom: 10px;
+            font-size: 1.1em;
+        }
+        
+        .log-thinking {
+            color: #ffeb3b;
+            font-style: italic;
+            margin: 8px 0;
+            padding: 8px 12px;
+            background: rgba(255, 235, 59, 0.1);
+            border-left: 3px solid #ffeb3b;
+            border-radius: 4px;
+            font-size: 0.9em;
+            line-height: 1.4;
+        }
+        
+        .log-proposed-action {
+            color: #87ceeb;
+            margin: 8px 0;
+            padding: 6px 12px;
+            background: rgba(135, 206, 235, 0.1);
+            border-left: 3px solid #87ceeb;
+            border-radius: 4px;
+        }
+        
+        .log-critic {
+            color: #ffa500;
+            margin: 8px 0;
+            padding: 6px 12px;
+            background: rgba(255, 165, 0, 0.1);
+            border-left: 3px solid #ffa500;
+            border-radius: 4px;
+            font-size: 0.9em;
+        }
+        
+        .log-action-taken {
+            color: #98fb98;
+            font-weight: bold;
+            margin: 8px 0;
+            padding: 6px 12px;
+            background: rgba(152, 251, 152, 0.1);
+            border-left: 3px solid #98fb98;
+            border-radius: 4px;
+        }
+        
+        .log-response {
+            color: #90ee90;
+            line-height: 1.4;
+            margin: 8px 0;
+            padding: 8px 12px;
+            background: rgba(144, 238, 144, 0.05);
+            border-radius: 4px;
+        }
+        
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        
+        .status-connected {
+            background-color: #28a745;
+        }
+        
+        .status-disconnected {
+            background-color: #dc3545;
+        }
+        
+        .map-stats {
+            margin-top: 15px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 6px;
+            font-size: 14px;
+            color: #666;
+        }
+        
+        h1, h2, h3 {
+            margin-top: 0;
+            color: #333;
+        }
+        
+        .error-message {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 10px;
+            border-radius: 6px;
+            margin: 10px 0;
+        }
+        
+        .loading {
+            text-align: center;
+            color: #666;
+            font-style: italic;
+        }
+        
+        /* Override any inherited centering */
+        .game-log .loading {
+            text-align: center !important;
+        }
+        
+        .knowledge-section .loading {
+            text-align: center !important;
+        }
+        
+        /* Fix text alignment issues */
+        .game-log {
+            text-align: left !important;
+        }
+        
+        .game-log * {
+            text-align: left !important;
+        }
+        
+        .knowledge-section {
+            text-align: left !important;
+        }
+        
+        .knowledge-section * {
+            text-align: left !important;
+        }
+        
+        .knowledge-section h1 {
+            color: #333 !important;
+            margin: 20px 0 15px 0 !important;
+            font-size: 20px !important;
+            text-align: left !important;
+            font-weight: bold !important;
+        }
+        
+        .knowledge-section h2 {
+            color: #333 !important;
+            margin: 18px 0 12px 0 !important;
+            font-size: 18px !important;
+            text-align: left !important;
+            font-weight: bold !important;
+        }
+        
+        .knowledge-section h3 {
+            color: #444 !important;
+            margin: 15px 0 10px 0 !important;
+            font-size: 16px !important;
+            text-align: left !important;
+            font-weight: bold !important;
+        }
+        
+        .knowledge-section h4 {
+            color: #555 !important;
+            margin: 12px 0 8px 0 !important;
+            font-size: 14px !important;
+            text-align: left !important;
+            font-weight: bold !important;
+        }
+        
+        .knowledge-section ul {
+            margin: 10px 0 !important;
+            padding-left: 20px !important;
+            text-align: left !important;
+        }
+        
+        .knowledge-section li {
+            margin: 5px 0 !important;
+            line-height: 1.4 !important;
+            text-align: left !important;
+        }
+        
+        .knowledge-section p {
+            margin: 10px 0 !important;
+            line-height: 1.5 !important;
+            text-align: left !important;
+        }
+        
+        .knowledge-section strong {
+            font-weight: bold !important;
+        }
+        
+        .knowledge-section em {
+            font-style: italic !important;
+        }
+        
+        .knowledge-section code {
+            background-color: #f4f4f4 !important;
+            padding: 2px 4px !important;
+            border-radius: 3px !important;
+            font-family: 'Courier New', monospace !important;
+            font-size: 90% !important;
+        }
+        
+        .knowledge-section pre {
+            background-color: #f8f8f8 !important;
+            padding: 10px !important;
+            border-radius: 5px !important;
+            overflow-x: auto !important;
+            margin: 10px 0 !important;
+        }
+        
+        .knowledge-section blockquote {
+            border-left: 4px solid #ddd !important;
+            margin: 10px 0 !important;
+            padding-left: 15px !important;
+            color: #666 !important;
+            font-style: italic !important;
+        }
+        
+        .knowledge-section table {
+            border-collapse: collapse !important;
+            width: 100% !important;
+            margin: 10px 0 !important;
+        }
+        
+        .knowledge-section th,
+        .knowledge-section td {
+            border: 1px solid #ddd !important;
+            padding: 8px !important;
+            text-align: left !important;
+        }
+        
+        .knowledge-section th {
+            background-color: #f2f2f2 !important;
+            font-weight: bold !important;
+        }
+        
+        /* New messages indicator */
+        .new-messages-indicator {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            background: #007bff;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            z-index: 1000;
+            display: none;
+        }
+        
+        .new-messages-indicator:hover {
+            background: #0056b3;
+        }
+        
+        .game-log {
+            position: relative;
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <div class="game-info">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <h1 style="margin: 0;">
+                    <span class="status-indicator" id="connection-status"></span>
+                    ZorkGPT Live Viewer
+                </h1>
+                <div style="display: flex; gap: 15px;">
+                    <a href="https://github.com/stickystyle/ZorkGPT" target="_blank" style="color: #007bff; text-decoration: none; font-weight: 500;">
+                        📁 Project
+                    </a>
+                    <a href="#faq" onclick="showFAQ()" style="color: #007bff; text-decoration: none; font-weight: 500; cursor: pointer;">
+                        ❓ FAQ
+                    </a>
+                </div>
+            </div>
+            <div class="info-grid">
+                <div class="info-item">
+                    <strong>Episode:</strong> <span id="episode-id">Loading...</span>
+                </div>
+                <div class="info-item">
+                    <strong>Turn:</strong> <span id="turn-count">-</span> / <span id="max-turns">-</span>
+                </div>
+                <div class="info-item">
+                    <strong>Score:</strong> <span id="score">-</span>
+                </div>
+                <div class="info-item">
+                    <strong>Location:</strong> <span id="location" class="current-room">-</span>
+                </div>
+                <div class="info-item">
+                    <strong>Inventory:</strong> <span id="inventory">-</span>
+                </div>
+                <div class="info-item">
+                    <strong>Combat:</strong> <span id="combat-status">-</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="knowledge-section">
+            <h3>Knowledge Base</h3>
+            <div id="knowledge-content" class="loading">Loading...</div>
+        </div>
+        
+        <div class="game-log">
+            <h3 style="color: #00bfff;">Recent Game Log</h3>
+            <div id="recent-log" class="loading">Loading...</div>
+            <div id="new-messages-indicator" class="new-messages-indicator">
+                New messages ↓
+            </div>
+        </div>
+        
+        <div class="map-container">
+            <h3>Game Map</h3>
+            <div id="map-diagram" class="loading">Loading map...</div>
+            <div id="map-stats" class="map-stats"></div>
+        </div>
+    </div>
+
+    <!-- FAQ Modal -->
+    <div id="faq-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 2000;">
+        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 30px; border-radius: 12px; max-width: 600px; max-height: 80vh; overflow-y: auto; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2 style="margin: 0; color: #333;">ZorkGPT Live Viewer FAQ</h2>
+                <button onclick="hideFAQ()" style="background: none; border: none; font-size: 24px; cursor: pointer; color: #666;">&times;</button>
+            </div>
+            <div style="line-height: 1.6; color: #444;">
+                <h3>What is ZorkGPT?</h3>
+                <p>ZorkGPT is an AI agent system that plays the classic interactive fiction game "Zork" using Large Language Models (LLMs). It demonstrates how AI can understand and navigate complex text-based game worlds.</p>
+                
+                <h3>What is Zork?</h3>
+                <p><a href="https://en.wikipedia.org/wiki/Zork" target="_blank">Zork</a> is a legendary text adventure game first released in 1977, where players explore the Great Underground Empire by typing commands in natural language. Often considered the most famous piece of interactive fiction, Zork challenges players to solve puzzles, collect treasures, and navigate hundreds of locations using only text descriptions and typed commands.</p>
+                
+                <h3>Why Zork instead of Pokemon?</h3>
+                <p>I've seen the impressive Claude and Gemini plays Pokemon projects and wanted to explore what was possible with open source models. Why didn't I try making open source models play Pokemon? Because I'm not as smart as the guys who created those projects! 😉 I also wanted to limit myself to models that could reasonably run on home systems configured for LLM inference, making this more accessible to hobbyists and researchers without massive compute budgets.</p>
+                
+                <h3>What am I looking at?</h3>
+                <p>This live viewer shows real-time data from a running ZorkGPT session, including:</p>
+                <ul>
+                    <li><strong>Game Info:</strong> Current episode, turn count, score, and location</li>
+                    <li><strong>Knowledge Base:</strong> AI-generated strategic guides and learned patterns</li>
+                    <li><strong>Game Log:</strong> Recent actions, AI reasoning, and game responses</li>
+                    <li><strong>Map:</strong> Visual representation of discovered locations and connections</li>
+                </ul>
+                
+                <h3>How does the AI work?</h3>
+                <p>The system uses multiple AI components, each potentially running different open source models:</p>
+                <ul>
+                    <li><strong>Agent:</strong> Decides what actions to take</li>
+                    <li><strong>Extractor:</strong> Parses game text into structured data</li>
+                    <li><strong>Critic:</strong> Evaluates proposed actions before execution</li>
+                    <li><strong>Strategy Generator:</strong> Learns from experience to improve future play</li>
+                </ul>
+                <div id="current-models-info">
+                    <p><strong>Current Models:</strong></p>
+                    <ul>
+                        <li><strong>Agent:</strong> <span id="faq-agent-model">Loading...</span></li>
+                        <li><strong>Critic:</strong> <span id="faq-critic-model">Loading...</span></li>
+                        <li><strong>Extractor:</strong> <span id="faq-extractor-model">Loading...</span></li>
+                    </ul>
+                </div>
+                <p>These models may change as experiments progress to test different capabilities and performance characteristics.</p>
+                
+                <h3>Why isn't the data updating?</h3>
+                <p>The viewer polls for updates every 3 seconds. If you see a red connection indicator, either:</p>
+                <ul>
+                    <li>No ZorkGPT session is currently running</li>
+                    <li>The state file isn't being generated</li>
+                    <li>There's a network connectivity issue</li>
+                </ul>
+                
+                <h3>What do the log colors mean?</h3>
+                <ul>
+                    <li><span style="color: #ffeb3b;">💭 Yellow:</span> AI thinking/reasoning</li>
+                    <li><span style="color: #87ceeb;">🎯 Light Blue:</span> Proposed action (final action taken)</li>
+                    <li><span style="color: #ffa500;">🚫 Orange:</span> Rejected actions (if any) with critic justifications</li>
+                    <li><span style="color: #ffa500;">⚖️ Orange:</span> Final critic evaluation with detailed justification</li>
+                    <li><span style="color: #98fb98;">✅ Light Green:</span> Action taken</li>
+                    <li><span style="color: #90ee90;">🎮 Green:</span> Game response</li>
+                </ul>
+                
+                <h3>What does the critic evaluation show?</h3>
+                <p>The critic evaluation displays:</p>
+                <ul>
+                    <li><strong>Status:</strong> Whether the action was approved or rejected</li>
+                    <li><strong>Score:</strong> Numerical evaluation (positive = good, negative = bad)</li>
+                    <li><strong>Justification:</strong> Detailed reasoning for the evaluation</li>
+                    <li><strong>Override status:</strong> Whether a rejected action was overridden</li>
+                </ul>
+                
+                <h3>Can I interact with the game?</h3>
+                <p>No, this is a read-only viewer. The AI is playing autonomously. You can watch its decision-making process and see how it learns and adapts.</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Initialize Mermaid
+        mermaid.initialize({ 
+            startOnLoad: false,
+            theme: 'default',
+            flowchart: {
+                useMaxWidth: true,
+                htmlLabels: true
+            }
+        });
+
+        class ZorkGameViewer {
+            constructor(stateUrl) {
+                this.stateUrl = stateUrl;
+                this.currentState = null;
+                this.pollInterval = 3000; // 3 seconds
+                this.mapCounter = 0; // For unique mermaid IDs
+                this.isConnected = false;
+                this.hasScrolled = false; // Track if user has manually scrolled
+                this.userScrolledUp = false; // Track if user scrolled up from bottom
+                this.lastLogCount = 0; // Track log count for new message detection
+                this.scrollAnimation = null; // Track current scroll animation
+                this.startPolling();
+            }
+            
+            async fetchCurrentState() {
+                try {
+                    const response = await fetch(this.stateUrl + '?t=' + Date.now());
+                    if (response.ok) {
+                        const newState = await response.json();
+                        
+                        // Only update if state actually changed
+                        if (!this.currentState || 
+                            this.currentState.metadata.turn_count !== newState.metadata.turn_count ||
+                            this.currentState.metadata.timestamp !== newState.metadata.timestamp) {
+                            this.currentState = newState;
+                            this.updateUI();
+                        }
+                        
+                        this.setConnectionStatus(true);
+                    } else {
+                        this.setConnectionStatus(false);
+                        console.error('Failed to fetch game state:', response.status);
+                    }
+                } catch (error) {
+                    this.setConnectionStatus(false);
+                    console.error('Failed to fetch game state:', error);
+                }
+            }
+            
+            setConnectionStatus(connected) {
+                this.isConnected = connected;
+                const indicator = document.getElementById('connection-status');
+                indicator.className = `status-indicator ${connected ? 'status-connected' : 'status-disconnected'}`;
+                
+                if (!connected && !this.currentState) {
+                    document.getElementById('episode-id').textContent = 'Connection Error';
+                }
+            }
+            
+            startPolling() {
+                this.fetchCurrentState();
+                setInterval(() => this.fetchCurrentState(), this.pollInterval);
+                
+                // Add scroll event listener to detect manual scrolling
+                const logContainer = document.getElementById('recent-log');
+                const gameLogContainer = logContainer ? logContainer.parentElement : null;
+                const newMessagesIndicator = document.getElementById('new-messages-indicator');
+                
+                console.log('Log container:', logContainer);
+                console.log('Game log container:', gameLogContainer);
+                
+                // Use the parent container that has overflow-y: auto
+                const scrollableContainer = gameLogContainer || logContainer;
+                
+                if (scrollableContainer) {
+                    scrollableContainer.addEventListener('scroll', () => {
+                        // Check if user scrolled away from bottom (with a small tolerance)
+                        const isAtBottom = scrollableContainer.scrollHeight - scrollableContainer.clientHeight <= scrollableContainer.scrollTop + 5;
+                        if (!isAtBottom) {
+                            this.userScrolledUp = true;
+                            console.log('User scrolled up from bottom');
+                        } else {
+                            this.userScrolledUp = false;
+                            console.log('User is at bottom');
+                            // Hide indicator when user scrolls back to bottom
+                            if (newMessagesIndicator) {
+                                newMessagesIndicator.style.display = 'none';
+                            }
+                        }
+                    });
+                }
+                
+                // Add click handler for new messages indicator
+                if (newMessagesIndicator) {
+                    newMessagesIndicator.addEventListener('click', () => {
+                        this.smoothScrollToBottom(scrollableContainer);
+                        this.userScrolledUp = false;
+                        newMessagesIndicator.style.display = 'none';
+                    });
+                }
+            }
+            
+            updateUI() {
+                if (!this.currentState) return;
+                
+                this.updateGameInfo();
+                this.updateMap();
+                this.updateRecentLog();
+                this.updateKnowledgeBase();
+            }
+            
+            updateGameInfo() {
+                const meta = this.currentState.metadata;
+                const current = this.currentState.current_state;
+                
+                document.getElementById('episode-id').textContent = meta.episode_id;
+                document.getElementById('turn-count').textContent = meta.turn_count;
+                document.getElementById('max-turns').textContent = meta.max_turns;
+                document.getElementById('score').textContent = meta.score;
+                document.getElementById('location').textContent = current.location;
+                document.getElementById('inventory').textContent = 
+                    current.inventory.length > 0 ? current.inventory.join(', ') : 'Empty';
+                document.getElementById('combat-status').textContent = 
+                    current.in_combat ? '⚔️ Yes' : '✅ No';
+                
+                // Update FAQ model information
+                if (meta.models) {
+                    document.getElementById('faq-agent-model').textContent = meta.models.agent || 'Unknown';
+                    document.getElementById('faq-critic-model').textContent = meta.models.critic || 'Unknown';
+                    document.getElementById('faq-extractor-model').textContent = meta.models.extractor || 'Unknown';
+                } else {
+                    document.getElementById('faq-agent-model').textContent = 'Not available';
+                    document.getElementById('faq-critic-model').textContent = 'Not available';
+                    document.getElementById('faq-extractor-model').textContent = 'Not available';
+                }
+            }
+            
+            async updateMap() {
+                const mapData = this.currentState.map;
+                const mapContainer = document.getElementById('map-diagram');
+                const mapStats = document.getElementById('map-stats');
+                
+                if (!mapContainer) {
+                    console.error('Map container not found');
+                    return;
+                }
+                
+                if (!mapData || !mapData.mermaid_diagram) {
+                    mapContainer.innerHTML = '<p class="error-message">No map data available</p>';
+                    return;
+                }
+                
+                try {
+                    // Create unique ID for this map render
+                    this.mapCounter++;
+                    const mapId = `mermaid-map-${this.mapCounter}`;
+                    
+                    console.log('Rendering map with ID:', mapId);
+                    console.log('Mermaid code:', mapData.mermaid_diagram);
+                    
+                    // Highlight current room in the diagram
+                    let mermaidCode = mapData.mermaid_diagram;
+                    
+                    // Add styling to highlight current room
+                    if (mapData.current_room) {
+                        mermaidCode += `\n    classDef currentRoom fill:#ffeb3b,stroke:#f57f17,stroke-width:3px`;
+                        
+                        // Find the node ID for current room and apply class
+                        const lines = mermaidCode.split('\n');
+                        for (let i = 0; i < lines.length; i++) {
+                            if (lines[i].includes(`"${mapData.current_room}"`)) {
+                                const nodeMatch = lines[i].match(/^\s*(\w+)\[/);
+                                if (nodeMatch) {
+                                    mermaidCode += `\n    class ${nodeMatch[1]} currentRoom`;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Render the mermaid diagram directly to the container
+                    const { svg } = await mermaid.render(mapId, mermaidCode);
+                    
+                    // Set the SVG directly to the container
+                    mapContainer.innerHTML = svg;
+                    
+                    // Update map stats
+                    if (mapStats) {
+                        mapStats.innerHTML = `
+                            <strong>Map Stats:</strong> 
+                            ${mapData.total_rooms} rooms, 
+                            ${mapData.total_connections} connections
+                        `;
+                    }
+                    
+                } catch (error) {
+                    console.error('Failed to render map:', error);
+                    mapContainer.innerHTML = `<p class="error-message">Error rendering map: ${error.message}</p>`;
+                }
+            }
+            
+            updateRecentLog() {
+                const logContainer = document.getElementById('recent-log');
+                const newMessagesIndicator = document.getElementById('new-messages-indicator');
+                const logs = this.currentState.recent_log || [];
+                
+                if (logs.length === 0) {
+                    logContainer.innerHTML = '<div class="log-entry">No recent actions</div>';
+                    return;
+                }
+                
+                // Check if there are new messages
+                const currentLogCount = logs.length;
+                const hasNewMessages = this.lastLogCount && currentLogCount > this.lastLogCount;
+                this.lastLogCount = currentLogCount;
+                
+                logContainer.innerHTML = logs.slice(-10).map(entry => {
+                    // Build the structured log entry
+                    let entryHtml = `<div class="log-entry">`;
+                    
+                    // Turn header
+                    entryHtml += `<div class="log-turn-header">Turn ${entry.turn}</div>`;
+                    
+                    // 1. Thinking (if available)
+                    if (entry.reasoning) {
+                        entryHtml += `<div class="log-thinking">💭 <strong>Thinking:</strong> ${this.escapeHtml(entry.reasoning)}</div>`;
+                    }
+                    
+                    // 2. Proposed Action (same as action for now, but could be different if critic rejects)
+                    entryHtml += `<div class="log-proposed-action">🎯 <strong>Proposed Action:</strong> ${this.escapeHtml(entry.action)}</div>`;
+                    
+                    // 3. Rejected Actions (if any)
+                    if (entry.rejected_actions && entry.rejected_actions.length > 0) {
+                        entryHtml += `<div class="log-critic">🚫 <strong>Rejected Actions:</strong></div>`;
+                        entry.rejected_actions.forEach((rejection, index) => {
+                            entryHtml += `<div class="log-critic" style="margin-left: 20px; font-size: 0.9em;">`;
+                            entryHtml += `${index + 1}. "${this.escapeHtml(rejection.action)}" (Score: ${rejection.score.toFixed(2)})<br>`;
+                            entryHtml += `<em>"${this.escapeHtml(rejection.justification)}"</em>`;
+                            entryHtml += `</div>`;
+                        });
+                    }
+                    
+                    // 4. Final Critic Evaluation (if available)
+                    if (entry.critic_score !== undefined) {
+                        const overrideText = entry.was_overridden ? ' (Action was overridden despite rejection)' : '';
+                        const criticStatus = entry.critic_score >= 0 ? 'approved' : 'rejected';
+                        const scoreText = `(Score: ${entry.critic_score.toFixed(2)})`;
+                        
+                        let criticText = `⚖️ <strong>Final Critic Evaluation:</strong> Action ${criticStatus} ${scoreText}${overrideText}`;
+                        
+                        // Add detailed justification if available
+                        if (entry.critic_justification) {
+                            criticText += `<br><em>"${this.escapeHtml(entry.critic_justification)}"</em>`;
+                        }
+                        
+                        entryHtml += `<div class="log-critic">${criticText}</div>`;
+                    }
+                    
+                    // 4. Action Taken
+                    entryHtml += `<div class="log-action-taken">✅ <strong>Action Taken:</strong> ${this.escapeHtml(entry.action)}</div>`;
+                    
+                    // 5. Game Response
+                    entryHtml += `<div class="log-response">🎮 <strong>Game Response:</strong><br>${this.escapeHtml(entry.zork_response)}</div>`;
+                    
+                    entryHtml += `</div>`;
+                    return entryHtml;
+                }).join('');
+                
+                // Always auto-scroll to bottom unless user has manually scrolled up
+                if (!this.userScrolledUp) {
+                    console.log('Auto-scrolling to bottom smoothly');
+                    // Use setTimeout to ensure DOM has updated
+                    setTimeout(() => {
+                        const gameLogContainer = logContainer ? logContainer.parentElement : null;
+                        const scrollableContainer = gameLogContainer || logContainer;
+                        
+                        // If there's already an animation running, let it complete and then start a new one
+                        if (this.scrollAnimation) {
+                            console.log('Animation already running, will restart after completion');
+                            // Cancel the current animation and start fresh
+                            cancelAnimationFrame(this.scrollAnimation);
+                            this.scrollAnimation = null;
+                            // Give a small delay to let any DOM updates settle
+                            setTimeout(() => {
+                                this.smoothScrollToBottom(scrollableContainer);
+                            }, 100);
+                        } else {
+                            this.smoothScrollToBottom(scrollableContainer);
+                        }
+                        
+                        if (newMessagesIndicator) {
+                            newMessagesIndicator.style.display = 'none';
+                        }
+                    }, 50); // Increased timeout to ensure DOM is fully updated
+                } else if (hasNewMessages && this.userScrolledUp) {
+                    console.log('User scrolled up, showing new messages indicator');
+                    // Show new messages indicator if user scrolled up and there are new messages
+                    if (newMessagesIndicator) {
+                        newMessagesIndicator.style.display = 'block';
+                    }
+                }
+                
+                // Track that we've scrolled at least once
+                this.hasScrolled = true;
+            }
+            
+            updateKnowledgeBase() {
+                const knowledgeContainer = document.getElementById('knowledge-content');
+                const knowledge = this.currentState.knowledge_base;
+                
+                if (!knowledge || !knowledge.content) {
+                    knowledgeContainer.innerHTML = '<p class="error-message">No knowledge base available</p>';
+                    return;
+                }
+                
+                try {
+                    // Configure marked.js for better rendering
+                    marked.setOptions({
+                        breaks: true,        // Convert line breaks to <br>
+                        gfm: true,          // GitHub Flavored Markdown
+                        headerIds: false,   // Don't add IDs to headers
+                        mangle: false       // Don't mangle email addresses
+                    });
+                    
+                    // Convert markdown to HTML using marked.js
+                    const htmlContent = marked.parse(knowledge.content);
+                    
+                    knowledgeContainer.innerHTML = htmlContent;
+                    
+                } catch (error) {
+                    console.error('Failed to render knowledge base markdown:', error);
+                    knowledgeContainer.innerHTML = `<p class="error-message">Error rendering knowledge base: ${error.message}</p>`;
+                }
+            }
+            
+            smoothScrollToBottom(container) {
+                console.log('smoothScrollToBottom called');
+                console.log('Container:', container);
+                console.log('Container scrollTop:', container.scrollTop);
+                console.log('Container scrollHeight:', container.scrollHeight);
+                console.log('Container clientHeight:', container.clientHeight);
+                
+                // Cancel any existing animation
+                if (this.scrollAnimation) {
+                    cancelAnimationFrame(this.scrollAnimation);
+                }
+                
+                const startPosition = container.scrollTop;
+                const targetPosition = container.scrollHeight - container.clientHeight;
+                const distance = targetPosition - startPosition;
+                const duration = 800; // 800ms animation
+                
+                console.log('Start position:', startPosition);
+                console.log('Target position:', targetPosition);
+                console.log('Distance to scroll:', distance);
+                
+                // If already at bottom or no distance to scroll, return early
+                if (distance <= 5) { // Small tolerance for "close enough"
+                    console.log('Already at bottom or no distance to scroll');
+                    return;
+                }
+                
+                const startTime = performance.now();
+                
+                // Easing function for smooth animation (ease-out)
+                const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
+                
+                const animateScroll = (currentTime) => {
+                    const elapsed = currentTime - startTime;
+                    const progress = Math.min(elapsed / duration, 1);
+                    
+                    // Apply easing function
+                    const easedProgress = easeOutCubic(progress);
+                    
+                    // Recalculate target in case content changed during animation
+                    const currentTarget = container.scrollHeight - container.clientHeight;
+                    
+                    // If content has grown significantly, adjust our animation
+                    if (currentTarget > targetPosition + 50) {
+                        console.log('Content grew during animation, adjusting target');
+                        // Smoothly transition to the new target
+                        const adjustedTarget = currentTarget;
+                        const currentPos = container.scrollTop;
+                        const remainingDistance = adjustedTarget - currentPos;
+                        const adjustedPosition = currentPos + (remainingDistance * easedProgress);
+                        container.scrollTop = Math.min(adjustedPosition, adjustedTarget);
+                    } else {
+                        // Normal animation
+                        const currentPosition = startPosition + (distance * easedProgress);
+                        container.scrollTop = Math.min(currentPosition, currentTarget);
+                    }
+                    
+                    if (progress === 0 || progress === 1 || elapsed % 200 < 16) {
+                        console.log(`Animation progress: ${(progress * 100).toFixed(1)}%, scrollTop: ${container.scrollTop}, target: ${currentTarget}`);
+                    }
+                    
+                    // Continue animation if not complete
+                    if (progress < 1) {
+                        this.scrollAnimation = requestAnimationFrame(animateScroll);
+                    } else {
+                        console.log('Animation complete');
+                        this.scrollAnimation = null;
+                        
+                        // Final check - make sure we're actually at the bottom
+                        const finalTarget = container.scrollHeight - container.clientHeight;
+                        if (Math.abs(container.scrollTop - finalTarget) > 5) {
+                            console.log('Final position adjustment needed');
+                            container.scrollTop = finalTarget;
+                        }
+                    }
+                };
+                
+                // Start the animation
+                this.scrollAnimation = requestAnimationFrame(animateScroll);
+            }
+
+            escapeHtml(text) {
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            }
+        }
+
+        // FAQ Modal Functions
+        function showFAQ() {
+            document.getElementById('faq-modal').style.display = 'block';
+        }
+        
+        function hideFAQ() {
+            document.getElementById('faq-modal').style.display = 'none';
+        }
+        
+        // Close modal when clicking outside of it
+        document.addEventListener('click', function(event) {
+            const modal = document.getElementById('faq-modal');
+            if (event.target === modal) {
+                hideFAQ();
+            }
+        });
+        
+        // Close modal with Escape key
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape') {
+                hideFAQ();
+            }
+        });
+
+        // Initialize the viewer
+        // Check which state file is available
+        async function initializeViewer() {
+            try {
+                // Try live file first (works for both local and S3 deployment)
+                const response = await fetch('./current_state.json?t=' + Date.now());
+                if (response.ok) {
+                    console.log('Using current_state.json (live)');
+                    return new ZorkGameViewer('./current_state.json');
+                }
+            } catch (e) {
+                console.log('current_state.json not available');
+            }
+            
+            try {
+                // Fall back to test file (for local development)
+                const testResponse = await fetch('./test_current_state.json?t=' + Date.now());
+                if (testResponse.ok) {
+                    console.log('Using test_current_state.json (fallback)');
+                    return new ZorkGameViewer('./test_current_state.json');
+                }
+            } catch (e) {
+                console.log('test_current_state.json not available');
+            }
+            
+            // Show error if no files available
+            document.getElementById('episode-id').textContent = 'No state file found';
+            document.getElementById('map-diagram').innerHTML = '<p class="error-message">No state files available. Run ZorkGPT with S3 configured or test_state_export.py for local testing.</p>';
+            return null;
+        }
+        
+        // Initialize the viewer
+        initializeViewer().then(viewer => {
+            if (viewer) {
+                console.log('ZorkGPT Live Viewer initialized successfully');
+            }
+        });
+    </script>
+</body>
+</html> 

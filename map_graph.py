@@ -1,4 +1,4 @@
-from typing import List, Dict, Set
+from typing import List, Dict, Set, Tuple
 
 DIRECTION_MAPPING = {
     "n": "north",
@@ -215,6 +215,10 @@ class MapGraph:
         self.rooms: Dict[str, Room] = {}
         # connections[room_name_1][exit_taken_from_room_1] = room_name_2
         self.connections: Dict[str, Dict[str, str]] = {}
+        # Track confidence for each connection: (from_room, exit) -> confidence_score
+        self.connection_confidence: Dict[Tuple[str, str], float] = {}
+        # Track how many times each connection has been verified
+        self.connection_verifications: Dict[Tuple[str, str], int] = {}
 
     def _get_opposite_direction(self, direction: str) -> str:
         opposites = {
@@ -278,7 +282,13 @@ class MapGraph:
         for exit_name in normalized_new_exits:
             self.rooms[normalized_name].add_exit(exit_name)
 
-    def add_connection(self, from_room_name: str, exit_taken: str, to_room_name: str):
+    def add_connection(
+        self,
+        from_room_name: str,
+        exit_taken: str,
+        to_room_name: str,
+        confidence: float = 1.0,
+    ):
         # Ensure rooms exist and normalize names
         from_room_normalized = self._normalize_room_name(from_room_name)
         to_room_normalized = self._normalize_room_name(to_room_name)
@@ -289,6 +299,44 @@ class MapGraph:
         # Here, we just ensure it's lowercase if it was a raw action.
         # If it was a normalized direction, it's already lowercase.
         processed_exit_taken = exit_taken.lower()
+
+        # Track confidence for this connection
+        connection_key = (from_room_normalized, processed_exit_taken)
+
+        # If connection already exists, update confidence based on verification
+        if (
+            from_room_normalized in self.connections
+            and processed_exit_taken in self.connections[from_room_normalized]
+        ):
+            existing_destination = self.connections[from_room_normalized][
+                processed_exit_taken
+            ]
+
+            if existing_destination == to_room_normalized:
+                # Same connection verified again - increase confidence
+                current_verifications = self.connection_verifications.get(
+                    connection_key, 0
+                )
+                self.connection_verifications[connection_key] = (
+                    current_verifications + 1
+                )
+                # Confidence increases with verifications but caps at 1.0
+                self.connection_confidence[connection_key] = min(
+                    1.0, self.connection_confidence.get(connection_key, 0.5) + 0.1
+                )
+            else:
+                # Conflicting connection - this is important to track
+                print(
+                    f"⚠️  Map conflict detected: {from_room_normalized} -> {processed_exit_taken}"
+                )
+                print(f"   Existing: {existing_destination}")
+                print(f"   New: {to_room_normalized}")
+                # Lower confidence for conflicting data
+                self.connection_confidence[connection_key] = max(0.1, confidence * 0.5)
+        else:
+            # New connection
+            self.connection_confidence[connection_key] = confidence
+            self.connection_verifications[connection_key] = 1
 
         # Add the forward connection
         if from_room_normalized not in self.connections:
@@ -303,6 +351,8 @@ class MapGraph:
         # Add the reverse connection if an opposite direction exists
         opposite_exit = self._get_opposite_direction(processed_exit_taken)
         if opposite_exit:
+            reverse_connection_key = (to_room_normalized, opposite_exit)
+
             if to_room_normalized not in self.connections:
                 self.connections[to_room_normalized] = {}
             # Only add reverse connection if it doesn't overwrite an existing one from that direction
@@ -311,6 +361,9 @@ class MapGraph:
                 self.connections[to_room_normalized][opposite_exit] = (
                     from_room_normalized
                 )
+                # Set confidence for reverse connection (slightly lower since it's inferred)
+                self.connection_confidence[reverse_connection_key] = confidence * 0.9
+                self.connection_verifications[reverse_connection_key] = 1
             self.rooms[to_room_normalized].add_exit(
                 opposite_exit
             )  # Ensure reverse exit is recorded
@@ -472,6 +525,91 @@ class MapGraph:
         output_lines.append("--- End of Map State ---")
         return "\n".join(output_lines)
 
+    def render_mermaid(self) -> str:
+        """
+        Render the map as a Mermaid diagram, which is easier for LLMs to parse and understand.
+
+        Returns:
+            Mermaid diagram syntax as a string
+        """
+        if not self.rooms:
+            return "graph TD\n    A[No rooms mapped yet]"
+
+        lines = ["graph TD"]
+
+        # Create node definitions with sanitized IDs
+        room_to_id = {}
+        node_counter = 1
+
+        # First pass: create node IDs and definitions
+        sorted_room_names = sorted(self.rooms.keys())
+        for room_name in sorted_room_names:
+            node_id = f"R{node_counter}"
+            room_to_id[room_name] = node_id
+            # Sanitize room name for Mermaid (escape special characters)
+            sanitized_name = (
+                room_name.replace('"', '\\"').replace("[", "\\[").replace("]", "\\]")
+            )
+            lines.append(f'    {node_id}["{sanitized_name}"]')
+            node_counter += 1
+
+        # Second pass: create connections
+        connection_lines = []
+        for room_name in sorted_room_names:
+            if room_name in self.connections:
+                from_id = room_to_id[room_name]
+                # Sort exit actions for consistent output
+                sorted_exits = sorted(self.connections[room_name].keys())
+                for exit_action in sorted_exits:
+                    destination_room = self.connections[room_name][exit_action]
+                    if destination_room in room_to_id:
+                        to_id = room_to_id[destination_room]
+                        # Sanitize exit action for Mermaid
+                        sanitized_action = exit_action.replace('"', '\\"')
+                        connection_lines.append(
+                            f'    {from_id} -->|"{sanitized_action}"| {to_id}'
+                        )
+                    else:
+                        # Create a temporary node for unknown destinations
+                        unknown_id = f"U{node_counter}"
+                        sanitized_dest = (
+                            destination_room.replace('"', '\\"')
+                            .replace("[", "\\[")
+                            .replace("]", "\\]")
+                        )
+                        lines.append(f'    {unknown_id}["{sanitized_dest} (Unknown)"]')
+                        sanitized_action = exit_action.replace('"', '\\"')
+                        connection_lines.append(
+                            f'    {from_id} -->|"{sanitized_action}"| {unknown_id}'
+                        )
+                        node_counter += 1
+
+        # Add all connections
+        lines.extend(connection_lines)
+
+        # Add unmapped exits as dotted connections to unknown destinations
+        unmapped_counter = 1
+        for room_name in sorted_room_names:
+            room_obj = self.rooms.get(room_name)
+            if room_obj and room_obj.exits:
+                from_id = room_to_id[room_name]
+                for room_exit in sorted(list(room_obj.exits)):
+                    # Check if this exit is already mapped
+                    is_mapped = (
+                        room_name in self.connections
+                        and room_exit in self.connections[room_name]
+                    )
+                    if not is_mapped:
+                        unknown_id = f"UNK{unmapped_counter}"
+                        lines.append(f'    {unknown_id}["Unknown Destination"]')
+                        sanitized_exit = room_exit.replace('"', '\\"')
+                        lines.append(
+                            f'    {from_id} -.->|"{sanitized_exit}"| {unknown_id}'
+                        )
+                        unmapped_counter += 1
+
+        return "\n".join(lines)
+
 
 if __name__ == "__main__":
     # Example Usage
@@ -571,3 +709,6 @@ if __name__ == "__main__":
     )
 
     print(g.render_ascii())
+
+    print("\n--- Mermaid Diagram ---")
+    print(g.render_mermaid())

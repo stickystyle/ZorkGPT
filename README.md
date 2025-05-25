@@ -3,458 +3,329 @@
 ## Table of Contents
 
 1. [Project Overview](#project-overview)
-2. [Automatic Knowledge System](#automatic-knowledge-system)
-3. [Core Components](#core-components)
-4. [Structured Logging System](#structured-logging-system)
-   - [Logging Features](#logging-features)
-   - [Using the Logger](#using-the-logger)
-   - [Processing Log Files](#processing-log-files)
-   - [Episode IDs and Correlation](#episode-ids-and-correlation)
-   - [Episode Analysis Tools](#episode-analysis-tools)
-5. [System Flow](#system-flow)
-6. [Flow Diagram](#flow-diagram)
-7. [Configuration and Customization](#configuration-and-customization)
-8. [Usage Example](#usage-example)
+2. [Core Mission and Design Philosophy](#core-mission-and-design-philosophy)
+3. [Modular Architecture](#modular-architecture)
+4. [System Components](#system-components)
+5. [Adaptive Knowledge System](#adaptive-knowledge-system)
+6. [Spatial Intelligence](#spatial-intelligence)
+7. [Comprehensive Logging Infrastructure](#comprehensive-logging-infrastructure)
+8. [System Flow](#system-flow)
+9. [Architecture Diagram](#architecture-diagram)
 
 ## Project Overview
 
-ZorkGPT is a project aimed at developing an AI agent capable of playing the classic interactive fiction game "[Zork](https://en.wikipedia.org/wiki/Zork)." The system employs Large Language Models (LLMs) to understand the game world, make decisions, and learn from its interactions. The core architecture consists of an Agent LM to play the game, an Information Extraction LM to structure game observations, and a Critic LM to evaluate the agent's actions, all orchestrated within a `ZorkAgent` class that manages episode state, logging, and experience tracking.
+ZorkGPT is an AI agent system designed to play the classic interactive fiction game "[Zork](https://en.wikipedia.org/wiki/Zork)" using Large Language Models (LLMs). The project explores how modern language models can understand, navigate, and solve complex interactive environments through natural language reasoning.
 
-The primary goal is to create an agent that can intelligently navigate Zork, solve puzzles, and make progress by leveraging the natural language understanding and generation capabilities of LLMs, augmented by a structured memory system and spatial mapping.
+The system employs a multi-agent architecture where specialized LLMs handle different aspects of gameplay: action generation, information extraction, action evaluation, and strategic learning. This modular approach allows each component to excel at its specific task while maintaining the core principle that all reasoning comes from language models rather than hardcoded game logic.
 
-You can view an example run of agent here: [ZorkGPT Example Run](example_episode.txt).
+The system operates through extended gameplay sessions where knowledge accumulates and refines continuously during play, enabling the AI to learn and adapt its strategies in real-time rather than only between discrete episodes.
 
-## Automatic Knowledge System
+## Core Mission and Design Philosophy
 
-ZorkGPT features a **fully automated learning system** that continuously improves agent performance without manual intervention:
+### LLM-First Design Principle
+ZorkGPT operates under a fundamental **LLM-First Design** principle: all game reasoning, decision-making, and understanding must come from language models. The system deliberately avoids hardcoded game mechanics, location databases, or predetermined solutions. The only acceptable hardcoded elements are parser validation checks to ensure commands are properly formatted for the game engine.
 
-- **🤖 Automatic Learning**: After each episode, the system extracts knowledge from gameplay logs and updates strategic guidance
-- **🎯 Strategic Intelligence**: Generates actionable strategy guides focused on priority items, optimal navigation routes, and successful tactics
-- **⚠️ Danger Awareness**: Learns from dangerous encounters and failed actions to avoid repeating mistakes  
-- **📋 Quick Reference**: Provides optimal starting strategies and item location guides for efficient gameplay
-- **⚡ Performance Focus**: Each episode benefits from strategic insights, achieving better exploration and higher scores
+### Adaptive Learning
+The system implements continuous knowledge extraction and strategy refinement during gameplay. The AI analyzes its experiences in real-time, updating its strategic understanding every 100 turns. This adaptive approach allows the system to incorporate new insights immediately and adjust its behavior based on recent discoveries.
 
-The system automatically generates and maintains:
-- `knowledgebase.md` - Strategic gameplay guide with priority items, navigation strategies, safety information, and quick reference
+## Modular Architecture
 
-This enables the agent to focus on what works, avoid known dangers, and systematically improve performance through strategic learning.
+### Core LLM-Powered Modules
 
-## Core Components
+**ZorkOrchestrator** - The primary coordinator that manages extended gameplay sessions, coordinates between subsystems, handles movement tracking, manages logging, and orchestrates adaptive knowledge updates. It serves as the central hub that coordinates all other components and manages the continuous learning process.
 
-### 1. Zork Game Interface (`ZorkInterface` class)
-*   Manages a subprocess running the "Zork" game executable.
-*   Handles sending commands to the Zork game via its standard input.
-*   Reads and parses game output from Zork's standard output using a separate reader thread and queue to prevent blocking.
-*   Provides methods to `start()` the game, `send_command(command)`, `get_response()`, `score()`, and `close()` the game process.
-*   Designed to be used as a context manager.
+**ZorkAgent (Agent LM)** - The action generation engine that decides what the AI should do at each turn. The Agent LM analyzes the current game state, consults memory and spatial knowledge, and generates contextually appropriate actions. It integrates strategic guidance from the continuously updated knowledge base, retrieves relevant memories, formats context for LLM prompts, and generates clean, valid game commands. It receives prompts that include current observations, relevant historical context, strategic guidance from the knowledge base, and spatial awareness from the map system.
 
-### 2. Agent LM (`ZorkAgent.get_agent_action()`)
-*   **Purpose:** To decide what action to take in the game at each step.
-*   **Input:** Receives the current game state description (text from Zork), relevant information retrieved from the Memory Store, **and context from the Graph-Based Map (e.g., current location, exits, connections).**
-*   **Engine:** An OpenAI LLM (configurable via `agent_model` parameter).
-*   **Prompting:** Guided by a detailed system prompt outlining its role as an adventurer, interaction rules (short, clear commands), game mechanics (movement, inventory, looking, examining), and strategic considerations (observation, experimentation, puzzle-solving, avoiding loops).
-*   **Output:** A short, Zork-parsable command (e.g., `go north`, `take lamp`).
+**ZorkExtractor (Extractor LM)** - The information parser that converts raw game text into structured data. The Extractor LM processes raw game text into structured information, identifying locations, exits, objects, characters, and important messages. It maintains location persistence for consistent room tracking, supports both enhanced and original extraction modes, and provides JSON parsing with error handling. It maintains consistency in location naming and handles ambiguous game descriptions through parsing logic.
 
-### 3. Information Extraction LM (`ZorkAgent.get_extracted_info()`)
-*   **Purpose:** To parse the raw text output from the Zork game into a structured JSON format.
-*   **Input:** Receives the game text output from Zork after each command.
-*   **Engine:** An OpenAI LLM (configurable via `info_ext_model` parameter).
-*   **Prompting:** Guided by a specific system prompt instructing it to extract key information like:
-    *   `current_location_name`
-    *   `exits` (list of available directions/actions)
-    *   `visible_objects` (list of notable items)
-    *   `visible_characters` (list of NPCs/creatures)
-    *   `important_messages` (key feedback or events from the last turn)
-*   **Output:** A JSON object containing the extracted information.
+**ZorkCritic (Critic LM)** - The action evaluator that assesses proposed actions before execution. The Critic LM evaluates proposed actions across multiple dimensions including relevance, progress potential, exploration value, risk assessment, and strategic alignment. It provides confidence scoring with detailed justification, implements trust tracking that adapts rejection thresholds based on performance, and includes override mechanisms for edge cases. It provides numerical scores with detailed justifications and adapts its evaluation criteria based on performance feedback.
 
-### 4. Memory Store (`ZorkAgent.memory_log_history`)
-*   **Purpose:** To store and manage information extracted from the game over time, allowing the agent to "remember" past observations and events beyond its immediate LLM context window.
-*   **Implementation:** A Python list storing the JSON objects produced by the Information Extraction LM (acting as an episodic memory log).
-*   **Functionality:**
-    *   **Storage:** Appends newly extracted information after each game turn.
-    *   **Retrieval:** Provides relevant past information to the Agent LM via `get_relevant_memories_for_prompt()`. This includes:
-        *   Current inventory status.
-        *   Previously noted objects and exits for the current location.
-        *   Important messages or results from the agent's last action.
+**AdaptiveKnowledgeManager (Strategy LM)** - The continuous learning system that analyzes gameplay data in real-time. The Strategy LM operates during gameplay to assess the quality of recent experiences, determine appropriate update strategies, and intelligently merge new insights with existing knowledge. It performs turn-window analysis to extract patterns, identifies successful tactics, recognizes dangerous situations, and synthesizes strategic guidance. It operates continuously rather than only at episode boundaries, enabling immediate incorporation of new discoveries.
 
-### 5. Critic LM (`ZorkAgent.get_critic_evaluation()`)
-*   **Purpose:** To evaluate the quality or strategic soundness of actions proposed by the Agent LM.
-*   **Input:** Receives the current game state description and the Agent LM's proposed action.
-*   **Engine:** An OpenAI LLM (configurable via `critic_model` parameter).
-*   **Prompting:** Guided by a system prompt defining its role as an expert IF game critic. Evaluation criteria include:
-    *   Relevance and contextual awareness.
-    *   Progress potential and goal orientation.
-    *   Information gathering and exploration.
-    *   Plausibility and parser-friendliness.
-    *   Problem-solving and resourcefulness.
-    *   Repetition and stagnation avoidance.
-    *   Risk assessment.
-*   **Output:** A JSON object containing a numerical `score` (e.g., -1.0 to +1.0) and a brief `justification` for the score.
+### Supporting Systems
 
-### 6. Graph-Based Map (`ZorkAgent.game_map`: `MapGraph` class)
-*   **Purpose:** To build and maintain a spatial understanding of the game world.
-*   **Structure:** Implemented as a graph where nodes represent rooms and edges represent exits (connections between rooms). Room names, determined through a hybrid approach (prioritizing regex-based extraction from game text, then LLM-based extraction, and persisting the last known valid location if ambiguity arises), serve as unique node identifiers.
-*   **Functionality:**
-    *   **Map Building:** Dynamically updated after each turn. New rooms are added, and connections are created based on the agent's actions and the resulting game state. It normalizes directional commands (e.g., "n" to "north") for consistent edge representation and handles bi-directional exits where appropriate.
-    *   **Context Provision:** Provides structured information to the Agent LM about its current surroundings, including:
-        *   The current room's name (according to the map).
-        *   How the agent arrived at the current room (previous room and action taken).
-        *   Known exits from the current room and their mapped destinations (e.g., "north (leads to Kitchen)", "east (destination unknown)").
-*   **Integration:** The map context is added to the information supplied to the Agent LM during prompt construction, augmenting its awareness of the game's layout.
+The architecture includes supporting systems for game interface management, spatial understanding through confidence-tracked mapping, movement pattern analysis, and logging infrastructure. These systems work together to provide the core modules with the information and capabilities they need to function effectively during extended gameplay sessions.
 
-### 7. Automatic Knowledge System (`ZorkAgent._auto_update_knowledge_base()`)
-*   **Purpose:** To automatically learn from each episode and continuously improve agent performance without manual intervention.
-*   **Components:**
-    *   **Knowledge Extractor:** Analyzes episode logs to extract patterns about locations, items, dangerous actions, and successful strategies.
-    *   **Spatial Analyzer:** Combines traditional knowledge with spatial intelligence for comprehensive understanding.
-    *   **Auto-Integration:** Automatically loads the latest comprehensive knowledge for each new episode.
-*   **Functionality:**
-    *   **Episode Analysis:** After each episode completion, extracts knowledge from `zork_episode_log.jsonl` including:
-        *   Location knowledge (exits, objects, successful/failed actions, danger notes)
-        *   Item interactions and properties
-        *   Dangerous actions and combat situations (e.g., troll encounters)
-        *   Score-gaining actions and puzzle solutions
-        *   Common mistakes and effective strategies
-    *   **Spatial Analysis:** Combines traditional knowledge with spatial intelligence including:
-        *   Movement patterns and room connections
-        *   Hub rooms and navigation efficiency
-        *   Spatial layout understanding for better exploration
-    *   **Integrated Knowledge:** Creates comprehensive understanding combining gameplay patterns with spatial insights
-*   **Integration:** The comprehensive knowledge base (`knowledgebase.md`) is automatically loaded into the agent's system prompt for subsequent episodes, enabling continuous improvement without manual knowledge management.
+## System Components
 
-## Structured Logging System
+### Memory and Context Management
+The system maintains memory structures that preserve important information across turns within extended gameplay sessions. The memory system stores structured observations, tracks inventory changes, maintains location histories, and provides relevant context retrieval for decision-making.
 
-The system includes a comprehensive structured logging system that provides multiple output formats for different use cases:
+Context management ensures that each LLM receives appropriate information without overwhelming token limits. The system prioritizes recent experiences, relevant historical patterns, and strategic insights while maintaining focus on current objectives.
 
-### Logging Features
+### Spatial Intelligence System
+ZorkGPT builds and maintains a dynamic graph-based map of the game world with confidence tracking for connection reliability. This spatial intelligence system tracks room connections with confidence scores, identifies navigation patterns, recognizes hub locations, provides pathfinding capabilities, and verifies connections through repeated traversal.
 
-1. **Console Output**: Human-readable formatted logs are displayed on stdout during execution
-2. **Text Log File**: The same human-readable logs are saved to a text file
-3. **JSON Log File**: Structured JSON logs are saved for programmatic processing  
-4. **RL Experiences**: Reinforcement learning experiences are collected and can be saved separately
+The map system integrates with the agent's decision-making process, offering spatial context for action selection and enabling exploration strategies. It learns from movement patterns, tracks connection reliability, and adapts to the game's spatial structure over extended gameplay sessions.
 
-### Using the Logger
+## Adaptive Knowledge System
 
-Each `ZorkAgent` instance has its own logger that can be configured through constructor parameters:
+### Continuous Learning Pipeline
+ZorkGPT implements an automated learning system that operates continuously during gameplay rather than only between episodes. Every 100 turns, the system analyzes recent gameplay data to extract insights about locations, items, successful strategies, and dangerous situations.
 
-```python
-agent = ZorkAgent(
-    episode_log_file="my_episode.log",
-    json_log_file="my_episode.jsonl",
-    experiences_file="my_experiences.json"
-)
-```
+The adaptive knowledge extraction process examines action sequences within turn windows, identifies patterns in successful gameplay, recognizes common failure modes, and synthesizes strategic guidance. This analysis happens entirely through LLM reasoning, maintaining the principle that intelligence emerges from language model capabilities.
 
-The logger automatically captures structured events including:
-- Episode start/end with model configurations
-- Turn-by-turn actions and responses
-- Agent proposals and critic evaluations
-- Information extraction results
-- Reward calculations
-- Experience tracking for RL
+### Real-Time Strategic Intelligence
+The system generates and updates strategy guides continuously during play, focusing on priority items, navigation routes, puzzle-solving approaches, and safety considerations. These guides provide high-level strategic direction without hardcoding specific solutions and are immediately available to influence subsequent decisions.
 
-### Processing Log Files
+Strategic intelligence includes understanding of game mechanics discovered through play, recognition of important items and their uses, identification of dangerous areas and situations, and development of exploration patterns. The adaptive system can identify when the AI is stuck in repetitive patterns and generate escape strategies.
 
-The system generates JSON logs that can be processed for analysis:
+### Intelligent Knowledge Integration
+Extracted knowledge integrates into ongoing gameplay through the agent's strategic guidance system. The agent receives updated strategic guidance that improves decision-making while preserving the exploratory and reasoning-based nature of gameplay.
 
-```python
-from logger import parse_json_logs, render_logs_as_text
+The adaptive knowledge system maintains a balance between providing guidance and preserving the agent's ability to adapt to novel situations and discover new solutions. It employs quality assessment to determine when new experiences warrant knowledge updates and uses intelligent merging to avoid degrading existing knowledge with low-quality insights.
 
-# Parse JSON logs
-logs = parse_json_logs("zork_episode_log.jsonl")
+## Spatial Intelligence
 
-# Render as human-readable text  
-text_output = render_logs_as_text(logs)
+### Graph-Based Mapping
+The system constructs a dynamic graph representation of the game world where nodes represent locations and edges represent connections with confidence tracking. This spatial model updates continuously as the agent explores, building an understanding of the game's geography while tracking the reliability of discovered connections.
 
-# Format experiences for RL
-from logger import format_experiences_for_rl
-experiences = agent.experience_tracker.get_experiences()
-formatted_data = format_experiences_for_rl(experiences)
-```
+The mapping system handles spatial relationships, bidirectional connections, ambiguous location descriptions, and connection conflicts. It maintains consistency in location identification while adapting to the game's spatial structure and providing confidence metrics for navigation decisions.
 
-### Episode IDs and Correlation
+### Movement Analysis and Verification
+ZorkGPT analyzes movement patterns to identify navigation strategies, recognize hub locations, optimize exploration routes, and verify connection reliability through repeated traversal. This analysis helps the agent avoid redundant exploration while ensuring coverage of the game world and building confidence in spatial understanding.
 
-Each episode receives a unique episode ID that is an ISO8601 timestamp with resolution to seconds of when the episode started. This ID is included in all log entries for that episode, making it easy to correlate logs across an episode.
+Movement analysis contributes to strategic planning by identifying key locations, understanding spatial relationships between important areas, developing pathfinding strategies, and detecting when connections may be unreliable or context-dependent.
 
+### Spatial Context Integration
+The spatial intelligence system provides detailed context to the agent's decision-making process. This includes current location awareness, available exits with confidence scores, spatial relationships to important areas, navigation recommendations based on connection reliability, and conflict detection for ambiguous spatial relationships.
 
-#### Example Log Entry
-```json
-{
-  "timestamp": "2024-01-15T10:30:15.123456",
-  "level": "INFO",
-  "message": "Starting Zork episode...",
-  "extras": {
-    "event_type": "episode_start",
-    "episode_id": "2024-01-15T10:30:15",
-    "agent_model": "gpt-4",
-    "critic_model": "gpt-3.5-turbo",
-    "info_ext_model": "gpt-3.5-turbo"
-  }
-}
-```
+Spatial context enhances the agent's ability to make decisions about exploration, item retrieval, and strategic positioning within the game world while accounting for the uncertainty inherent in text-based spatial understanding.
 
-### Episode Analysis Tools
+## Logging Infrastructure
 
-#### Usage
+ZorkGPT implements a logging system that captures all aspects of gameplay for analysis by the adaptive knowledge system. The system generates structured logs of LLM interactions, decision-making processes, game state changes, performance metrics, and learning outcomes that enable the language models to analyze gameplay patterns and extract strategic insights.
 
-```bash
-# Show all episodes sorted by score (descending)
-python log_tools.py episodes zork_episode_log.jsonl
+The logging infrastructure provides the data foundation for continuous learning, allowing the adaptive knowledge manager to examine turn windows, identify successful strategies, and synthesize new guidance from gameplay experiences.
 
-# Save to file
-python log_tools.py episodes zork_episode_log.jsonl -o episodes_report.md
-
-# Show only top 10 episodes
-python log_tools.py episodes zork_episode_log.jsonl --limit 10
-
-# Show only episodes with score >= 50
-python log_tools.py episodes zork_episode_log.jsonl --min-score 50
-
-# Combine filters: top 5 episodes with score >= 30
-python log_tools.py episodes zork_episode_log.jsonl --limit 5 --min-score 30
-```
-
-#### Available Log Processing Commands
-
-The `log_tools.py` script provides several commands for processing logs:
-
-- `render`: Convert JSON logs to human-readable text
-- `rl`: Extract experiences for reinforcement learning
-- `stats`: Show basic statistics (episode count, averages, maximums)
-- `episodes`: Generate detailed episode performance tables (new)
-
-#### Episode Report Output
-
-The `episodes` command generates markdown tables with comprehensive episode details:
-
-| Column | Description |
-|--------|-------------|
-| Episode ID | The unique episode timestamp ID |
-| Score | Zork score in format `achieved/maximum` |
-| Turns | Number of turns taken in the episode |
-| Reward | Total accumulated reward for the episode |
-| Status | Episode outcome (Completed, Died, Victory, Game Over) |
-| Runtime | Total time taken to complete the episode |
-| Agent Model | Model used for the agent |
-| Critic Model | Model used for the critic |
-| Info Ext Model | Model used for information extraction |
-
-Example output:
-```markdown
-# Episode Performance Report
-
-| Episode ID | Score | Turns | Reward | Status | Runtime | Agent Model | Critic Model | Info Ext Model |
-|------------|-------|-------|--------|--------|---------|-------------|--------------|----------------|
-| `2024-01-15T11:45:22` | 85/585 | 18 | 28.2 | Completed | 3m 45s | gpt-4-turbo | gpt-4 | gpt-4 |
-| `2024-01-15T10:30:15` | 42/585 | 25 | 15.5 | Completed | 5m 12s | gpt-4 | gpt-3.5-turbo | gpt-3.5-turbo |
-
-## Summary
-- **Episodes shown:** 2
-- **Average score:** 63.5
-- **Average turns:** 21.5
-- **Average reward:** 21.9
-- **Best score:** 85
-```
+### Turn-Based Analysis Support
+The logging infrastructure supports the adaptive knowledge system by providing structured access to turn-window data for analysis. Each turn receives detailed logging that enables the system to extract action-response patterns, track score changes, monitor location transitions, and identify successful strategies within specific gameplay segments.
 
 
 ## System Flow
 
-The interaction between components follows this sequence within the `ZorkAgent.play_episode()` method:
+### Extended Gameplay Sessions
+The system operates through extended gameplay sessions that can span thousands of turns rather than discrete episodes. Each session begins with initialization and knowledge loading from previous sessions, providing continuity and learning progression across gameplay periods.
 
-1.  **Initialization:**
-    *   The agent resets its episode state using `reset_episode_state()`
-    *   The `ZorkInterface` starts the Zork game.
-    *   The initial game state is received from Zork.
-    *   The Information Extraction LM processes this initial state, and the extracted information is stored in the agent's memory.
+During gameplay, the system operates in a continuous loop of observation, reasoning, action, learning, and adaptive knowledge updating. Each turn involves memory retrieval, spatial context integration, action generation, critic evaluation, execution, state updating, and periodic knowledge refinement.
 
-2.  **Game Turn Loop:**
-    *   **Memory Retrieval:** The agent queries its memory store for information relevant to the current game state **and consults its Graph-Based Map for spatial context.**
-    *   **Agent Action Selection:** The Agent LM is prompted with the current game state *and* the retrieved relevant memories. It then proposes an action.
-    *   **Critic Evaluation:** The Critic LM evaluates the agent's proposed action, providing a score and justification.
-    *   **Action Execution:** The proposed action is sent to the Zork game via the `ZorkInterface`.
-    *   **Game Response:** Zork returns the next game state, any game-based rewards (e.g., score changes), and whether the game is over.
-    *   **Information Extraction:** The new game state from Zork is processed by the Information Extraction LM.
-    *   **Memory Update:** The newly extracted structured information is stored in the agent's memory.
-    *   **Map Update:** The agent's spatial map is updated with new location and connection information.
-    *   **Experience Tracking:** The turn's experience is logged for reinforcement learning.
-    *   **State Update:** The new game state becomes the current state for the next turn.
-    *   The loop continues until the game ends or the maximum number of turns is reached.
+### Turn-by-Turn Execution with Adaptive Learning
+Individual turns follow a decision-making process that integrates multiple information sources and incorporates continuous learning. The agent consults its memory for relevant historical context, examines spatial relationships through the map system, and incorporates strategic guidance from the continuously updated knowledge base.
 
-3.  **Episode Completion:**
-    *   Final episode statistics are logged
-    *   Experiences are saved to the specified file
-    *   **Automatic Knowledge Update:** If enabled (`auto_update_knowledge=True` by default):
-        *   The Integrated Knowledge System analyzes all episode logs to extract patterns and update `knowledgebase.md`
-        *   Traditional gameplay knowledge is combined with spatial intelligence for comprehensive understanding
-        *   Knowledge update events are logged for monitoring and debugging
-    *   The agent returns the collected experiences and final game score
+Action generation involves prompt construction that provides the Agent LM with context while maintaining focus on current objectives. The Critic LM evaluates proposed actions to prevent obviously poor decisions while preserving the agent's autonomy.
 
-## Flow Diagram
+Every 100 turns, the adaptive knowledge system analyzes recent gameplay data to extract new insights and update strategic guidance, ensuring that learning happens continuously rather than only at session boundaries.
+
+### Continuous Learning Integration
+The learning process operates continuously throughout gameplay, with real-time learning including map updates, memory consolidation, pattern recognition, and periodic strategic knowledge updates. The adaptive system assesses the quality of potential knowledge updates, determines appropriate analysis strategies, and intelligently merges new insights with existing knowledge.
+
+## Architecture Diagram
+
+```mermaid
+graph TB
+    subgraph "ZorkGPT Adaptive Architecture"
+        subgraph "Core Coordination"
+            Orchestrator[ZorkOrchestrator<br/>Extended Session Management<br/>Component Coordination<br/>Adaptive Learning Orchestration]
+        end
+        
+        subgraph "LLM-Powered Components"
+            Agent[ZorkAgent<br/>Action Generation<br/>Context Integration<br/>Memory Retrieval]
+            Extractor[ZorkExtractor<br/>Information Parsing<br/>State Structuring<br/>Location Tracking]
+            Critic[ZorkCritic<br/>Action Evaluation<br/>Trust Management<br/>Quality Assessment]
+            AdaptiveKM[AdaptiveKnowledgeManager<br/>Continuous Learning<br/>Quality Assessment<br/>Intelligent Merging]
+        end
+        
+        subgraph "Supporting Systems"
+            GameAPI[ZorkAPI<br/>Game Interface<br/>Command Execution<br/>Response Processing]
+                         MapGraph[MapGraph<br/>Confidence-Tracked Mapping<br/>Connection Verification<br/>Quality Metrics]
+            Movement[MovementAnalyzer<br/>Pattern Analysis<br/>Navigation Optimization<br/>Spatial Intelligence]
+            Logger[Logger<br/>Multi-format Logging<br/>Turn-Window Analysis<br/>Performance Tracking]
+        end
+        
+        subgraph "Session Data Structures"
+            MemoryLog[memory_log_history<br/>List of ExtractorResponse<br/>Turn-by-turn observations<br/>Historical context]
+            ActionHistory[action_history<br/>Previous actions & responses<br/>Action patterns<br/>Repetition tracking]
+                         GameMap[game_map<br/>MapGraph instance<br/>Confidence-tracked connections<br/>Verification metrics]
+            ExperienceTracker[experience_tracker<br/>Turn experiences<br/>Reward tracking<br/>Session analytics]
+        end
+        
+        subgraph "Adaptive Knowledge System"
+            KnowledgeBase[knowledgebase.md<br/>Continuously Updated Strategies<br/>Real-time Insights<br/>Quality-Assessed Knowledge]
+            TurnAnalysis[Turn Window Analysis<br/>Quality Assessment<br/>Strategy Determination<br/>Intelligent Merging]
+        end
+        
+        subgraph "External Interface"
+            ZorkGame[Zork Game Process<br/>Interactive Fiction Engine<br/>Extended Gameplay Sessions]
+        end
+    end
+    
+    %% Core coordination flows
+    Orchestrator --> Agent
+    Orchestrator --> Extractor
+    Orchestrator --> Critic
+    Orchestrator --> AdaptiveKM
+    Orchestrator --> Logger
+    
+    %% LLM component interactions with session data
+    Agent --> MemoryLog
+    Agent --> ActionHistory
+    Agent --> GameMap
+    Agent --> KnowledgeBase
+    Extractor --> MemoryLog
+    Critic --> ExperienceTracker
+    
+    %% Supporting system connections
+    Orchestrator --> Movement
+    Orchestrator --> GameMap
+    GameAPI --> ZorkGame
+    Orchestrator --> GameAPI
+    
+    %% Data flows within session
+    MemoryLog --> Agent
+    ActionHistory --> Agent
+    GameMap --> Agent
+    KnowledgeBase --> Agent
+    Logger --> ExperienceTracker
+    
+    %% Game interaction
+    ZorkGame -.->|Game State| GameAPI
+    GameAPI -.->|Commands| ZorkGame
+    
+    %% Adaptive learning feedback loops
+    AdaptiveKM -.->|Continuous Updates| KnowledgeBase
+    Logger -.->|Turn Window Data| TurnAnalysis
+    TurnAnalysis -.->|Quality Assessment| AdaptiveKM
+    Movement -.->|Spatial Insights| GameMap
+    ExperienceTracker -.->|Session Data| AdaptiveKM
+    
+    %% Styling
+    classDef llmComponent fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    classDef supportSystem fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    classDef dataStructure fill:#e8f5e8,stroke:#1b5e20,stroke-width:2px
+    classDef coordinator fill:#fff3e0,stroke:#e65100,stroke-width:3px
+    classDef external fill:#fce4ec,stroke:#880e4f,stroke-width:2px
+    classDef knowledge fill:#f1f8e9,stroke:#33691e,stroke-width:2px
+    classDef adaptive fill:#e3f2fd,stroke:#0277bd,stroke-width:2px
+    
+    class Agent,Extractor,Critic llmComponent
+         class GameAPI,MapGraph,Movement,Logger supportSystem
+    class MemoryLog,ActionHistory,GameMap,ExperienceTracker dataStructure
+    class Orchestrator coordinator
+    class ZorkGame external
+    class KnowledgeBase knowledge
+    class AdaptiveKM,TurnAnalysis adaptive
+```
+
+## Turn-by-Turn Flow with Adaptive Learning
 
 ```mermaid
 sequenceDiagram
     participant User as User/Main
-    participant ZorkAgent as ZorkAgent Instance
-    participant Agent_LM as Agent LM
-    participant ZorkGame as Zork Game (Interface)
-    participant InfoExt_LM as Info Extractor LM
-    participant MemoryStore as Memory Store
-    participant Critic_LM as Critic LM
-    participant Logger as Structured Logger
-    participant KnowledgeSystem as Integrated Knowledge System
+    participant Orchestrator as ZorkOrchestrator
+    participant Agent as ZorkAgent
+    participant Extractor as ZorkExtractor
+    participant Critic as ZorkCritic
+         participant AdaptiveKM as AdaptiveKnowledgeManager
+     participant ZorkGame as Zork Game (ZorkAPI)
 
-    User->>ZorkAgent: play_episode(zork_interface)
-    activate ZorkAgent
+    User->>Orchestrator: run_long_episode()
+    activate Orchestrator
     
-    ZorkAgent->>ZorkAgent: reset_episode_state()
-    ZorkAgent->>ZorkAgent: _load_system_prompts() [includes comprehensive knowledge]
-    ZorkAgent->>Logger: Log episode start
+         Orchestrator->>Orchestrator: reset_episode_state()
     
-    ZorkAgent->>ZorkGame: Start Game
+    Orchestrator->>ZorkGame: Start Game
     activate ZorkGame
-    ZorkGame-->>ZorkAgent: Initial Game State (S0)
+    ZorkGame-->>Orchestrator: Initial Game State (S0)
     deactivate ZorkGame
 
-    ZorkAgent->>InfoExt_LM: Extract Info from S0
-    activate InfoExt_LM
-    InfoExt_LM-->>ZorkAgent: Extracted Info (E0)
-    deactivate InfoExt_LM
+    Orchestrator->>Extractor: extract_info(S0)
+    activate Extractor
+    Extractor-->>Orchestrator: ExtractorResponse (E0)
+    deactivate Extractor
 
-    ZorkAgent->>MemoryStore: Store E0
-    ZorkAgent->>Logger: Log extracted info
+         Orchestrator->>Orchestrator: Update memory_log_history.append(E0)
+     Orchestrator->>Orchestrator: Update game_map with confidence tracking
 
-    loop Game Turns
-        ZorkAgent->>MemoryStore: get_relevant_memories_for_prompt()
-        MemoryStore-->>ZorkAgent: Relevant Memories (M_retrieved)
+    loop Extended Gameplay (up to 5000 turns)
+                 Orchestrator->>Orchestrator: turn_count += 1
+        
+        Note over Orchestrator: Check combat status from last extraction
+        alt Not in combat
+            Orchestrator->>ZorkGame: Get inventory
+            ZorkGame-->>Orchestrator: current_inventory
+        else In combat
+            Note over Orchestrator: Skip inventory to avoid death
+        end
 
-        ZorkAgent->>Agent_LM: get_agent_action(S_current + M_retrieved + Strategic_Knowledge)
-        activate Agent_LM
-        Agent_LM-->>ZorkAgent: Proposed Action (A_t)
-        deactivate Agent_LM
-        ZorkAgent->>Logger: Log agent action
+                 Orchestrator->>Agent: get_relevant_memories_for_prompt()
+         Agent->>Agent: Process memory_log_history, game_map, action_history
+         Agent-->>Orchestrator: relevant_memories
 
-        ZorkAgent->>Critic_LM: get_critic_evaluation(S_current, A_t)
-        activate Critic_LM
-        Critic_LM-->>ZorkAgent: Critic Score (C_t) & Justification
-        deactivate Critic_LM
-        ZorkAgent->>Logger: Log critic evaluation
+         Orchestrator->>Agent: get_action(game_state, memories, action_history)
+         activate Agent
+         Agent->>Agent: Load current knowledge base & format context
+         Agent-->>Orchestrator: Proposed Action (A_t)
+         deactivate Agent
 
-        ZorkAgent->>ZorkGame: Send Action (A_t)
-        activate ZorkGame
-        ZorkGame-->>ZorkAgent: Next Game State (S_t+1), Game Reward (R_env_t), Done?
-        deactivate ZorkGame
-        ZorkAgent->>Logger: Log Zork response
+                 Orchestrator->>Critic: get_robust_evaluation(game_state, A_t)
+         activate Critic
+         Critic->>Critic: Evaluate action & check trust threshold
+         Critic-->>Orchestrator: CriticResponse (score, justification, confidence)
+         deactivate Critic
 
-        ZorkAgent->>InfoExt_LM: get_extracted_info(S_t+1)
-        activate InfoExt_LM
-        InfoExt_LM-->>ZorkAgent: Extracted Info (E_t+1)
-        deactivate InfoExt_LM
+        alt Critic score < rejection_threshold
+            Orchestrator->>Critic: Check override conditions
+                         alt Override needed
+                 Note over Orchestrator: Override applied
+             else No override
+                Orchestrator->>Agent: Get alternative action
+                Note over Orchestrator: Loop back to get new action
+            end
+        end
 
-        ZorkAgent->>MemoryStore: Store E_t+1
-        ZorkAgent->>ZorkAgent: Update game_map with new info
-        ZorkAgent->>ZorkAgent: Calculate reward & update state
-        ZorkAgent->>ZorkAgent: experience_tracker.add_experience()
-        ZorkAgent->>Logger: Log experience and reward
+                 Orchestrator->>ZorkGame: Send Action (A_t)
+         activate ZorkGame
+         ZorkGame-->>Orchestrator: Game Response (S_t+1), Score, Game Over?
+         deactivate ZorkGame
+
+        Orchestrator->>Extractor: extract_info(S_t+1)
+        activate Extractor
+        Extractor-->>Orchestrator: ExtractorResponse (E_t+1)
+        deactivate Extractor
+
+                 Orchestrator->>Orchestrator: Update memory_log_history.append(E_t+1)
+         Orchestrator->>Orchestrator: Update game_map with confidence tracking
+         Orchestrator->>Orchestrator: Update action_history
+         Orchestrator->>Orchestrator: Calculate reward & update session state
+         Orchestrator->>Orchestrator: experience_tracker.add_experience()
+
+        alt Every 100 turns
+            Orchestrator->>AdaptiveKM: Check for knowledge update
+            activate AdaptiveKM
+            AdaptiveKM->>AdaptiveKM: Assess turn window quality
+            AdaptiveKM->>AdaptiveKM: Determine update strategy
+            AdaptiveKM->>AdaptiveKM: Perform targeted analysis
+            AdaptiveKM->>AdaptiveKM: Intelligent knowledge merging
+            AdaptiveKM-->>Orchestrator: Knowledge update result
+            deactivate AdaptiveKM
+            
+                         alt Knowledge updated
+                 Orchestrator->>Agent: Reload updated knowledge base
+                 Note over Orchestrator: Knowledge successfully updated
+             else Knowledge update skipped
+                 Note over Orchestrator: Update skipped (low quality)
+             end
+        end
 
         alt Game Over OR Max Turns Reached
-            ZorkAgent->>ZorkAgent: End Episode
-        else
-            ZorkAgent->>ZorkAgent: Continue to next turn
+            Orchestrator->>Orchestrator: Break game loop
         end
-    end
+         end
+     
+     Orchestrator->>Orchestrator: experience_tracker.save_experiences()
     
-    ZorkAgent->>Logger: Log episode end
-    ZorkAgent->>ZorkAgent: save_experiences()
+    Orchestrator-->>User: (experiences, final_score)
+    deactivate Orchestrator
     
-    alt auto_update_knowledge=True
-        ZorkAgent->>Logger: Log auto knowledge update start
-        ZorkAgent->>KnowledgeSystem: Extract knowledge from episode logs
-        activate KnowledgeSystem
-        KnowledgeSystem->>KnowledgeSystem: Analyze patterns, locations, items, dangers, spatial relationships
-        KnowledgeSystem-->>ZorkAgent: Comprehensive knowledge updated (knowledgebase.md)
-        deactivate KnowledgeSystem
-        
-        ZorkAgent->>Logger: Log auto knowledge update success
-    end
-    
-    ZorkAgent-->>User: (experiences, final_score)
-    deactivate ZorkAgent
-    
-    Note over ZorkAgent, KnowledgeSystem: Next episode will automatically load<br/>updated comprehensive knowledge for improved performance
-```
-
-## Configuration and Customization
-
-The `ZorkAgent` class supports extensive customization through constructor parameters:
-
-```python
-agent = ZorkAgent(
-    # Model configuration
-    agent_model="gpt-4",
-    critic_model="gpt-3.5-turbo",
-    info_ext_model="gpt-3.5-turbo",
-    
-    # Logging configuration  
-    episode_log_file="custom_episode.log",
-    json_log_file="custom_episode.jsonl",
-    experiences_file="custom_experiences.json",
-    
-    # Game configuration
-    max_turns_per_episode=150,
-    
-    # Automatic Knowledge System configuration
-    auto_update_knowledge=True,  # Enable/disable automatic learning
-    
-    # API configuration
-    client_base_url="https://api.openai.com/v1",
-    client_api_key="your-api-key"
-)
-```
-
-Environment variables can also be used for default configuration:
-- `AGENT_MODEL`: Default agent model
-- `CRITIC_MODEL`: Default critic model  
-- `INFO_EXT_MODEL`: Default information extraction model
-- `CLIENT_BASE_URL`: OpenAI API base URL
-- `CLIENT_API_KEY`: OpenAI API key
-
-## Usage Example
-
-```python
-from main import ZorkAgent
-from zork_api import ZorkInterface
-
-# Create agent with automatic learning enabled (default)
-agent = ZorkAgent(
-    agent_model="gpt-4.1",
-    max_turns_per_episode=50,
-    episode_log_file="my_zork_episode.log",
-    auto_update_knowledge=True  # Enables automatic knowledge updates
-)
-
-# Play multiple episodes with continuous learning
-for episode_num in range(5):
-    with ZorkInterface(timeout=0.2) as zork_game:
-        try:
-            experiences, final_score = agent.play_episode(zork_game)
-            print(f"Episode {episode_num + 1} completed! Final score: {final_score}")
-            print(f"Collected {len(experiences)} experiences")
-            
-            # After each episode, knowledge is automatically updated
-            # Next episode will benefit from accumulated learning
-            
-        except Exception as e:
-            print(f"Error during episode {episode_num + 1}: {e}")
-
-# Display the generated map from the last episode
-print("\nGenerated Map:")
-print(agent.game_map.render_ascii())
-
-# Check if comprehensive knowledge was generated
-import os
-if os.path.exists("knowledgebase.md"):
-    print("\n✅ Comprehensive knowledge base generated and available for future episodes")
-    with open("knowledgebase.md", "r") as f:
-        knowledge_content = f.read()
-        print(f"Knowledge base length: {len(knowledge_content)} characters")
+    Note over Orchestrator, AdaptiveKM: Next session continues with<br/>accumulated knowledge from continuous learning
 ```
