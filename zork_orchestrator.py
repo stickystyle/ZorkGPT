@@ -52,14 +52,14 @@ class ZorkOrchestrator:
         episode_log_file: str = "zork_episode_log.txt",
         json_log_file: str = "zork_episode_log.jsonl",
         experiences_file: str = "zork_experiences.json",
-        max_turns_per_episode: int = 200,
+        max_turns_per_episode: int = 500,
         client_base_url: str = None,
         client_api_key: str = None,
         # Dynamic turn limit parameters
         absolute_max_turns: int = 1000,
         turn_limit_increment: int = 50,
         performance_check_interval: int = 20,
-        performance_threshold: float = 0.7,
+        performance_threshold: float = 0.5,
         min_turns_for_increase: int = 50,
         # Automatic knowledge base updating
         auto_update_knowledge: bool = True,
