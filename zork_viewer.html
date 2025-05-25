@@ -926,7 +926,7 @@
         // Check which state file is available
         async function initializeViewer() {
             try {
-                // Try live file first
+                // Try live file first (works for both local and S3 deployment)
                 const response = await fetch('./current_state.json?t=' + Date.now());
                 if (response.ok) {
                     console.log('Using current_state.json (live)');
@@ -937,7 +937,7 @@
             }
             
             try {
-                // Fall back to test file
+                // Fall back to test file (for local development)
                 const testResponse = await fetch('./test_current_state.json?t=' + Date.now());
                 if (testResponse.ok) {
                     console.log('Using test_current_state.json (fallback)');
@@ -949,7 +949,7 @@
             
             // Show error if no files available
             document.getElementById('episode-id').textContent = 'No state file found';
-            document.getElementById('map-diagram').innerHTML = '<p class="error-message">No state files available. Run ZorkGPT or test_state_export.py first.</p>';
+            document.getElementById('map-diagram').innerHTML = '<p class="error-message">No state files available. Run ZorkGPT with S3 configured or test_state_export.py for local testing.</p>';
             return null;
         }
         
@@ -959,9 +959,6 @@
                 console.log('ZorkGPT Live Viewer initialized successfully');
             }
         });
-        
-        // For S3 deployment, replace with your S3 URL:
-        // const viewer = new ZorkGameViewer('https://your-bucket.s3.amazonaws.com/zorkgpt/current_state.json');
     </script>
 </body>
 </html> 
