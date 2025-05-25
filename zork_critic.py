@@ -3,7 +3,7 @@ ZorkCritic module for evaluating actions and managing critic trust.
 """
 
 import json
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Any, Dict, Type
 from pydantic import BaseModel
 from openai import OpenAI
 from collections import Counter
@@ -13,6 +13,16 @@ import environs
 env = environs.Env()
 env.read_env()
 
+def create_json_schema(model: Type[BaseModel]) -> Dict[str, Any]:
+    schema = model.model_json_schema()
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "test_schema",
+            "strict": True,
+            "schema": schema,
+        },
+    }
 
 class CriticResponse(BaseModel):
     score: float
@@ -218,7 +228,8 @@ Evaluate this action based on your criteria. Respond in JSON format.
                 messages=messages,
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
-                response_format={"type": "json_object"},
+                # response_format={"type": "json_object"},
+                response_format=create_json_schema(CriticResponse),
                 extra_headers={
                     "X-Title": "ZorkGPT",
                 },

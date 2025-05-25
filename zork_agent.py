@@ -3,7 +3,7 @@ ZorkAgent module for generating actions and managing game memory.
 """
 
 import re
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Dict
 from openai import OpenAI
 from collections import Counter
 import environs
@@ -215,6 +215,126 @@ The following strategic guide has been compiled from analyzing previous episodes
             if self.logger:
                 self.logger.error(f"Error getting agent action: {e}")
             return "look"  # Default safe action on error
+
+    def get_action_with_reasoning(
+        self,
+        game_state_text: str,
+        previous_actions_and_responses: Optional[List[Tuple[str, str]]] = None,
+        action_counts: Optional[Counter] = None,
+        relevant_memories: Optional[str] = None,
+    ) -> Dict[str, str]:
+        """
+        Gets an action from the Agent LM with reasoning preserved.
+
+        Args:
+            game_state_text: Current game state text
+            previous_actions_and_responses: List of (action, response) tuples for history
+            action_counts: Counter of how many times each action has been tried
+            relevant_memories: Formatted string of relevant memories
+
+        Returns:
+            Dict with 'action' (cleaned) and 'reasoning' (raw thinking/reasoning)
+        """
+        if "o1" in self.model:
+            # Use user prompt for o1 models
+            messages = [{"role": "user", "content": self.system_prompt}]
+        else:
+            messages = [{"role": "system", "content": self.system_prompt}]
+
+        # Add history if provided
+        if previous_actions_and_responses:
+            memory_context = "Here's what you've done so far:\n"
+
+            # Add the most recent actions and responses (last 5-8 is usually sufficient)
+            for i, (action, response) in enumerate(previous_actions_and_responses[-8:]):
+                memory_context += f"Command: {action}\nResult: {response.strip()}\n\n"
+
+            # Include information about repetitive actions
+            if action_counts:
+                repeated_actions = [
+                    act for act, count in action_counts.items() if count > 2
+                ]
+                if repeated_actions:
+                    memory_context += "\n**CRITICAL WARNING**: You've tried these actions multiple times with limited success: "
+                    memory_context += ", ".join(repeated_actions)
+                    memory_context += ". According to your instructions, you must AVOID repeating failed actions and try completely different approaches.\n"
+
+            if "o1" in self.model:
+                # o1 models use user role for all messages
+                messages.append({"role": "user", "content": memory_context})
+            else:
+                messages.append({"role": "system", "content": memory_context})
+
+        # Combine game state with relevant memories if available
+        user_content = game_state_text
+        if relevant_memories:
+            user_content = f"{user_content}\n\n{relevant_memories}"
+
+        messages.append({"role": "user", "content": user_content})
+
+        try:
+            client_args = dict(
+                model=self.model,
+                messages=messages,
+                stop=None,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+                extra_headers={
+                    "X-Title": "ZorkGPT",
+                },
+            )
+
+            response = self.client.chat.completions.create(**client_args)
+            raw_response = response.choices[0].message.content.strip()
+
+            # Extract reasoning from thinking tags
+            reasoning_parts = []
+            
+            # Extract <think> tags
+            think_matches = re.findall(r"<think>(.*?)</think>", raw_response, flags=re.DOTALL)
+            reasoning_parts.extend(think_matches)
+            
+            # Extract <thinking> tags
+            thinking_matches = re.findall(r"<thinking>(.*?)</thinking>", raw_response, flags=re.DOTALL)
+            reasoning_parts.extend(thinking_matches)
+            
+            # Extract <reflection> tags
+            reflection_matches = re.findall(r"<reflection>(.*?)</reflection>", raw_response, flags=re.DOTALL)
+            reasoning_parts.extend(reflection_matches)
+
+            # Combine all reasoning
+            reasoning = "\n\n".join(part.strip() for part in reasoning_parts if part.strip())
+
+            # Clean up the action: remove any thinking
+            action = re.sub(r"<think>.*?</think>\s*", "", raw_response, flags=re.DOTALL)
+            action = re.sub(r"<thinking>.*?</thinking>\s*", "", action, flags=re.DOTALL)
+            action = re.sub(
+                r"<reflection>.*?</reflection>\s*", "", action, flags=re.DOTALL
+            )
+            # Basic cleaning: Zork commands are usually lowercase
+            action = action.lower().strip()
+
+            # Validate action is not empty
+            if not action or action.isspace():
+                if self.logger:
+                    self.logger.warning(
+                        "Agent returned empty action, using 'look' as fallback"
+                    )
+                action = "look"
+                
+            return {
+                "action": action,
+                "reasoning": reasoning if reasoning else None,
+                "raw_response": raw_response
+            }
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"Error getting agent action: {e}")
+            return {
+                "action": "look",
+                "reasoning": None,
+                "raw_response": None
+            }  # Default safe action on error
 
     def get_relevant_memories_for_prompt(
         self,

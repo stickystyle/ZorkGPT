@@ -3,7 +3,7 @@ ZorkExtractor module for extracting structured information from Zork game text.
 """
 
 import json
-from typing import Optional, List
+from typing import Optional, List, Any, Dict, Type
 from pydantic import BaseModel
 from openai import OpenAI
 import environs
@@ -28,6 +28,16 @@ GENERIC_LOCATION_FALLBACKS = {
     "",  # Empty string also a fallback
 }
 
+def create_json_schema(model: Type[BaseModel]) -> Dict[str, Any]:
+    schema = model.model_json_schema()
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "test_schema",
+            "strict": True,
+            "schema": schema,
+        },
+    }
 
 class ExtractorResponse(BaseModel):
     current_location_name: str
@@ -140,7 +150,8 @@ class ZorkExtractor:
                 messages=messages,
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
-                response_format={"type": "json_object"},
+                # response_format={"type": "json_object"},
+                response_format=create_json_schema(ExtractorResponse),
                 extra_headers={
                     "X-Title": "ZorkGPT",
                 },
@@ -154,10 +165,10 @@ class ZorkExtractor:
 
                 # Handle location persistence for "Unknown Location" or similar responses
                 if (
-                    extracted_response.current_location_name
+                    extracted_response.current_location_name.lower()
                     in GENERIC_LOCATION_FALLBACKS
                     and previous_location
-                    and previous_location not in GENERIC_LOCATION_FALLBACKS
+                    and previous_location.lower() not in GENERIC_LOCATION_FALLBACKS
                 ):
                     # Log the location persistence
                     if self.logger:

@@ -9,11 +9,12 @@ This module contains the main game loop and ties together all other modules:
 - Logging and experience tracking
 """
 
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict, Any
 from collections import Counter
 from datetime import datetime
 import environs
 import os
+import json
 
 from openai import OpenAI
 from zork_api import ZorkInterface
@@ -26,6 +27,13 @@ from zork_agent import ZorkAgent as AgentModule
 from zork_extractor import ZorkExtractor, ExtractorResponse
 from zork_critic import ZorkCritic, CriticResponse
 from zork_strategy_generator import create_integrated_knowledge_base
+
+# Optional S3 support
+try:
+    import boto3
+    S3_AVAILABLE = True
+except ImportError:
+    S3_AVAILABLE = False
 
 # Load environment variables
 env = environs.Env()
@@ -55,14 +63,13 @@ class ZorkOrchestrator:
         max_turns_per_episode: int = 500,
         client_base_url: str = None,
         client_api_key: str = None,
-        # Dynamic turn limit parameters
-        absolute_max_turns: int = 1000,
-        turn_limit_increment: int = 50,
-        performance_check_interval: int = 20,
-        performance_threshold: float = 0.5,
-        min_turns_for_increase: int = 50,
         # Automatic knowledge base updating
         auto_update_knowledge: bool = True,
+        # State export configuration
+        enable_state_export: bool = True,
+        state_export_file: str = "current_state.json",
+        s3_bucket: str = None,
+        s3_key_prefix: str = "zorkgpt/",
     ):
         """Initialize the ZorkOrchestrator with all subsystems."""
         # Store configuration
@@ -71,16 +78,25 @@ class ZorkOrchestrator:
         self.experiences_file = experiences_file
 
         # Game settings
-        self.base_max_turns_per_episode = max_turns_per_episode
         self.max_turns_per_episode = max_turns_per_episode
-
-        # Dynamic turn limit configuration
-        self.absolute_max_turns = absolute_max_turns
-        self.turn_limit_increment = turn_limit_increment
-        self.performance_check_interval = performance_check_interval
-        self.performance_threshold = performance_threshold
-        self.min_turns_for_increase = min_turns_for_increase
         self.auto_update_knowledge = auto_update_knowledge
+
+        # State export configuration
+        self.enable_state_export = enable_state_export
+        self.state_export_file = state_export_file
+        self.s3_bucket = s3_bucket or env.str("ZORK_S3_BUCKET", None)
+        self.s3_key_prefix = s3_key_prefix
+        
+        # Initialize S3 client if available and configured
+        self.s3_client = None
+        if S3_AVAILABLE and self.s3_bucket:
+            try:
+                self.s3_client = boto3.client('s3')
+                if self.logger:
+                    self.logger.info(f"S3 export enabled for bucket: {self.s3_bucket}")
+            except Exception as e:
+                if self.logger:
+                    self.logger.warning(f"Failed to initialize S3 client: {e}")
 
         # Initialize logger and experience tracker
         self.logger = setup_logging(episode_log_file, json_log_file)
@@ -126,17 +142,13 @@ class ZorkOrchestrator:
         self.current_room_name_for_map = ""
         self.prev_room_for_prompt_context: Optional[str] = None
         self.action_leading_to_current_room_for_prompt_context: Optional[str] = None
+        self.current_inventory = []
 
         # Reset movement analyzer for new episode
         self.movement_analyzer.clear_pending_connections()
 
-        # Reset dynamic turn limit for the new episode
-        self.max_turns_per_episode = self.base_max_turns_per_episode
-
-        # Performance tracking for dynamic turn limits
-        self.critic_scores_history = []
-        self.turn_limit_increases = 0
-        self.last_performance_check_turn = 0
+        # Agent reasoning tracking for state export
+        self.action_reasoning_history = []
 
         # Update episode IDs in components
         self.agent.update_episode_id(self.episode_id)
@@ -171,13 +183,7 @@ class ZorkOrchestrator:
                     "critic_model": self.critic.model,
                     "info_ext_model": self.extractor.model,
                     "timestamp": datetime.now().isoformat(),
-                    # Dynamic turn limit configuration
-                    "base_max_turns": self.base_max_turns_per_episode,
-                    "absolute_max_turns": self.absolute_max_turns,
-                    "turn_limit_increment": self.turn_limit_increment,
-                    "performance_check_interval": self.performance_check_interval,
-                    "performance_threshold": self.performance_threshold,
-                    "min_turns_for_increase": self.min_turns_for_increase,
+                    "max_turns": self.max_turns_per_episode,
                 }
             },
         )
@@ -221,6 +227,9 @@ class ZorkOrchestrator:
             self.current_room_name_for_map = "Unknown (Initial Extraction Failed)"
             self.game_map.add_room(self.current_room_name_for_map)
 
+        # Export initial state
+        self.export_current_state()
+
         # Main game loop
         while (
             not game_over
@@ -252,6 +261,8 @@ class ZorkOrchestrator:
                 current_inventory, inventory_response = (
                     zork_interface_instance.inventory_with_response()
                 )
+                # Update instance variable for state export
+                self.current_inventory = current_inventory
 
                 # Check if the inventory command caused game over
                 if inventory_response:
@@ -333,8 +344,8 @@ class ZorkOrchestrator:
                 failed_actions_by_location=self.failed_actions_by_location,
             )
 
-            # Get agent action
-            agent_action = self.agent.get_action(
+            # Get agent action with reasoning
+            agent_response = self.agent.get_action_with_reasoning(
                 game_state_text=current_game_state,
                 previous_actions_and_responses=self.action_history[
                     -5:
@@ -342,6 +353,8 @@ class ZorkOrchestrator:
                 action_counts=self.action_counts,
                 relevant_memories=relevant_memories,
             )
+            agent_action = agent_response["action"]
+            agent_reasoning = agent_response["reasoning"]
 
             # Get critic evaluation
             critic_response = self.critic.get_robust_evaluation(
@@ -374,7 +387,6 @@ class ZorkOrchestrator:
                             "turns_since_movement": getattr(
                                 self, "turns_since_movement", 0
                             ),
-                            "recent_critic_scores": self.critic_scores_history[-5:],
                         },
                     )
                 )
@@ -398,14 +410,16 @@ class ZorkOrchestrator:
                         agent_action
                     )
 
-                    # Get new action from agent
-                    agent_action = self.agent.get_action(
+                    # Get new action from agent with reasoning
+                    agent_response = self.agent.get_action_with_reasoning(
                         game_state_text=current_game_state
                         + f"\n\n[Previous action '{agent_action}' was rejected by critic: {critic_justification}]",
                         previous_actions_and_responses=self.action_history[-5:],
                         action_counts=self.action_counts,
                         relevant_memories=relevant_memories,
                     )
+                    agent_action = agent_response["action"]
+                    agent_reasoning = agent_response["reasoning"]
 
                     # Re-evaluate new action
                     critic_response = self.critic.get_robust_evaluation(
@@ -417,6 +431,15 @@ class ZorkOrchestrator:
                     critic_score_val = critic_response.score
                     critic_justification = critic_response.justification
 
+            # Store reasoning for state export
+            self.action_reasoning_history.append({
+                "turn": self.turn_count,
+                "action": agent_action,
+                "reasoning": agent_reasoning,
+                "critic_score": critic_score_val,
+                "was_overridden": was_overridden
+            })
+
             # Log final selected action
             self.logger.info(
                 f"SELECTED ACTION: {agent_action} (Score: {critic_score_val:.2f}, Confidence: {critic_confidence:.2f}, Override: {was_overridden})",
@@ -425,6 +448,7 @@ class ZorkOrchestrator:
                         "event_type": "final_action_selection",
                         "episode_id": self.episode_id,
                         "agent_action": agent_action,
+                        "agent_reasoning": agent_reasoning,
                         "critic_score": critic_score_val,
                         "critic_confidence": critic_confidence,
                         "was_overridden": was_overridden,
@@ -434,12 +458,6 @@ class ZorkOrchestrator:
 
             # Update action count for repetition tracking
             self.action_counts[agent_action] += 1
-
-            # Track critic score for performance evaluation
-            self.critic_scores_history.append(critic_score_val)
-
-            # Evaluate performance and potentially increase turn limit
-            self._evaluate_performance_and_adjust_turn_limit()
 
             # Send the chosen action to Zork
             room_before_action = self.current_room_name_for_map
@@ -705,6 +723,9 @@ class ZorkOrchestrator:
             # Reset critic rejection system for next turn
             self.critic.rejection_system.reset_turn()
 
+            # Export current state after each turn
+            self.export_current_state()
+
         # Debug: Log why the episode ended
         end_reasons = []
         if game_over:
@@ -744,17 +765,9 @@ class ZorkOrchestrator:
                     if "max_zork_score" in locals()
                     else 585,
                     "total_reward": self.total_episode_reward,
-                    # Dynamic turn limit information
-                    "base_max_turns": self.base_max_turns_per_episode,
                     "final_max_turns": self.max_turns_per_episode,
-                    "turn_limit_increases": self.turn_limit_increases,
-                    "absolute_max_turns": self.absolute_max_turns,
                     # Performance metrics
-                    "avg_critic_score": sum(self.critic_scores_history)
-                    / len(self.critic_scores_history)
-                    if self.critic_scores_history
-                    else 0,
-                    "total_critic_evaluations": len(self.critic_scores_history),
+                    "avg_critic_score": self.get_avg_critic_score(),
                 }
             },
         )
@@ -771,110 +784,7 @@ class ZorkOrchestrator:
 
         return self.experience_tracker.get_experiences(), self.previous_zork_score
 
-    def _evaluate_performance_and_adjust_turn_limit(self) -> bool:
-        """
-        Evaluate recent performance and potentially increase the turn limit.
 
-        Returns:
-            True if the turn limit was increased, False otherwise
-        """
-        # Don't check too early in the episode
-        if self.turn_count < self.min_turns_for_increase:
-            return False
-
-        # Don't check too frequently
-        turns_since_last_check = self.turn_count - self.last_performance_check_turn
-        if turns_since_last_check < self.performance_check_interval:
-            return False
-
-        # Don't exceed absolute maximum
-        if self.max_turns_per_episode >= self.absolute_max_turns:
-            return False
-
-        # Need sufficient critic score history to evaluate
-        if len(self.critic_scores_history) < self.performance_check_interval:
-            return False
-
-        # Calculate recent performance metrics
-        recent_scores = self.critic_scores_history[-self.performance_check_interval :]
-        avg_recent_critic_score = sum(recent_scores) / len(recent_scores)
-
-        # Additional performance indicators
-        recent_rewards = []
-        if hasattr(self, "experience_tracker") and self.experience_tracker.experiences:
-            recent_experiences = self.experience_tracker.experiences[
-                -self.performance_check_interval :
-            ]
-            recent_rewards = [exp["reward"] for exp in recent_experiences]
-
-        avg_recent_reward = (
-            sum(recent_rewards) / len(recent_rewards) if recent_rewards else 0
-        )
-
-        # Count recent exploration (new rooms discovered in recent turns)
-        recent_exploration_count = 0
-        if len(self.action_history) >= self.performance_check_interval:
-            recent_actions = self.action_history[-self.performance_check_interval :]
-            movement_actions = [
-                action
-                for action, _ in recent_actions
-                if any(
-                    direction in action.lower()
-                    for direction in [
-                        "north",
-                        "south",
-                        "east",
-                        "west",
-                        "up",
-                        "down",
-                        "enter",
-                        "climb",
-                        "go",
-                    ]
-                )
-            ]
-            recent_exploration_count = len(movement_actions)
-
-        # Determine if performance warrants an increase
-        performance_criteria_met = (
-            avg_recent_critic_score >= self.performance_threshold
-            and avg_recent_reward >= 0.1  # Positive average reward
-            and recent_exploration_count >= 2  # Some exploration activity
-        )
-
-        self.last_performance_check_turn = self.turn_count
-
-        if performance_criteria_met:
-            new_limit = min(
-                self.max_turns_per_episode + self.turn_limit_increment,
-                self.absolute_max_turns,
-            )
-
-            old_limit = self.max_turns_per_episode
-            self.max_turns_per_episode = new_limit
-            self.turn_limit_increases += 1
-
-            # Log the turn limit increase
-            self.logger.info(
-                f"Turn limit increased from {old_limit} to {new_limit} due to good performance",
-                extra={
-                    "extras": {
-                        "event_type": "turn_limit_increase",
-                        "episode_id": self.episode_id,
-                        "turn": self.turn_count,
-                        "old_limit": old_limit,
-                        "new_limit": new_limit,
-                        "avg_critic_score": avg_recent_critic_score,
-                        "avg_reward": avg_recent_reward,
-                        "exploration_count": recent_exploration_count,
-                        "total_increases": self.turn_limit_increases,
-                    }
-                },
-            )
-
-            return True
-
-        return False
 
     def _update_movement_tracking(
         self, action: str, from_room: str, to_room: str
@@ -905,6 +815,187 @@ class ZorkOrchestrator:
         # Update room context for next turn
         self.prev_room_for_prompt_context = from_room
         self.action_leading_to_current_room_for_prompt_context = action
+
+    def get_current_state(self) -> Dict[str, Any]:
+        """Get comprehensive current state for export."""
+        return {
+            "metadata": {
+                "episode_id": self.episode_id,
+                "timestamp": datetime.now().isoformat(),
+                "turn_count": self.turn_count,
+                "game_over": False,  # TODO: Track this properly
+                "score": self.previous_zork_score,
+                "total_reward": self.total_episode_reward,
+                "max_turns": self.max_turns_per_episode
+            },
+            "current_state": {
+                "location": self.current_room_name_for_map,
+                "inventory": self.current_inventory,
+                "in_combat": self._get_combat_status(),
+            },
+            "recent_log": self.get_recent_log(20),
+            "map": {
+                "mermaid_diagram": self.game_map.render_mermaid(),
+                "current_room": self.current_room_name_for_map,
+                "total_rooms": len(self.game_map.rooms),
+                "total_connections": sum(len(connections) for connections in self.game_map.connections.values()),
+                # Optional: Include raw data for advanced frontends
+                "raw_data": {
+                    "rooms": {name: {"exits": list(room.exits)} for name, room in self.game_map.rooms.items()},
+                    "connections": self.game_map.connections
+                }
+            },
+            "knowledge_base": self.get_knowledge_base_summary(),
+            "performance": {
+                "avg_critic_score": self.get_avg_critic_score(),
+                "recent_actions": self.get_recent_action_summary()
+            }
+        }
+
+    def get_recent_log(self, length: int = 10) -> List[Dict[str, Any]]:
+        """Get recent game log entries with reasoning."""
+        recent_log = []
+        
+        # Get the most recent entries from action_history and memory_log_history
+        recent_actions = self.action_history[-length:] if self.action_history else []
+        recent_extractions = self.memory_log_history[-length:] if self.memory_log_history else []
+        recent_reasoning = self.action_reasoning_history[-length:] if self.action_reasoning_history else []
+        
+        # Combine them by turn (assuming they're in sync)
+        for i, (action, zork_response) in enumerate(recent_actions):
+            turn_num = self.turn_count - len(recent_actions) + i + 1
+            
+            log_entry = {
+                "turn": turn_num,
+                "action": action,
+                "zork_response": zork_response
+            }
+            
+            # Add reasoning if available
+            reasoning_entry = None
+            for reasoning in recent_reasoning:
+                if reasoning["turn"] == turn_num and reasoning["action"] == action:
+                    reasoning_entry = reasoning
+                    break
+            
+            if reasoning_entry:
+                log_entry["reasoning"] = reasoning_entry["reasoning"]
+                log_entry["critic_score"] = reasoning_entry["critic_score"]
+                log_entry["was_overridden"] = reasoning_entry["was_overridden"]
+            
+            # Add extraction info if available
+            if i < len(recent_extractions):
+                extraction = recent_extractions[i]
+                if hasattr(extraction, 'model_dump'):
+                    log_entry["extracted_info"] = extraction.model_dump()
+                else:
+                    log_entry["extracted_info"] = {
+                        "current_location_name": getattr(extraction, 'current_location_name', ''),
+                        "exits": getattr(extraction, 'exits', []),
+                        "visible_objects": getattr(extraction, 'visible_objects', []),
+                        "important_messages": getattr(extraction, 'important_messages', [])
+                    }
+            
+            recent_log.append(log_entry)
+        
+        return recent_log
+
+    def get_knowledge_base_summary(self) -> Dict[str, Any]:
+        """Get knowledge base without the embedded map."""
+        try:
+            with open("knowledgebase.md", "r") as f:
+                content = f.read()
+                
+            # Split content and exclude the map section
+            sections = content.split("## CURRENT WORLD MAP")
+            knowledge_only = sections[0] if sections else content
+            
+            return {
+                "content": knowledge_only.strip(),
+                "last_updated": os.path.getmtime("knowledgebase.md") if os.path.exists("knowledgebase.md") else None
+            }
+        except Exception:
+            return {"content": "No knowledge base available", "last_updated": None}
+
+    def _get_combat_status(self) -> bool:
+        """Determine if currently in combat based on recent extractions."""
+        if not self.memory_log_history:
+            return False
+        
+        recent_extraction = self.memory_log_history[-1]
+        return getattr(recent_extraction, 'in_combat', False)
+
+    def get_avg_critic_score(self) -> float:
+        """Get average critic score for recent turns."""
+        if not hasattr(self, "experience_tracker") or not self.experience_tracker.experiences:
+            return 0.0
+        
+        recent_experiences = self.experience_tracker.experiences[-10:]  # Last 10 turns
+        critic_scores = [exp.get("critic_score", 0.0) for exp in recent_experiences]
+        
+        if not critic_scores:
+            return 0.0
+            
+        return sum(critic_scores) / len(critic_scores)
+
+    def get_recent_action_summary(self) -> List[str]:
+        """Get summary of recent actions."""
+        if not self.action_history:
+            return []
+        
+        recent_actions = self.action_history[-5:]  # Last 5 actions
+        return [action for action, _ in recent_actions]
+
+    def export_current_state(self) -> None:
+        """Export current state to file and optionally to S3."""
+        if not self.enable_state_export:
+            return
+            
+        try:
+            state = self.get_current_state()
+            
+            # Export to local file
+            temp_file = f"{self.state_export_file}.tmp"
+            with open(temp_file, "w") as f:
+                json.dump(state, f, indent=2)
+            
+            # Atomic rename
+            os.rename(temp_file, self.state_export_file)
+            
+            # Upload to S3 if configured
+            if self.s3_client and self.s3_bucket:
+                self.upload_state_to_s3(state)
+                
+        except Exception as e:
+            if self.logger:
+                self.logger.warning(f"Failed to export current state: {e}")
+
+    def upload_state_to_s3(self, state: Dict[str, Any]) -> None:
+        """Upload current state to S3."""
+        try:
+            # Current state file
+            current_key = f"{self.s3_key_prefix}current_state.json"
+            
+            self.s3_client.put_object(
+                Bucket=self.s3_bucket,
+                Key=current_key,
+                Body=json.dumps(state, indent=2),
+                ContentType='application/json',
+                CacheControl='no-cache, must-revalidate'  # Ensure fresh data
+            )
+            
+            # Optional: Also save timestamped snapshot
+            timestamp_key = f"{self.s3_key_prefix}snapshots/{state['metadata']['episode_id']}/turn_{state['metadata']['turn_count']}.json"
+            self.s3_client.put_object(
+                Bucket=self.s3_bucket,
+                Key=timestamp_key,
+                Body=json.dumps(state, indent=2),
+                ContentType='application/json'
+            )
+            
+        except Exception as e:
+            if self.logger:
+                self.logger.warning(f"Failed to upload state to S3: {e}")
 
 
 if __name__ == "__main__":
