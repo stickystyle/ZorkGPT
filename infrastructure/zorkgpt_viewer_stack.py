@@ -29,7 +29,6 @@ class ZorkGPTViewerStack(Stack):
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
             removal_policy=RemovalPolicy.DESTROY,  # For development - change for production
             auto_delete_objects=True,  # For development - change for production
-            versioning=False,  # State files don't need versioning
             cors=[
                 s3.CorsRule(
                     allowed_methods=[s3.HttpMethods.GET, s3.HttpMethods.HEAD],
@@ -40,65 +39,25 @@ class ZorkGPTViewerStack(Stack):
             ],
         )
 
-        # Create Origin Access Control for CloudFront to access S3
-        oac = cloudfront.OriginAccessControl(
+        # Create Origin Access Identity for CloudFront to access S3
+        oai = cloudfront.OriginAccessIdentity(
             self,
-            "ZorkGPTViewerOAC",
-            description="Origin Access Control for ZorkGPT Viewer",
-            origin_access_control_origin_type=cloudfront.OriginAccessControlOriginType.S3,
-            signing=cloudfront.Signing.SIGV4_ALWAYS,
+            "ZorkGPTViewerOAI",
+            comment="Origin Access Identity for ZorkGPT Viewer",
         )
 
-        # Create cache behaviors - different caching for different file types
-        cache_behaviors = [
-            # Don't cache current_state.json at all
-            cloudfront.BehaviorOptions(
-                path_pattern="/current_state.json",
-                origin=origins.S3Origin(
-                    self.bucket,
-                    origin_access_control=oac,
-                ),
-                cache_policy=cloudfront.CachePolicy.CACHING_DISABLED,
-                origin_request_policy=cloudfront.OriginRequestPolicy.CORS_S3_ORIGIN,
-                viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
-                allowed_methods=cloudfront.AllowedMethods.ALLOW_GET_HEAD,
-            ),
-            # Cache static assets (HTML, CSS, JS) for a reasonable time
-            cloudfront.BehaviorOptions(
-                path_pattern="*.html",
-                origin=origins.S3Origin(
-                    self.bucket,
-                    origin_access_control=oac,
-                ),
-                cache_policy=cloudfront.CachePolicy(
-                    self,
-                    "HTMLCachePolicy",
-                    cache_policy_name=f"ZorkGPT-HTML-Cache-{self.stack_name}",
-                    comment="Cache policy for HTML files",
-                    default_ttl=Duration.minutes(5),  # Short cache for HTML
-                    max_ttl=Duration.hours(1),
-                    min_ttl=Duration.seconds(0),
-                    cookie_behavior=cloudfront.CacheCookieBehavior.none(),
-                    header_behavior=cloudfront.CacheHeaderBehavior.none(),
-                    query_string_behavior=cloudfront.CacheQueryStringBehavior.all(),  # Allow cache busting
-                    enable_accept_encoding_gzip=True,
-                    enable_accept_encoding_brotli=True,
-                ),
-                origin_request_policy=cloudfront.OriginRequestPolicy.CORS_S3_ORIGIN,
-                viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
-                allowed_methods=cloudfront.AllowedMethods.ALLOW_GET_HEAD,
-            ),
-        ]
+        # Create S3 origin for CloudFront
+        s3_origin = origins.S3BucketOrigin.with_origin_access_identity(
+            bucket=self.bucket,
+            origin_access_identity=oai,
+        )
 
         # Create CloudFront distribution
         self.distribution = cloudfront.Distribution(
             self,
             "ZorkGPTViewerDistribution",
             default_behavior=cloudfront.BehaviorOptions(
-                origin=origins.S3Origin(
-                    self.bucket,
-                    origin_access_control=oac,
-                ),
+                origin=s3_origin,
                 cache_policy=cloudfront.CachePolicy(
                     self,
                     "DefaultCachePolicy",
@@ -117,35 +76,51 @@ class ZorkGPTViewerStack(Stack):
                 viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
                 allowed_methods=cloudfront.AllowedMethods.ALLOW_GET_HEAD,
             ),
-            additional_behaviors=dict(
-                (behavior.path_pattern, behavior) for behavior in cache_behaviors
-            ),
+            additional_behaviors={
+                # Don't cache current_state.json at all
+                "/current_state.json": cloudfront.BehaviorOptions(
+                    origin=s3_origin,
+                    cache_policy=cloudfront.CachePolicy.CACHING_DISABLED,
+                    origin_request_policy=cloudfront.OriginRequestPolicy.CORS_S3_ORIGIN,
+                    viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+                    allowed_methods=cloudfront.AllowedMethods.ALLOW_GET_HEAD,
+                ),
+                # Cache static assets (HTML, CSS, JS) for a reasonable time
+                "*.html": cloudfront.BehaviorOptions(
+                    origin=s3_origin,
+                    cache_policy=cloudfront.CachePolicy(
+                        self,
+                        "HTMLCachePolicy",
+                        cache_policy_name=f"ZorkGPT-HTML-Cache-{self.stack_name}",
+                        comment="Cache policy for HTML files",
+                        default_ttl=Duration.minutes(5),  # Short cache for HTML
+                        max_ttl=Duration.hours(1),
+                        min_ttl=Duration.seconds(0),
+                        cookie_behavior=cloudfront.CacheCookieBehavior.none(),
+                        header_behavior=cloudfront.CacheHeaderBehavior.none(),
+                        query_string_behavior=cloudfront.CacheQueryStringBehavior.all(),  # Allow cache busting
+                        enable_accept_encoding_gzip=True,
+                        enable_accept_encoding_brotli=True,
+                    ),
+                    origin_request_policy=cloudfront.OriginRequestPolicy.CORS_S3_ORIGIN,
+                    viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+                    allowed_methods=cloudfront.AllowedMethods.ALLOW_GET_HEAD,
+                ),
+            },
             default_root_object="zork_viewer.html",
             price_class=cloudfront.PriceClass.PRICE_CLASS_100,  # Use only North America and Europe
             comment="CloudFront distribution for ZorkGPT Live Viewer",
             enabled=True,
         )
 
-        # Grant CloudFront access to the S3 bucket
-        self.bucket.add_to_resource_policy(
-            iam.PolicyStatement(
-                effect=iam.Effect.ALLOW,
-                principals=[iam.ServicePrincipal("cloudfront.amazonaws.com")],
-                actions=["s3:GetObject"],
-                resources=[f"{self.bucket.bucket_arn}/*"],
-                conditions={
-                    "StringEquals": {
-                        "AWS:SourceArn": f"arn:aws:cloudfront::{self.account}:distribution/{self.distribution.distribution_id}"
-                    }
-                },
-            )
-        )
+        # Grant CloudFront OAI access to the S3 bucket
+        self.bucket.grant_read(oai)
 
         # Deploy the initial website files
         s3deploy.BucketDeployment(
             self,
             "ZorkGPTViewerDeployment",
-            sources=[s3deploy.Source.asset(".")],  # Deploy from current directory
+            sources=[s3deploy.Source.asset(".", exclude=["**/.venv/**", "**/cdk.out/**", "**/__pycache__/**", "**/.git/**"])],
             destination_bucket=self.bucket,
             include=["zork_viewer.html"],  # Only deploy the HTML file initially
             distribution=self.distribution,
@@ -192,10 +167,15 @@ class ZorkGPTViewerStack(Stack):
         user_data.add_commands(
             "#!/bin/bash",
             "yum update -y",
-            "yum install -y git python3 python3-pip",
+            "yum install -y git python3 python3-pip gcc make ncurses-devel",
             # Install uv for faster Python package management
             "curl -LsSf https://astral.sh/uv/install.sh | sh",
             "source $HOME/.cargo/env",
+            # Install Zork game - compile from source since Amazon Linux 2 doesn't have frotz in repos
+            "cd /tmp",
+            "git clone https://github.com/devshane/zork.git",
+            "cd zork",
+            "make",
             # Create zorkgpt user
             "useradd -m -s /bin/bash zorkgpt",
             "mkdir -p /home/zorkgpt/.ssh",
@@ -207,6 +187,10 @@ class ZorkGPTViewerStack(Stack):
             # Set up Python environment using uv
             "cd /home/zorkgpt/ZorkGPT",
             "sudo -u zorkgpt /home/zorkgpt/.cargo/bin/uv sync",
+            # Verify Zork installation
+            "which zork > /var/log/zork-install.log 2>&1",
+            "echo 'Zork installation check:' >> /var/log/zork-install.log",
+            "ls -la /usr/local/bin/zork >> /var/log/zork-install.log 2>&1",
             # Set up environment variables
             f"echo 'export ZORK_S3_BUCKET={self.bucket.bucket_name}' >> /home/zorkgpt/.bashrc",
             "echo 'export PATH=/home/zorkgpt/.cargo/bin:$PATH' >> /home/zorkgpt/.bashrc",

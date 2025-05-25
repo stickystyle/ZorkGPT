@@ -13,14 +13,14 @@ import json
 from pathlib import Path
 
 
-def run_command(command, description, check=True):
+def run_command(command, description, check=True, env=None):
     """Run a command and handle errors gracefully."""
     print(f"\n🔄 {description}...")
     print(f"Running: {command}")
 
     try:
         result = subprocess.run(
-            command, shell=True, check=check, capture_output=True, text=True
+            command, shell=True, check=check, capture_output=True, text=True, env=env
         )
 
         if result.stdout:
@@ -90,9 +90,11 @@ def setup_python_environment():
     if sys.platform == "win32":
         activate_cmd = ".venv\\Scripts\\activate"
         pip_cmd = ".venv\\Scripts\\pip"
+        python_cmd = ".venv\\Scripts\\python"
     else:
         activate_cmd = "source .venv/bin/activate"
         pip_cmd = ".venv/bin/pip"
+        python_cmd = ".venv/bin/python"
 
     if not run_command(
         f"{pip_cmd} install -r requirements.txt", "Installing Python dependencies"
@@ -101,6 +103,26 @@ def setup_python_environment():
 
     print("✅ Python environment setup complete")
     return True
+
+
+def get_venv_python():
+    """Get the path to the virtual environment's Python interpreter."""
+    if sys.platform == "win32":
+        return ".venv\\Scripts\\python"
+    else:
+        return ".venv/bin/python"
+
+
+def get_venv_environment():
+    """Get environment variables configured to use the virtual environment."""
+    env = os.environ.copy()
+    if sys.platform == "win32":
+        venv_path = Path('.venv/Scripts').absolute()
+    else:
+        venv_path = Path('.venv/bin').absolute()
+    
+    env['PATH'] = f"{venv_path}:{env['PATH']}" if sys.platform != "win32" else f"{venv_path};{env['PATH']}"
+    return env
 
 
 def bootstrap_cdk():
@@ -134,9 +156,15 @@ def bootstrap_cdk():
         print("❌ Could not determine AWS account/region")
         return False
 
-    # Bootstrap CDK
+    # Bootstrap CDK using virtual environment
     bootstrap_cmd = f"cdk bootstrap aws://{account}/{region}"
-    if not run_command(bootstrap_cmd, "Bootstrapping CDK"):
+    
+    # Update the environment to use our virtual environment python
+    env = get_venv_environment()
+    env['CDK_DEFAULT_ACCOUNT'] = account
+    env['CDK_DEFAULT_REGION'] = region
+    
+    if not run_command(bootstrap_cmd, "Bootstrapping CDK", env=env):
         print("ℹ️  CDK might already be bootstrapped, continuing...")
 
     return True
@@ -146,12 +174,15 @@ def deploy_stack():
     """Deploy the ZorkGPT Viewer stack."""
     print("\n🚀 Deploying ZorkGPT Viewer stack...")
 
+    # Update the environment to use our virtual environment python
+    env = get_venv_environment()
+
     # Synthesize the stack first
-    if not run_command("cdk synth", "Synthesizing CDK stack"):
+    if not run_command("cdk synth", "Synthesizing CDK stack", env=env):
         return False
 
     # Deploy the stack
-    if not run_command("cdk deploy --require-approval never", "Deploying stack"):
+    if not run_command("cdk deploy --require-approval never", "Deploying stack", env=env):
         return False
 
     print("✅ Stack deployed successfully!")
