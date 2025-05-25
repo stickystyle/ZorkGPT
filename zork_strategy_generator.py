@@ -77,6 +77,9 @@ class AdaptiveKnowledgeManager:
             print("  ⚠️ No turn data found for analysis")
             return False
 
+        # Check if this is the very first knowledge update (no knowledge base exists)
+        is_first_update = not os.path.exists(self.output_file) or os.path.getsize(self.output_file) == 0
+        
         # Step 1: LLM assesses if this data is worth analyzing
         quality_score, quality_reason = self._assess_knowledge_update_quality(
             turn_data, is_final_update
@@ -95,7 +98,10 @@ class AdaptiveKnowledgeManager:
                 f"  🎯 Using final update threshold: {effective_threshold:.1f} (vs normal {self.min_quality_threshold:.1f})"
             )
 
-        if quality_score < effective_threshold:
+        # Allow first update regardless of quality to bootstrap learning
+        if is_first_update:
+            print(f"  🌱 First knowledge update - proceeding regardless of quality score to bootstrap learning")
+        elif quality_score < effective_threshold:
             print(
                 f"  ⏭️ Skipping update - quality below threshold ({effective_threshold})"
             )

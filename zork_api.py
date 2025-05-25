@@ -38,7 +38,7 @@ class ZorkInterface:
             raise RuntimeError("Zork process is already running")
 
         self.process = subprocess.Popen(
-            ["zork"],
+            ["frotz", "./infrastructure/zork.z5"],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

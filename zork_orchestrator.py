@@ -26,6 +26,7 @@ from logger import setup_logging, ZorkExperienceTracker
 # Import our refactored modules with aliases to avoid conflicts
 from zork_agent import ZorkAgent as AgentModule
 from zork_extractor import ZorkExtractor, ExtractorResponse
+from hybrid_zork_extractor import HybridZorkExtractor
 from zork_critic import ZorkCritic, CriticResponse
 from zork_strategy_generator import (
     create_integrated_knowledge_base,
@@ -78,6 +79,8 @@ class ZorkOrchestrator:
         state_export_file: str = "current_state.json",
         s3_bucket: str = None,
         s3_key_prefix: str = "zorkgpt/",
+        # Extraction configuration
+        use_hybrid_extractor: bool = True,
     ):
         """Initialize the ZorkOrchestrator with all subsystems."""
         # Store configuration
@@ -126,9 +129,21 @@ class ZorkOrchestrator:
             model=agent_model, client=self.client, logger=self.logger
         )
 
-        self.extractor = ZorkExtractor(
-            model=info_ext_model, client=self.client, logger=self.logger
-        )
+        # Initialize extractor based on configuration
+        if use_hybrid_extractor:
+            # Use hybrid extractor that combines structured parsing with LLM extraction
+            self.extractor = HybridZorkExtractor(
+                model=info_ext_model, client=self.client, logger=self.logger
+            )
+            if self.logger:
+                self.logger.info("Using hybrid extractor (structured + LLM)")
+        else:
+            # Use traditional LLM-only extractor
+            self.extractor = ZorkExtractor(
+                model=info_ext_model, client=self.client, logger=self.logger
+            )
+            if self.logger:
+                self.logger.info("Using traditional LLM-only extractor")
 
         self.critic = ZorkCritic(
             model=critic_model, client=self.client, logger=self.logger
@@ -549,15 +564,21 @@ class ZorkOrchestrator:
             try:
                 next_game_state = zork_interface_instance.send_command(action_taken)
 
-                # Log Zork response
+                # Get clean game text for display (without structured header)
+                clean_game_text = next_game_state
+                if hasattr(self.extractor, 'get_clean_game_text'):
+                    clean_game_text = self.extractor.get_clean_game_text(next_game_state)
+
+                # Log Zork response (using clean text for display)
                 self.logger.info(
-                    f"ZORK RESPONSE for '{action_taken}':\n{next_game_state}\n",
+                    f"ZORK RESPONSE for '{action_taken}':\n{clean_game_text}\n",
                     extra={
                         "extras": {
                             "event_type": "zork_response",
                             "episode_id": self.episode_id,
                             "action": action_taken,
-                            "zork_response": next_game_state,
+                            "zork_response": clean_game_text,  # Store clean text for display
+                            "raw_zork_response": next_game_state,  # Keep raw for parsing if needed
                         }
                     },
                 )
@@ -584,7 +605,8 @@ class ZorkOrchestrator:
                         zork_interface_instance.score(next_game_state)
                     )
                     self.previous_zork_score = current_zork_score_val
-                    self.action_history.append((action_taken, next_game_state))
+                    # Store clean game text in action history (without structured header)
+                    self.action_history.append((action_taken, clean_game_text))
 
                     if game_over:
                         if "died" in game_over_reason.lower():
@@ -620,7 +642,8 @@ class ZorkOrchestrator:
                         )
                         continue
 
-                self.action_history.append((action_taken, next_game_state))
+                # Store clean game text in action history (without structured header)
+                self.action_history.append((action_taken, clean_game_text))
 
                 # Extract information using the extractor
                 llm_extracted_info = self.extractor.extract_info(
@@ -705,15 +728,40 @@ class ZorkOrchestrator:
                         },
                     )
 
-                # Get score
-                if not game_over and zork_interface_instance.is_running():
-                    current_zork_score_val, max_zork_score = (
-                        zork_interface_instance.score()
+                # Get score - try structured parser first if using hybrid extractor
+                structured_score = None
+                structured_moves = None
+                
+                if hasattr(self.extractor, 'get_score_and_moves'):
+                    structured_score, structured_moves = self.extractor.get_score_and_moves(next_game_state)
+                
+                if structured_score is not None:
+                    # Use score from structured parser
+                    current_zork_score_val = structured_score
+                    max_zork_score = 585  # Known max score for Zork I
+                    
+                    # Log successful structured score extraction
+                    self.logger.debug(
+                        f"Score extracted via structured parser: {current_zork_score_val} (moves: {structured_moves})",
+                        extra={
+                            "extras": {
+                                "event_type": "structured_score_extraction",
+                                "episode_id": self.episode_id,
+                                "score": current_zork_score_val,
+                                "moves": structured_moves,
+                            }
+                        },
                     )
                 else:
-                    current_zork_score_val, max_zork_score = (
-                        zork_interface_instance.parse_zork_score(next_game_state)
-                    )
+                    # Fallback to traditional score extraction
+                    if not game_over and zork_interface_instance.is_running():
+                        current_zork_score_val, max_zork_score = (
+                            zork_interface_instance.score()
+                        )
+                    else:
+                        current_zork_score_val, max_zork_score = (
+                            zork_interface_instance.parse_zork_score(next_game_state)
+                        )
 
             except RuntimeError as e:
                 self.logger.error(

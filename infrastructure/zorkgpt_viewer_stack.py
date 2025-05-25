@@ -122,7 +122,7 @@ class ZorkGPTViewerStack(Stack):
             "ZorkGPTViewerDeployment",
             sources=[s3deploy.Source.asset(".", exclude=["**/.venv/**", "**/cdk.out/**", "**/__pycache__/**", "**/.git/**"])],
             destination_bucket=self.bucket,
-            include=["zork_viewer.html"],  # Only deploy the HTML file initially
+            include=["zork_viewer.html", "infrastructure/zork.z5"],  # Deploy HTML and Z5 game file
             distribution=self.distribution,
             distribution_paths=["/*"],  # Invalidate all paths after deployment
         )
@@ -166,16 +166,17 @@ class ZorkGPTViewerStack(Stack):
         user_data = ec2.UserData.for_linux()
         user_data.add_commands(
             "#!/bin/bash",
-            "yum update -y",
-            "yum install -y git python3 python3-pip gcc make ncurses-devel",
+            "dnf update -y",
+            "dnf install -y git python3 python3-pip gcc make ncurses-devel awscli",
             # Install uv for faster Python package management
             "curl -LsSf https://astral.sh/uv/install.sh | sh",
             "source $HOME/.cargo/env",
-            # Install Zork game - compile from source since Amazon Linux 2 doesn't have frotz in repos
+            # Install Frotz - compile from source since Amazon Linux 2023 doesn't have frotz in repos
             "cd /tmp",
-            "git clone https://github.com/devshane/zork.git",
-            "cd zork",
-            "make",
+            "git clone https://gitlab.com/DavidGriffith/frotz.git",
+            "cd frotz",
+            "make dumb",
+            "make install",
             # Create zorkgpt user
             "useradd -m -s /bin/bash zorkgpt",
             "mkdir -p /home/zorkgpt/.ssh",
@@ -187,10 +188,20 @@ class ZorkGPTViewerStack(Stack):
             # Set up Python environment using uv
             "cd /home/zorkgpt/ZorkGPT",
             "sudo -u zorkgpt /home/zorkgpt/.cargo/bin/uv sync",
-            # Verify Zork installation
-            "which zork > /var/log/zork-install.log 2>&1",
-            "echo 'Zork installation check:' >> /var/log/zork-install.log",
-            "ls -la /usr/local/bin/zork >> /var/log/zork-install.log 2>&1",
+            # Ensure zork.z5 file is available (download from S3 bucket if needed)
+            f"aws s3 cp s3://{self.bucket.bucket_name}/infrastructure/zork.z5 /home/zorkgpt/ZorkGPT/infrastructure/zork.z5 || echo 'Could not download zork.z5 from S3'",
+            "chown zorkgpt:zorkgpt /home/zorkgpt/ZorkGPT/infrastructure/zork.z5",
+            # Verify Frotz installation
+            "which frotz > /var/log/frotz-install.log 2>&1",
+            "echo 'Frotz installation check:' >> /var/log/frotz-install.log",
+            "ls -la /usr/local/bin/frotz >> /var/log/frotz-install.log 2>&1",
+            "frotz -v >> /var/log/frotz-install.log 2>&1",
+            # Verify zork.z5 file is available
+            "echo 'Zork.z5 file check:' >> /var/log/frotz-install.log",
+            "ls -la /home/zorkgpt/ZorkGPT/infrastructure/zork.z5 >> /var/log/frotz-install.log 2>&1",
+            # Verify Python version
+            "echo 'Python version check:' >> /var/log/frotz-install.log",
+            "python3 --version >> /var/log/frotz-install.log 2>&1",
             # Set up environment variables
             f"echo 'export ZORK_S3_BUCKET={self.bucket.bucket_name}' >> /home/zorkgpt/.bashrc",
             "echo 'export PATH=/home/zorkgpt/.cargo/bin:$PATH' >> /home/zorkgpt/.bashrc",
@@ -225,7 +236,7 @@ class ZorkGPTViewerStack(Stack):
             "systemctl daemon-reload",
             "systemctl enable zorkgpt.service",
             # Log completion
-            "echo 'ZorkGPT setup completed' > /var/log/zorkgpt-setup.log",
+            "echo 'ZorkGPT setup completed with Frotz' > /var/log/zorkgpt-setup.log",
         )
 
         # Create EC2 instance
@@ -236,7 +247,7 @@ class ZorkGPTViewerStack(Stack):
                 ec2.InstanceClass.BURSTABLE2, ec2.InstanceSize.MICRO
             ),
             machine_image=ec2.AmazonLinuxImage(
-                generation=ec2.AmazonLinuxGeneration.AMAZON_LINUX_2
+                generation=ec2.AmazonLinuxGeneration.AMAZON_LINUX_2023
             ),
             vpc=vpc,
             security_group=security_group,
