@@ -9,6 +9,8 @@ from aws_cdk import (
     aws_s3_deployment as s3deploy,
     aws_iam as iam,
     aws_ec2 as ec2,
+    aws_route53 as route53,
+    aws_certificatemanager as acm,
     Duration,
     RemovalPolicy,
     CfnOutput,
@@ -19,6 +21,26 @@ from constructs import Construct
 class ZorkGPTViewerStack(Stack):
     def __init__(self, scope: Construct, construct_id: str, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
+
+        # Domain configuration
+        domain_name = "zorkgpt.com"
+        
+        # Create a new hosted zone for the domain
+        hosted_zone = route53.HostedZone(
+            self,
+            "ZorkGPTHostedZone",
+            zone_name=domain_name,
+            comment="Hosted zone for ZorkGPT domain",
+        )
+
+        # Create SSL certificate for the domain (must be in us-east-1 for CloudFront)
+        certificate = acm.Certificate(
+            self,
+            "ZorkGPTCertificate",
+            domain_name=domain_name,
+            subject_alternative_names=[f"www.{domain_name}"],
+            validation=acm.CertificateValidation.from_dns(hosted_zone),
+        )
 
         # Create S3 bucket for hosting the website and state files
         self.bucket = s3.Bucket(
@@ -111,10 +133,34 @@ class ZorkGPTViewerStack(Stack):
             price_class=cloudfront.PriceClass.PRICE_CLASS_100,  # Use only North America and Europe
             comment="CloudFront distribution for ZorkGPT Live Viewer",
             enabled=True,
+            # Custom domain configuration
+            domain_names=[domain_name, f"www.{domain_name}"],
+            certificate=certificate,
         )
 
         # Grant CloudFront OAI access to the S3 bucket
         self.bucket.grant_read(oai)
+
+        # Create Route53 A records to point domain to CloudFront distribution
+        route53.ARecord(
+            self,
+            "ZorkGPTARecord",
+            zone=hosted_zone,
+            record_name=domain_name,
+            target=route53.RecordTarget.from_alias(
+                cloudfront.CloudFrontTarget(self.distribution)
+            ),
+        )
+
+        route53.ARecord(
+            self,
+            "ZorkGPTWWWARecord",
+            zone=hosted_zone,
+            record_name=f"www.{domain_name}",
+            target=route53.RecordTarget.from_alias(
+                cloudfront.CloudFrontTarget(self.distribution)
+            ),
+        )
 
         # Deploy only the specific files we need for the viewer - use separate deployments for security
         s3deploy.BucketDeployment(
@@ -283,15 +329,43 @@ class ZorkGPTViewerStack(Stack):
         CfnOutput(
             self,
             "ViewerURL",
-            value=f"https://{self.distribution.distribution_domain_name}",
+            value=f"https://{domain_name}",
             description="URL to access the ZorkGPT Live Viewer",
         )
 
         CfnOutput(
             self,
             "StateFileURL",
-            value=f"https://{self.distribution.distribution_domain_name}/current_state.json",
+            value=f"https://{domain_name}/current_state.json",
             description="URL for the current state JSON file",
+        )
+
+        CfnOutput(
+            self,
+            "CustomDomainName",
+            value=domain_name,
+            description="Custom domain name for ZorkGPT",
+        )
+
+        CfnOutput(
+            self,
+            "CertificateArn",
+            value=certificate.certificate_arn,
+            description="ARN of the SSL certificate",
+        )
+
+        CfnOutput(
+            self,
+            "HostedZoneId",
+            value=hosted_zone.hosted_zone_id,
+            description="Route53 Hosted Zone ID",
+        )
+
+        CfnOutput(
+            self,
+            "NameServers",
+            value=",".join(hosted_zone.hosted_zone_name_servers),
+            description="Route53 nameservers - configure these with your domain registrar",
         )
 
         CfnOutput(
