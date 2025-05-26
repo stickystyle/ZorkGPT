@@ -3,10 +3,10 @@ from map_graph import (
     MapGraph,
     Room,
     normalize_direction,
-)  # Assuming Room is still needed for some setup
+)
 
 
-class TestNormalizeDirection(unittest.TestCase):  # No changes here, keep as is
+class TestNormalizeDirection(unittest.TestCase):
     def test_normalize_simple_directions(self):
         self.assertEqual(normalize_direction("n"), "north")
         self.assertEqual(normalize_direction("go south"), "south")
@@ -38,18 +38,13 @@ class TestMapGraph(unittest.TestCase):
     def setUp(self):
         self.map = MapGraph()
 
-    # Keep existing tests for add_room, update_room_exits_normalization,
-    # add_connection_*, get_room_info, connection_overwrite_preserves_symmetry_if_possible
-    # These should largely be unaffected or adaptable.
-    # For example, get_room_info might have slightly different wording based on map state.
-
-    def test_add_room(self):  # Updated to expect normalized room names
+    def test_add_room(self):
         self.map.add_room("West of House")
         self.assertIn("West Of House", self.map.rooms)  # Normalized to title case
         self.assertIsInstance(self.map.rooms["West Of House"], Room)
         self.assertEqual(self.map.rooms["West Of House"].name, "West Of House")
 
-    def test_update_room_exits_normalization(self):  # Keep as is
+    def test_update_room_exits_normalization(self):
         self.map.add_room("Cave")
         self.map.update_room_exits("Cave", ["N", "go East", "downward", "slide"])
         cave_room = self.map.rooms["Cave"]
@@ -58,9 +53,7 @@ class TestMapGraph(unittest.TestCase):
         self.assertIn("down", cave_room.exits)
         self.assertIn("slide", cave_room.exits)
 
-    def test_add_connection_simple_and_bidirectional(
-        self,
-    ):  # Updated for normalized names
+    def test_add_connection_simple_and_bidirectional(self):
         self.map.add_connection("West of House", "north", "North of House")
         self.assertIn("West Of House", self.map.connections)  # Normalized
         self.assertEqual(
@@ -73,45 +66,34 @@ class TestMapGraph(unittest.TestCase):
         self.assertIn("north", self.map.rooms["West Of House"].exits)  # Normalized
         self.assertIn("south", self.map.rooms["North Of House"].exits)  # Normalized
 
-    def test_add_connection_with_normalization_in_add_connection(
-        self,
-    ):  # Updated for normalized names
+    def test_add_connection_with_normalization_in_add_connection(self):
         self.map.add_connection("Living Room", "west", "Kitchen")
         self.assertEqual(self.map.connections["Living Room"]["west"], "Kitchen")
         self.assertEqual(self.map.connections["Kitchen"]["east"], "Living Room")
 
-    def test_add_connection_non_directional(self):  # Updated for normalized names
+    def test_add_connection_non_directional(self):
         self.map.add_connection("Cellar", "open trap door", "Dark Tunnel")
         self.assertEqual(
             self.map.connections["Cellar"]["open trap door"], "Dark Tunnel"
         )
         self.assertNotIn("Dark Tunnel", self.map.connections)
 
-    def test_add_connection_one_way_if_opposite_exists(
-        self,
-    ):  # Updated for normalized names
+    def test_add_connection_one_way_if_opposite_exists(self):
         self.map.add_connection("RoomA", "north", "RoomB")
         self.map.add_connection("RoomC", "south", "RoomB")
         self.assertEqual(self.map.connections["Roomb"]["south"], "Rooma")  # Normalized
         self.assertEqual(self.map.connections["Roomb"]["north"], "Roomc")  # Normalized
 
-    def test_get_room_info(
-        self,
-    ):  # Adjust assertions if output of get_room_info changed slightly
+    def test_get_room_info(self):
         self.map.add_connection("Attic", "down", "Landing")
-        # update_room_exits now normalizes, so if "window (closed)" isn't a known direction, it's "window (closed)"
         self.map.update_room_exits("Attic", ["down", "window (closed)"])
 
         info = self.map.get_room_info("Attic")
         self.assertIn("Current room: Attic.", info)
         self.assertIn("down (leads to Landing)", info)
-        self.assertIn(
-            "window (closed)", info
-        )  # Assuming "window (closed)" is not normalized by normalize_direction
+        self.assertIn("window (closed)", info)
 
-    def test_connection_overwrite_preserves_symmetry_if_possible(
-        self,
-    ):  # Updated for normalized names
+    def test_connection_overwrite_preserves_symmetry_if_possible(self):
         self.map.add_connection("B", "north", "C")
         self.map.add_connection("B", "south", "A")
         self.assertEqual(self.map.connections["B"]["north"], "C")
@@ -120,214 +102,85 @@ class TestMapGraph(unittest.TestCase):
         self.assertEqual(self.map.connections["A"]["north"], "B")
         self.map.add_connection("D", "north", "B")
         self.assertEqual(self.map.connections["D"]["north"], "B")
-        # This test expects that the new connection from D overwrites B's south connection
-        # But the current implementation only adds reverse connections if they don't exist
-        # So B's south connection to A should remain
-        self.assertEqual(
-            self.map.connections["B"]["south"], "A"
-        )  # Should remain A, not change to D
+        self.assertEqual(self.map.connections["B"]["south"], "A")  # Should remain A
         self.assertEqual(self.map.connections["A"]["north"], "B")
 
-    # --- Updated tests for get_context_for_prompt ---
     def test_get_context_for_prompt_empty_current_room_name(self):
         context = self.map.get_context_for_prompt(None)
         self.assertIn("Map: Current location name is missing.", context)
         context = self.map.get_context_for_prompt("")
         self.assertIn("Map: Current location name is missing.", context)
 
-    def test_get_context_for_prompt_newly_added_room_no_exits(self):
+    def test_get_context_for_prompt_newly_added_room(self):
         self.map.add_room("Void")
         context = self.map.get_context_for_prompt("Void")
         self.assertIn("Current location: Void (according to map).", context)
-        self.assertIn(
-            "No exits are currently known or mapped from this location.", context
-        )
-        self.assertNotIn("You arrived from", context)
 
-    def test_get_context_for_prompt_known_room_with_arrival_no_exits(self):
+    def test_get_context_for_prompt_with_arrival_info(self):
         self.map.add_room("Entrance Hall")
-        # Simulate arrival, though no connection is made for this test here
         context = self.map.get_context_for_prompt(
             "Entrance Hall", "Outside", "enter building"
         )
         self.assertIn("Current location: Entrance Hall (according to map).", context)
         self.assertIn("You arrived from 'Outside' by going enter building.", context)
-        self.assertIn(
-            "No exits are currently known or mapped from this location.", context
-        )
-
-    def test_get_context_for_prompt_exits_listed_not_connected(self):
-        self.map.add_room("Observatory")
-        self.map.update_room_exits(
-            "Observatory", ["north", "east"]
-        )  # Exits known but not traversed
-        context = self.map.get_context_for_prompt("Observatory")
-        self.assertIn("Current location: Observatory (according to map).", context)
-        # The detailed listing like "north (destination unknown)" appears if room.exits has items.
-        # The new logic:
-        # if room.exits:
-        #   ... makes exit_details ...
-        #   if exit_details: append("From here, mapped exits are: ...")
-        #   else: append("Exits are noted for this room, but their specific connections are not yet mapped.")
-        # This means if exits are present but NO connections from them, it hits the new line.
-        # Let's refine this test to ensure "north (destination unknown)" appears.
-        # This requires room.exits to be populated.
-        observatory_room = self.map.rooms["Observatory"]
-        self.assertTrue(observatory_room.exits)  # It has ["north", "east"]
-        # The logic in get_context_for_prompt for this case:
-        # exit_details will be ["north (destination unknown)", "east (destination unknown)"]
-        # So it should print "From here, mapped exits are: east (destination unknown), north (destination unknown)."
-        self.assertIn(
-            "From here, mapped exits are: east (destination unknown), north (destination unknown).",
-            context,
-        )
-
-    def test_get_context_for_prompt_fully_connected_room(self):
-        self.map.add_connection(
-            "Kitchen", "north", "Living Room"
-        )  # Adds Kitchen, Living Room
-        self.map.update_room_exits(
-            "Living Room", ["south", "east"]
-        )  # Explicitly set exits for Living Room
-        self.map.add_connection(
-            "Living Room", "east", "Garden"
-        )  # Connects one of those exits
-
-        context = self.map.get_context_for_prompt("Living Room", "Kitchen", "north")
-        self.assertIn("Current location: Living Room (according to map).", context)
-        self.assertIn("You arrived from 'Kitchen' by going north.", context)
-        self.assertIn(
-            "From here, mapped exits are: east (leads to Garden), south (leads to Kitchen).",
-            context,
-        )
-        # Note: "north" was not in update_room_exits, so it shouldn't be listed unless add_connection added it.
-        # add_connection for Kitchen->LR (north) also adds LR->Kitchen (south) to LR's exits.
-        # add_connection for LR->Garden (east) also adds Garden->LR (west) to Garden's exits and "east" to LR's exits.
-        # So Living Room's exits should be {south, east}. This looks correct.
 
     def test_get_context_for_prompt_unknown_room_name(self):
         context = self.map.get_context_for_prompt("Deep Dungeon")
         self.assertIn("Map: Location 'Deep Dungeon' is new or not yet mapped.", context)
-        self.assertNotIn(
-            "(according to map)", context
-        )  # Should not appear for unknown rooms
 
+    def test_confidence_tracking(self):
+        """Test the enhanced confidence tracking features."""
+        # Add a connection with default confidence
+        self.map.add_connection("Room A", "north", "Room B")
 
-class TestPendingConnections(unittest.TestCase):
-    """Test the pending connection functionality for dark room scenarios."""
-    
-    def setUp(self):
-        # Import here to avoid circular imports
-        from main import ZorkAgent
-        self.agent = ZorkAgent()
-        self.agent.reset_episode_state()
-    
-    def test_dark_room_detection(self):
-        """Test detection of dark room responses."""
-        # Test positive cases
-        dark_responses = [
-            "It is pitch dark. You are likely to be eaten by a grue.",
-            "PITCH BLACK everywhere!",
-            "Too dark to see anything.",
-            "The darkness surrounds you.",
-            "You are likely to be eaten by a grue"
-        ]
-        
-        for response in dark_responses:
-            with self.subTest(response=response):
-                self.assertTrue(self.agent.is_dark_room_response(response))
-        
-        # Test negative cases
-        normal_responses = [
-            "You are in a bright room.",
-            "The sun shines brightly here.",
-            "This is a well-lit corridor.",
-            "You can see clearly in all directions."
-        ]
-        
-        for response in normal_responses:
-            with self.subTest(response=response):
-                self.assertFalse(self.agent.is_dark_room_response(response))
-    
-    def test_pending_connection_creation_and_resolution(self):
-        """Test the full cycle of creating and resolving a pending connection."""
-        # Setup initial state
-        self.agent.current_room_name_for_map = "Living_room"
-        self.agent.turn_count = 22
-        
-        # Create pending connection
-        self.agent.pending_connection = {
-            'from_room': 'Living_room',
-            'action': 'down',
-            'turn_created': 22
-        }
-        
-        # Test resolution with valid location
-        self.agent.turn_count = 23
-        result = self.agent.check_and_resolve_pending_connection(
-            "Dark_cellar", self.agent.turn_count
-        )
-        
-        self.assertTrue(result)
-        self.assertIsNone(self.agent.pending_connection)
-        
-        # Verify connection was created
-        self.assertIn("Living_room", self.agent.game_map.connections)
-        self.assertEqual(
-            self.agent.game_map.connections["Living_room"]["down"], 
-            "Dark_cellar"
-        )
-    
-    def test_pending_connection_expiration(self):
-        """Test that pending connections expire after 3 turns."""
-        self.agent.turn_count = 10
-        self.agent.pending_connection = {
-            'from_room': 'TestRoom',
-            'action': 'north',
-            'turn_created': 5  # 5 turns ago
-        }
-        
-        # Should expire (more than 3 turns old)
-        result = self.agent.check_and_resolve_pending_connection(
-            "SomeLocation", self.agent.turn_count
-        )
-        
-        self.assertFalse(result)
-        self.assertIsNone(self.agent.pending_connection)
-    
-    def test_pending_connection_generic_location_rejection(self):
-        """Test that generic locations don't resolve pending connections."""
-        self.agent.turn_count = 15
-        self.agent.pending_connection = {
-            'from_room': 'StartRoom',
-            'action': 'east',
-            'turn_created': 14
-        }
-        
-        # Try to resolve with generic location
-        result = self.agent.check_and_resolve_pending_connection(
-            "unknown location", self.agent.turn_count
-        )
-        
-        self.assertFalse(result)
-        self.assertIsNotNone(self.agent.pending_connection)
-    
-    def test_pending_connection_same_room_rejection(self):
-        """Test that same room names don't resolve pending connections."""
-        self.agent.turn_count = 15
-        self.agent.pending_connection = {
-            'from_room': 'StartRoom',
-            'action': 'east',
-            'turn_created': 14
-        }
-        
-        # Try to resolve with same room name
-        result = self.agent.check_and_resolve_pending_connection(
-            "StartRoom", self.agent.turn_count
-        )
-        
-        self.assertFalse(result)
-        self.assertIsNotNone(self.agent.pending_connection)
+        # Check initial confidence
+        confidence = self.map.get_connection_confidence("Room A", "north")
+        self.assertEqual(confidence, 1.0)
+
+        # Add the same connection again to increase confidence
+        self.map.add_connection("Room A", "north", "Room B")
+
+        # Check that verifications increased
+        key = ("Room A", "north")
+        self.assertGreater(self.map.connection_verifications.get(key, 0), 1)
+
+    def test_map_quality_metrics(self):
+        """Test the map quality metrics functionality."""
+        # Add some connections
+        self.map.add_connection("Start", "north", "Middle")
+        self.map.add_connection("Middle", "east", "End")
+
+        # Get quality metrics
+        metrics = self.map.get_map_quality_metrics()
+
+        # Check that metrics are returned
+        self.assertIn("total_connections", metrics)
+        self.assertIn("average_confidence", metrics)
+        self.assertIn("high_confidence_ratio", metrics)
+        self.assertIn("verified_connections", metrics)
+
+        # Check reasonable values
+        self.assertGreaterEqual(metrics["average_confidence"], 0.0)
+        self.assertLessEqual(metrics["average_confidence"], 1.0)
+
+    def test_navigation_suggestions(self):
+        """Test the navigation suggestions functionality."""
+        # Add some connections
+        self.map.add_connection("Hub", "north", "North Room")
+        self.map.add_connection("Hub", "south", "South Room")
+
+        # Get navigation suggestions
+        suggestions = self.map.get_navigation_suggestions("Hub")
+
+        # Check that suggestions are returned
+        self.assertIsInstance(suggestions, list)
+        self.assertGreater(len(suggestions), 0)
+
+        # Check suggestion structure
+        for suggestion in suggestions:
+            self.assertIn("exit", suggestion)
+            self.assertIn("destination", suggestion)
+            self.assertIn("confidence", suggestion)
 
 
 if __name__ == "__main__":

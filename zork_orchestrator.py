@@ -15,6 +15,7 @@ from datetime import datetime
 import environs
 import os
 import json
+import time
 
 from openai import OpenAI
 from zork_api import ZorkInterface
@@ -72,6 +73,8 @@ class ZorkOrchestrator:
         state_export_file: str = "current_state.json",
         s3_bucket: str = None,
         s3_key_prefix: str = "zorkgpt/",
+        # Gameplay delay for viewer experience
+        turn_delay_seconds: float = 0.0,
     ):
         """Initialize the ZorkOrchestrator with all subsystems."""
         # Store configuration
@@ -80,6 +83,7 @@ class ZorkOrchestrator:
 
         # Game settings
         self.max_turns_per_episode = max_turns_per_episode
+        self.turn_delay_seconds = turn_delay_seconds or env.float("ZORK_TURN_DELAY_SECONDS", 0.0)
 
         # Adaptive knowledge management
         self.enable_adaptive_knowledge = enable_adaptive_knowledge
@@ -253,6 +257,9 @@ class ZorkOrchestrator:
             and self.turn_count < self.max_turns_per_episode
         ):
             self.turn_count += 1
+            
+            # Start timing the turn for delay calculation
+            turn_start_time = time.time()
 
             # Log turn start
             self.logger.info(
@@ -262,6 +269,7 @@ class ZorkOrchestrator:
                         "event_type": "turn_start",
                         "episode_id": self.episode_id,
                         "turn": self.turn_count,
+                        "turn_start_time": turn_start_time,
                     }
                 },
             )
@@ -761,6 +769,40 @@ class ZorkOrchestrator:
 
             # Export current state after each turn
             self.export_current_state()
+
+            # Add configurable delay for viewer experience to ensure minimum turn duration
+            if self.turn_delay_seconds > 0:
+                turn_elapsed_time = time.time() - turn_start_time
+                remaining_time = self.turn_delay_seconds - turn_elapsed_time
+                
+                if remaining_time > 0:
+                    self.logger.info(
+                        f"Turn took {turn_elapsed_time:.2f}s, pausing for {remaining_time:.2f}s more to reach minimum {self.turn_delay_seconds}s",
+                        extra={
+                            "extras": {
+                                "event_type": "turn_delay",
+                                "episode_id": self.episode_id,
+                                "turn_elapsed_time": turn_elapsed_time,
+                                "delay_seconds": remaining_time,
+                                "target_turn_duration": self.turn_delay_seconds,
+                                "turn": self.turn_count,
+                            }
+                        },
+                    )
+                    time.sleep(remaining_time)
+                else:
+                    self.logger.info(
+                        f"Turn took {turn_elapsed_time:.2f}s (>= {self.turn_delay_seconds}s target), no additional delay needed",
+                        extra={
+                            "extras": {
+                                "event_type": "turn_no_delay_needed",
+                                "episode_id": self.episode_id,
+                                "turn_elapsed_time": turn_elapsed_time,
+                                "target_turn_duration": self.turn_delay_seconds,
+                                "turn": self.turn_count,
+                            }
+                        },
+                    )
 
         # Debug: Log why the episode ended
         end_reasons = []

@@ -5,18 +5,19 @@ from zork_orchestrator import ZorkOrchestrator
 import time
 
 
-def run_long_episode():
+def run_episode(max_turns_per_episode=5000):
     """Run a long episode with adaptive knowledge management."""
 
     # Configure for long episodes with adaptive knowledge
     orchestrator = ZorkOrchestrator(
-        # Episode configuration
-        max_turns_per_episode=5000,  # Very long episodes
+        max_turns_per_episode=max_turns_per_episode,
         enable_adaptive_knowledge=True,  # Enable turn-based updates
         knowledge_update_interval=100,  # Update every 100 turns
         # S3 integration for live viewer
         enable_state_export=True,  # Enable state export
         # s3_bucket will be read from ZORK_S3_BUCKET environment variable
+        # Gameplay delay for viewer experience
+        turn_delay_seconds=10.0,  # 10 second delay between turns for viewers
     )
 
     print("🚀 Starting long episode with adaptive knowledge management...")
@@ -27,6 +28,7 @@ def run_long_episode():
     )
     print(f"  - Adaptive knowledge: {orchestrator.enable_adaptive_knowledge}")
     print(f"  - State export: {orchestrator.enable_state_export}")
+    print(f"  - Turn delay: {orchestrator.turn_delay_seconds} seconds")
     print(f"  - S3 bucket: {orchestrator.s3_bucket or 'Not configured'}")
     print(
         f"  - S3 client: {'✅ Available' if orchestrator.s3_client else '❌ Not available'}"
@@ -86,7 +88,7 @@ if __name__ == "__main__":
     print("=" * 60)
     while True:
         try:
-            run_long_episode()
+            run_episode(max_turns_per_episode=5)
         except Exception as e:
             print(f"❌ Error: {e}")
             import traceback

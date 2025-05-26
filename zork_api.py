@@ -212,80 +212,91 @@ class ZorkInterface:
 
     def _parse_inventory(self, inv_text: str) -> List[str]:
         """Parse inventory text into a list of items."""
-        if "empty handed" in inv_text:
+        # Check for empty inventory (case insensitive)
+        if "empty-handed" in inv_text.lower() or "empty handed" in inv_text.lower():
             return []
 
-        # Handling items without periods
-        if "\n" in inv_text and not any("." in line for line in inv_text.split("\n")):
-            return [line.strip() for line in inv_text.split("\n") if line.strip()]
-
-        # Extract container and content relationships
-        container_pattern = r"The\s+([A-Za-z0-9\s\-]+)\s+contains:"
-        container_matches = re.findall(container_pattern, inv_text)
-
-        all_items = []
-        containers = {}
         lines = inv_text.split("\n")
-
-        # Skip "You are carrying:" if present
-        start_idx = 0
-        if lines and "You are carrying:" in lines[0]:
-            start_idx = 1
-
-        # First pass to collect all items in order
-        for i in range(start_idx, len(lines)):
-            line = lines[i].strip()
-            if not line:
-                continue
-
-            # Skip container header lines
-            if line.startswith("The") and "contains:" in line:
-                continue
-
-            # Regular item, remove trailing period if present
-            if line.endswith("."):
-                line = line[:-1]
-            all_items.append(line)
-
-        # Second pass to identify container->content relationships
-        for container_name in container_matches:
-            # Find the container line
-            for i in range(len(lines)):
-                if f"The {container_name} contains:" in lines[i]:
-                    # The next line should have the content
-                    if i + 1 < len(lines) and lines[i + 1].strip():
-                        content = lines[i + 1].strip()
-                        if content.endswith("."):
-                            content = content[:-1]
-                        containers[container_name] = content
-                        break
-
-        # Build the final inventory list, preserving original item order
         result = []
-        processed = set()
-
-        # Process each item in the original order
-        for item in all_items:
-            if item in processed:
+        skip_lines = set()
+        
+        # First pass: identify structure and collect all lines that should be skipped
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if not stripped:
+                skip_lines.add(i)
                 continue
-
-            # Check if this item is a container
-            is_container = False
-            for container in containers:
-                # Check if this item contains the container name
-                if container.lower() in item.lower() or item.lower().endswith(
-                    container.lower()
-                ):
-                    result.append(f"{item}: Containing {containers[container]}")
-                    processed.add(item)
-                    processed.add(containers[container])
-                    is_container = True
-                    break
-
-            # If it's not a container and not contained in another container
-            if not is_container and not any(item == containers[c] for c in containers):
-                result.append(item)
-                processed.add(item)
+                
+            # Skip game status lines
+            if stripped.startswith(">") and ("Score:" in stripped or "Moves:" in stripped):
+                skip_lines.add(i)
+                continue
+                
+            # Skip "You are carrying:" header
+            if stripped == "You are carrying:":
+                skip_lines.add(i)
+                continue
+                
+            # Container header line - mark it and its contents for special processing
+            if stripped.startswith("The") and "contains:" in stripped:
+                skip_lines.add(i)
+                # Mark following indented lines as container contents
+                j = i + 1
+                while j < len(lines) and (lines[j].startswith("  ") or lines[j].strip() == ""):
+                    if lines[j].strip():  # Non-empty indented line
+                        skip_lines.add(j)
+                    j += 1
+        
+        # Second pass: collect items and handle containers
+        containers = {}
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            
+            if i in skip_lines or not stripped:
+                continue
+                
+            # This is a regular item
+            if stripped.endswith("."):
+                stripped = stripped[:-1]
+            result.append(stripped)
+        
+        # Third pass: find containers and their contents
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if stripped.startswith("The") and "contains:" in stripped:
+                # Extract container name
+                container_match = re.search(r"The\s+([^:]+)\s+contains:", stripped)
+                if container_match:
+                    container_name = container_match.group(1).strip()
+                    
+                    # Find first content item
+                    first_content = None
+                    j = i + 1
+                    while j < len(lines):
+                        content_line = lines[j]
+                        if content_line.startswith("  ") and content_line.strip():
+                            first_content = content_line.strip()
+                            if first_content.endswith("."):
+                                first_content = first_content[:-1]
+                            break
+                        elif content_line.strip() == "":
+                            j += 1
+                        else:
+                            break
+                        j += 1
+                    
+                    # Check if this container is already in our result (top-level item)
+                    found_in_result = False
+                    if first_content:
+                        for idx, item in enumerate(result):
+                            if container_name.lower() in item.lower():
+                                result[idx] = f"{item}: Containing {first_content}"
+                                found_in_result = True
+                                break
+                    
+                    # If not found in result, it might be a nested container - add it as a separate item
+                    if not found_in_result and first_content:
+                        result.append(f"A {container_name}: Containing {first_content}")
 
         return result
 
