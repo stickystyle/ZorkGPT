@@ -521,7 +521,7 @@
                     <strong>Inventory:</strong> <span id="inventory">-</span>
                 </div>
                 <div class="info-item">
-                    <strong>Combat:</strong> <span id="combat-status">-</span>
+                    <strong>Deaths:</strong> <span id="death-count">0</span>
                 </div>
             </div>
         </div>
@@ -746,8 +746,8 @@
                 document.getElementById('location').textContent = current.location;
                 document.getElementById('inventory').textContent = 
                     current.inventory.length > 0 ? current.inventory.join(', ') : 'Empty';
-                document.getElementById('combat-status').textContent = 
-                    current.in_combat ? '⚔️ Yes' : '✅ No';
+                document.getElementById('death-count').textContent = 
+                    current.death_count || 0;
                 
                 // Update FAQ model information
                 if (meta.models) {

@@ -170,6 +170,9 @@ class ZorkOrchestrator:
         # Reset adaptive knowledge tracking for new episode
         self.last_knowledge_update_turn = 0
 
+        # Death tracking for viewer
+        self.death_count = 0
+
         # Update episode IDs in components
         self.agent.update_episode_id(self.episode_id)
         self.extractor.update_episode_id(self.episode_id)
@@ -294,6 +297,10 @@ class ZorkOrchestrator:
                         zork_interface_instance.is_game_over(inventory_response)
                     )
                     if game_over_flag:
+                        # Check if this is a death and increment counter
+                        if self._is_death_reason(game_over_reason):
+                            self.death_count += 1
+                        
                         # Log game over from inventory
                         self.logger.info(
                             f"Game over during inventory check: {game_over_reason}",
@@ -301,8 +308,9 @@ class ZorkOrchestrator:
                                 "extras": {
                                     "event_type": "game_over",
                                     "episode_id": self.episode_id,
-                                    "reason": f"Inventory check triggered: {game_over_reason}",
-                                    "turn": self.turn_count,
+                                                                    "reason": f"Inventory check triggered: {game_over_reason}",
+                                "turn": self.turn_count,
+                                "death_count": self.death_count,
                                 }
                             },
                         )
@@ -557,6 +565,10 @@ class ZorkOrchestrator:
                     next_game_state
                 )
                 if game_over_flag:
+                    # Check if this is a death and track it
+                    if self._is_death_reason(game_over_reason):
+                        self.death_count += 1
+                    
                     # Log game over
                     self.logger.info(
                         f"{game_over_reason}",
@@ -565,6 +577,7 @@ class ZorkOrchestrator:
                                 "event_type": "game_over",
                                 "episode_id": self.episode_id,
                                 "reason": game_over_reason,
+                                "death_count": self.death_count,
                             }
                         },
                     )
@@ -1100,6 +1113,7 @@ class ZorkOrchestrator:
                 "location": self.current_room_name_for_map,
                 "inventory": self.current_inventory,
                 "in_combat": self._get_combat_status(),
+                "death_count": self.death_count,
             },
             "recent_log": self.get_recent_log(20),
             "map": {
@@ -1217,6 +1231,68 @@ class ZorkOrchestrator:
 
         recent_extraction = self.memory_log_history[-1]
         return getattr(recent_extraction, "in_combat", False)
+
+    def _is_death_reason(self, game_over_reason: str) -> bool:
+        """Determine if a game over reason indicates a death (as opposed to victory)."""
+        if not game_over_reason:
+            return False
+        
+        reason_lower = game_over_reason.lower()
+        
+        # Death indicators from zork_api.py
+        death_indicators = [
+            "you have died",
+            "you are dead",
+            "you died",
+            "you have been eaten",
+            "eaten by a grue",
+            "killed by",
+            "you fall",
+            "you are engulfed",
+            "crushed",
+            "blown up",
+            "incinerated",
+            "drowned",
+            "suffocated",
+            "starved",
+            "frozen",
+            "electrocuted",
+            "poisoned",
+            "dissolved",
+            "obliterated",
+            "annihilated",
+            "terminated",
+            "destroyed",
+            "perished",
+            "expired",
+            "demise"
+        ]
+        
+        # Victory indicators (explicitly not deaths)
+        victory_indicators = [
+            "you have won",
+            "congratulations",
+            "you win",
+            "victory",
+            "triumphant",
+            "successful",
+            "completed",
+            "finished"
+        ]
+        
+        # Check for victory first - if it's a victory, it's not a death
+        for victory_word in victory_indicators:
+            if victory_word in reason_lower:
+                return False
+        
+        # Check for death indicators
+        for death_word in death_indicators:
+            if death_word in reason_lower:
+                return True
+        
+        # Default: if game over but not explicitly victory, treat as death
+        # This covers edge cases where the death message might be unusual
+        return True
 
     def get_avg_critic_score(self) -> float:
         """Get average critic score for recent turns."""
