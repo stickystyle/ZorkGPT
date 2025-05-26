@@ -168,9 +168,6 @@ class ZorkGPTViewerStack(Stack):
             "#!/bin/bash",
             "dnf update -y",
             "dnf install -y git python3 python3-pip gcc make ncurses-devel awscli",
-            # Install uv for faster Python package management
-            "curl -LsSf https://astral.sh/uv/install.sh | sh",
-            "source $HOME/.cargo/env",
             # Install Frotz - compile from source since Amazon Linux 2023 doesn't have frotz in repos
             "cd /tmp",
             "git clone https://gitlab.com/DavidGriffith/frotz.git",
@@ -181,21 +178,23 @@ class ZorkGPTViewerStack(Stack):
             "useradd -m -s /bin/bash zorkgpt",
             "mkdir -p /home/zorkgpt/.ssh",
             "chown zorkgpt:zorkgpt /home/zorkgpt/.ssh",
+            # Install uv for zorkgpt user
+            "sudo -u zorkgpt curl -LsSf https://astral.sh/uv/install.sh | sudo -u zorkgpt sh",
             # Clone ZorkGPT repository
             "cd /home/zorkgpt",
             "git clone https://github.com/stickystyle/ZorkGPT.git",
             "chown -R zorkgpt:zorkgpt /home/zorkgpt/ZorkGPT",
             # Set up Python environment using uv
             "cd /home/zorkgpt/ZorkGPT",
-            "sudo -u zorkgpt /home/zorkgpt/.cargo/bin/uv sync",
+            "sudo -u zorkgpt /home/zorkgpt/.local/bin/uv sync",
             # Ensure zork.z5 file is available (download from S3 bucket if needed)
             f"aws s3 cp s3://{self.bucket.bucket_name}/infrastructure/zork.z5 /home/zorkgpt/ZorkGPT/infrastructure/zork.z5 || echo 'Could not download zork.z5 from S3'",
             "chown zorkgpt:zorkgpt /home/zorkgpt/ZorkGPT/infrastructure/zork.z5",
             # Verify Frotz installation
-            "which frotz > /var/log/frotz-install.log 2>&1",
+            "which dfrotz > /var/log/frotz-install.log 2>&1",
             "echo 'Frotz installation check:' >> /var/log/frotz-install.log",
-            "ls -la /usr/local/bin/frotz >> /var/log/frotz-install.log 2>&1",
-            "frotz -v >> /var/log/frotz-install.log 2>&1",
+            "ls -la /usr/local/bin/dfrotz >> /var/log/frotz-install.log 2>&1",
+            "dfrotz -v >> /var/log/frotz-install.log 2>&1",
             # Verify zork.z5 file is available
             "echo 'Zork.z5 file check:' >> /var/log/frotz-install.log",
             "ls -la /home/zorkgpt/ZorkGPT/infrastructure/zork.z5 >> /var/log/frotz-install.log 2>&1",
@@ -204,13 +203,13 @@ class ZorkGPTViewerStack(Stack):
             "python3 --version >> /var/log/frotz-install.log 2>&1",
             # Set up environment variables
             f"echo 'export ZORK_S3_BUCKET={self.bucket.bucket_name}' >> /home/zorkgpt/.bashrc",
-            "echo 'export PATH=/home/zorkgpt/.cargo/bin:$PATH' >> /home/zorkgpt/.bashrc",
+            "echo 'export PATH=/home/zorkgpt/.local/bin:$PATH' >> /home/zorkgpt/.bashrc",
             # Create a simple startup script
             "cat > /home/zorkgpt/start_zorkgpt.sh << 'EOF'",
             "#!/bin/bash",
             "cd /home/zorkgpt/ZorkGPT",
             "export ZORK_S3_BUCKET=" + self.bucket.bucket_name,
-            "/home/zorkgpt/.cargo/bin/uv run python main.py",
+            "/home/zorkgpt/.local/bin/uv run python main.py",
             "EOF",
             "chmod +x /home/zorkgpt/start_zorkgpt.sh",
             "chown zorkgpt:zorkgpt /home/zorkgpt/start_zorkgpt.sh",
@@ -225,8 +224,8 @@ class ZorkGPTViewerStack(Stack):
             "User=zorkgpt",
             "WorkingDirectory=/home/zorkgpt/ZorkGPT",
             "Environment=ZORK_S3_BUCKET=" + self.bucket.bucket_name,
-            "Environment=PATH=/home/zorkgpt/.cargo/bin:/usr/local/bin:/usr/bin:/bin",
-            "ExecStart=/home/zorkgpt/.cargo/bin/uv run python main.py",
+            "Environment=PATH=/home/zorkgpt/.local/bin:/usr/local/bin:/usr/bin:/bin",
+            "ExecStart=/home/zorkgpt/.local/bin/uv run python main.py",
             "Restart=always",
             "RestartSec=10",
             "",
