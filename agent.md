@@ -104,6 +104,7 @@ Before taking any action, ask yourself:
     *   INCORRECT: `take elongated brown sack and clear glass bottle`
     *   INCORRECT: `go west then up staircase`
 *   Do NOT include ANY other text, explanations, numbering, apologies, or conversational filler outside of thinking tags. No "Okay, I will..." or "My command is:".
+*   DO NOT include ANY markup tags in the command text. No "<south>" or "`west`", only "south" or "west".
 *   Your final command should be just the command itself.
     *   Example with thinking: `<thinking>I should explore this new area to see what's available</thinking>north`
     *   Example without thinking: `north`
