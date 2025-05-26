@@ -103,9 +103,10 @@ def update_zorkgpt(public_ip: str) -> None:
 
     commands = [
         "sudo systemctl stop zorkgpt",
-        "cd /home/zorkgpt/ZorkGPT && sudo -u zorkgpt git pull",
-        "cd /home/zorkgpt/ZorkGPT && sudo -u zorkgpt /home/zorkgpt/.local/bin/uv sync",
-        "cd /home/zorkgpt/ZorkGPT && aws s3 cp zork_viewer.html s3://$ZORK_S3_BUCKET/zork_viewer.html",
+        "sudo -u zorkgpt bash -c 'cd /home/zorkgpt/ZorkGPT && git pull'",
+        "sudo -u zorkgpt bash -c 'cd /home/zorkgpt/ZorkGPT && ~/.local/bin/uv sync'",
+        "sudo -u zorkgpt bash -c 'cd /home/zorkgpt/ZorkGPT && ls -la zork_viewer.html'",
+        "sudo -u zorkgpt bash -c 'cd /home/zorkgpt/ZorkGPT && aws s3 cp zork_viewer.html s3://$ZORK_S3_BUCKET/zork_viewer.html'",
         "sudo systemctl start zorkgpt",
     ]
 
@@ -113,6 +114,7 @@ def update_zorkgpt(public_ip: str) -> None:
         "Stopping ZorkGPT service",
         "Pulling latest code from git",
         "Syncing Python dependencies",
+        "Checking for zork_viewer.html file",
         "Uploading viewer HTML to S3",
         "Starting ZorkGPT service",
     ]
