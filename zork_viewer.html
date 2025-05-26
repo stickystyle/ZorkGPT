@@ -24,6 +24,76 @@
             box-sizing: border-box;
         }
         
+        /* Mobile responsive layout */
+        @media (max-width: 768px) {
+            .game-container {
+                grid-template-columns: 1fr;
+                grid-template-rows: auto auto auto auto;
+                height: auto;
+                min-height: 100vh;
+                padding: 10px;
+                gap: 15px;
+            }
+            
+            .game-info {
+                grid-column: 1;
+                grid-row: 1;
+            }
+            
+            .knowledge-section {
+                grid-column: 1;
+                grid-row: 2;
+                max-height: 400px;
+                overflow-y: auto;
+            }
+            
+            .game-log {
+                grid-column: 1;
+                grid-row: 3;
+                max-height: 500px;
+                overflow-y: auto;
+            }
+            
+            .map-container {
+                grid-column: 1;
+                grid-row: 4;
+                max-height: 400px;
+                overflow-y: auto;
+            }
+        }
+        
+        /* Tablet responsive layout */
+        @media (max-width: 1024px) and (min-width: 769px) {
+            .game-container {
+                grid-template-columns: 1fr 1fr;
+                grid-template-rows: auto 1fr 1fr;
+                gap: 15px;
+                padding: 15px;
+            }
+            
+            .game-info {
+                grid-column: 1 / -1;
+                grid-row: 1;
+            }
+            
+            .knowledge-section {
+                grid-column: 1;
+                grid-row: 2;
+            }
+            
+            .game-log {
+                grid-column: 2;
+                grid-row: 2;
+            }
+            
+            .map-container {
+                grid-column: 1 / -1;
+                grid-row: 3;
+                max-height: 400px;
+                overflow-y: auto;
+            }
+        }
+        
         .game-info {
             grid-column: 1 / -1;
             background: white;
@@ -37,6 +107,39 @@
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             gap: 15px;
             margin-top: 15px;
+        }
+        
+        /* Header styling */
+        .header-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        
+        .header-links {
+            display: flex;
+            gap: 15px;
+        }
+        
+        /* Mobile responsive header and info grid */
+        @media (max-width: 768px) {
+            .header-container {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 10px;
+                margin-bottom: 10px;
+            }
+            
+            .header-links {
+                gap: 10px;
+            }
+            
+            .info-grid {
+                grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+                gap: 10px;
+                margin-top: 10px;
+            }
         }
         
         .info-item {
@@ -330,17 +433,69 @@
         .new-messages-indicator:hover {
             background: #0056b3;
         }
+        
+        /* FAQ Modal styling */
+        .faq-modal-content {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            max-width: 600px;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+        
+        .faq-modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        /* Mobile responsive FAQ modal */
+        @media (max-width: 768px) {
+            .faq-modal-content {
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                transform: none;
+                max-width: none;
+                max-height: none;
+                border-radius: 0;
+                padding: 20px;
+                margin: 0;
+            }
+            
+            .faq-modal-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 10px;
+                margin-bottom: 15px;
+            }
+            
+            .faq-modal-header button {
+                position: absolute !important;
+                top: 15px !important;
+                right: 15px !important;
+            }
+        }
     </style>
 </head>
 <body>
     <div class="game-container">
         <div class="game-info">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <div class="header-container">
                 <h1 style="margin: 0;">
                     <span class="status-indicator" id="connection-status"></span>
                     ZorkGPT Live Viewer
                 </h1>
-                <div style="display: flex; gap: 15px;">
+                <div class="header-links">
                     <a href="https://github.com/stickystyle/ZorkGPT" target="_blank" style="color: #007bff; text-decoration: none; font-weight: 500;">
                         📁 Project
                     </a>
@@ -393,8 +548,8 @@
 
     <!-- FAQ Modal -->
     <div id="faq-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 2000;">
-        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 30px; border-radius: 12px; max-width: 600px; max-height: 80vh; overflow-y: auto; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <div class="faq-modal-content">
+            <div class="faq-modal-header">
                 <h2 style="margin: 0; color: #333;">ZorkGPT Live Viewer FAQ</h2>
                 <button onclick="hideFAQ()" style="background: none; border: none; font-size: 24px; cursor: pointer; color: #666;">&times;</button>
             </div>
