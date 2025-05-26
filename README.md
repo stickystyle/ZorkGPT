@@ -132,23 +132,24 @@ graph TB
         
         subgraph "LLM-Powered Components"
             Agent[ZorkAgent<br/>Action Generation<br/>Context Integration<br/>Memory Retrieval]
-            Extractor[ZorkExtractor<br/>Information Parsing<br/>State Structuring<br/>Location Tracking]
-            Critic[ZorkCritic<br/>Action Evaluation<br/>Trust Management<br/>Quality Assessment]
+            HybridExtractor[HybridZorkExtractor<br/>Structured + LLM Parsing<br/>Location Persistence<br/>State Structuring]
+            Critic[ZorkCritic<br/>Action Evaluation<br/>Trust Management<br/>Rejection System]
             AdaptiveKM[AdaptiveKnowledgeManager<br/>Continuous Learning<br/>Quality Assessment<br/>Intelligent Merging]
         end
         
         subgraph "Supporting Systems"
-            GameAPI[ZorkAPI<br/>Game Interface<br/>Command Execution<br/>Response Processing]
-                         MapGraph[MapGraph<br/>Confidence-Tracked Mapping<br/>Connection Verification<br/>Quality Metrics]
+            GameAPI[ZorkInterface<br/>Game Process Management<br/>Command Execution<br/>Response Processing]
+            MapGraph[MapGraph<br/>Confidence-Tracked Mapping<br/>Connection Verification<br/>Quality Metrics]
             Movement[MovementAnalyzer<br/>Pattern Analysis<br/>Navigation Optimization<br/>Spatial Intelligence]
             Logger[Logger<br/>Multi-format Logging<br/>Turn-Window Analysis<br/>Performance Tracking]
+            StructuredParser[StructuredZorkParser<br/>Header Parsing<br/>Score/Moves Extraction<br/>Clean Text Separation]
         end
         
         subgraph "Session Data Structures"
             MemoryLog[memory_log_history<br/>List of ExtractorResponse<br/>Turn-by-turn observations<br/>Historical context]
             ActionHistory[action_history<br/>Previous actions & responses<br/>Action patterns<br/>Repetition tracking]
-                         GameMap[game_map<br/>MapGraph instance<br/>Confidence-tracked connections<br/>Verification metrics]
-            ExperienceTracker[experience_tracker<br/>Turn experiences<br/>Reward tracking<br/>Session analytics]
+            GameMap[game_map<br/>MapGraph instance<br/>Confidence-tracked connections<br/>Verification metrics]
+            ActionReasoning[action_reasoning_history<br/>Agent reasoning & critic scores<br/>Override tracking<br/>State export data]
         end
         
         subgraph "Adaptive Knowledge System"
@@ -163,7 +164,7 @@ graph TB
     
     %% Core coordination flows
     Orchestrator --> Agent
-    Orchestrator --> Extractor
+    Orchestrator --> HybridExtractor
     Orchestrator --> Critic
     Orchestrator --> AdaptiveKM
     Orchestrator --> Logger
@@ -173,21 +174,22 @@ graph TB
     Agent --> ActionHistory
     Agent --> GameMap
     Agent --> KnowledgeBase
-    Extractor --> MemoryLog
-    Critic --> ExperienceTracker
+    HybridExtractor --> MemoryLog
+    Critic --> ActionReasoning
     
     %% Supporting system connections
     Orchestrator --> Movement
     Orchestrator --> GameMap
     GameAPI --> ZorkGame
     Orchestrator --> GameAPI
+    HybridExtractor --> StructuredParser
     
     %% Data flows within session
     MemoryLog --> Agent
     ActionHistory --> Agent
     GameMap --> Agent
     KnowledgeBase --> Agent
-    Logger --> ExperienceTracker
+    Logger --> ActionReasoning
     
     %% Game interaction
     ZorkGame -.->|Game State| GameAPI
@@ -198,7 +200,7 @@ graph TB
     Logger -.->|Turn Window Data| TurnAnalysis
     TurnAnalysis -.->|Quality Assessment| AdaptiveKM
     Movement -.->|Spatial Insights| GameMap
-    ExperienceTracker -.->|Session Data| AdaptiveKM
+    ActionReasoning -.->|Session Data| AdaptiveKM
     
     %% Styling
     classDef llmComponent fill:#e1f5fe,stroke:#01579b,stroke-width:2px
@@ -209,9 +211,9 @@ graph TB
     classDef knowledge fill:#f1f8e9,stroke:#33691e,stroke-width:2px
     classDef adaptive fill:#e3f2fd,stroke:#0277bd,stroke-width:2px
     
-    class Agent,Extractor,Critic llmComponent
-         class GameAPI,MapGraph,Movement,Logger supportSystem
-    class MemoryLog,ActionHistory,GameMap,ExperienceTracker dataStructure
+    class Agent,HybridExtractor,Critic llmComponent
+    class GameAPI,MapGraph,Movement,Logger,StructuredParser supportSystem
+    class MemoryLog,ActionHistory,GameMap,ActionReasoning dataStructure
     class Orchestrator coordinator
     class ZorkGame external
     class KnowledgeBase knowledge
@@ -225,84 +227,95 @@ sequenceDiagram
     participant User as User/Main
     participant Orchestrator as ZorkOrchestrator
     participant Agent as ZorkAgent
-    participant Extractor as ZorkExtractor
+    participant HybridExtractor as HybridZorkExtractor
     participant Critic as ZorkCritic
-         participant AdaptiveKM as AdaptiveKnowledgeManager
-     participant ZorkGame as Zork Game (ZorkAPI)
+    participant AdaptiveKM as AdaptiveKnowledgeManager
+    participant ZorkGame as Zork Game (ZorkInterface)
 
-    User->>Orchestrator: run_long_episode()
+    User->>Orchestrator: play_episode()
     activate Orchestrator
     
-         Orchestrator->>Orchestrator: reset_episode_state()
+    Orchestrator->>Orchestrator: reset_episode_state()
     
-    Orchestrator->>ZorkGame: Start Game
+    Orchestrator->>ZorkGame: start()
     activate ZorkGame
     ZorkGame-->>Orchestrator: Initial Game State (S0)
     deactivate ZorkGame
 
-    Orchestrator->>Extractor: extract_info(S0)
-    activate Extractor
-    Extractor-->>Orchestrator: ExtractorResponse (E0)
-    deactivate Extractor
+    Orchestrator->>HybridExtractor: extract_info(S0)
+    activate HybridExtractor
+    HybridExtractor->>HybridExtractor: Try structured parsing first
+    HybridExtractor->>HybridExtractor: Use LLM for detailed analysis
+    HybridExtractor-->>Orchestrator: ExtractorResponse (E0)
+    deactivate HybridExtractor
 
-         Orchestrator->>Orchestrator: Update memory_log_history.append(E0)
-     Orchestrator->>Orchestrator: Update game_map with confidence tracking
+    Orchestrator->>Orchestrator: Update memory_log_history.append(E0)
+    Orchestrator->>Orchestrator: Update game_map with confidence tracking
 
     loop Extended Gameplay (up to 5000 turns)
-                 Orchestrator->>Orchestrator: turn_count += 1
+        Orchestrator->>Orchestrator: turn_count += 1
         
         Note over Orchestrator: Check combat status from last extraction
         alt Not in combat
-            Orchestrator->>ZorkGame: Get inventory
-            ZorkGame-->>Orchestrator: current_inventory
+            Orchestrator->>ZorkGame: inventory_with_response()
+            ZorkGame-->>Orchestrator: current_inventory, inventory_response
         else In combat
             Note over Orchestrator: Skip inventory to avoid death
         end
 
-                 Orchestrator->>Agent: get_relevant_memories_for_prompt()
-         Agent->>Agent: Process memory_log_history, game_map, action_history
-         Agent-->>Orchestrator: relevant_memories
+        Orchestrator->>Agent: get_relevant_memories_for_prompt()
+        Agent->>Agent: Process memory_log_history, game_map, action_history
+        Agent-->>Orchestrator: relevant_memories
 
-         Orchestrator->>Agent: get_action(game_state, memories, action_history)
-         activate Agent
-         Agent->>Agent: Load current knowledge base & format context
-         Agent-->>Orchestrator: Proposed Action (A_t)
-         deactivate Agent
+        Orchestrator->>Agent: get_action_with_reasoning(game_state, memories, action_history)
+        activate Agent
+        Agent->>Agent: Load current knowledge base & format context
+        Agent-->>Orchestrator: {action, reasoning, raw_response}
+        deactivate Agent
 
-                 Orchestrator->>Critic: get_robust_evaluation(game_state, A_t)
-         activate Critic
-         Critic->>Critic: Evaluate action & check trust threshold
-         Critic-->>Orchestrator: CriticResponse (score, justification, confidence)
-         deactivate Critic
+        Orchestrator->>Critic: get_robust_evaluation(game_state, action)
+        activate Critic
+        Critic->>Critic: Evaluate action with consensus mechanism
+        Critic->>Critic: Check trust threshold & rejection system
+        Critic-->>Orchestrator: CriticResponse (score, justification, confidence)
+        deactivate Critic
 
         alt Critic score < rejection_threshold
-            Orchestrator->>Critic: Check override conditions
-                         alt Override needed
-                 Note over Orchestrator: Override applied
-             else No override
-                Orchestrator->>Agent: Get alternative action
-                Note over Orchestrator: Loop back to get new action
+            Note over Orchestrator: Action rejected - attempting alternatives
+            loop Max 3 rejection attempts
+                Orchestrator->>Critic: Check override conditions
+                opt Override conditions met
+                    Note over Orchestrator: Override applied - using original action
+                end
+                opt No override needed
+                    Orchestrator->>Agent: Get alternative action with rejection context
+                    Orchestrator->>Critic: Re-evaluate new action
+                end
             end
         end
 
-                 Orchestrator->>ZorkGame: Send Action (A_t)
-         activate ZorkGame
-         ZorkGame-->>Orchestrator: Game Response (S_t+1), Score, Game Over?
-         deactivate ZorkGame
+        Orchestrator->>Orchestrator: Store action_reasoning_history
 
-        Orchestrator->>Extractor: extract_info(S_t+1)
-        activate Extractor
-        Extractor-->>Orchestrator: ExtractorResponse (E_t+1)
-        deactivate Extractor
+        Orchestrator->>ZorkGame: send_command(action)
+        activate ZorkGame
+        ZorkGame-->>Orchestrator: Game Response (S_t+1)
+        deactivate ZorkGame
 
-                 Orchestrator->>Orchestrator: Update memory_log_history.append(E_t+1)
-         Orchestrator->>Orchestrator: Update game_map with confidence tracking
-         Orchestrator->>Orchestrator: Update action_history
-         Orchestrator->>Orchestrator: Calculate reward & update session state
-         Orchestrator->>Orchestrator: experience_tracker.add_experience()
+        Orchestrator->>HybridExtractor: extract_info(S_t+1, previous_location)
+        activate HybridExtractor
+        HybridExtractor->>HybridExtractor: Structured parsing + LLM analysis
+        HybridExtractor->>HybridExtractor: Apply location persistence if needed
+        HybridExtractor-->>Orchestrator: ExtractorResponse (E_t+1)
+        deactivate HybridExtractor
+
+        Orchestrator->>Orchestrator: Update memory_log_history.append(E_t+1)
+        Orchestrator->>Orchestrator: Update game_map with confidence tracking
+        Orchestrator->>Orchestrator: Update action_history
+        Orchestrator->>Orchestrator: Track movement with MovementAnalyzer
+        Orchestrator->>Orchestrator: Reset critic rejection system
 
         alt Every 100 turns
-            Orchestrator->>AdaptiveKM: Check for knowledge update
+            Orchestrator->>AdaptiveKM: update_knowledge_from_turns()
             activate AdaptiveKM
             AdaptiveKM->>AdaptiveKM: Assess turn window quality
             AdaptiveKM->>AdaptiveKM: Determine update strategy
@@ -311,22 +324,30 @@ sequenceDiagram
             AdaptiveKM-->>Orchestrator: Knowledge update result
             deactivate AdaptiveKM
             
-                         alt Knowledge updated
-                 Orchestrator->>Agent: Reload updated knowledge base
-                 Note over Orchestrator: Knowledge successfully updated
-             else Knowledge update skipped
-                 Note over Orchestrator: Update skipped (low quality)
-             end
+            alt Knowledge updated
+                Orchestrator->>AdaptiveKM: update_knowledge_with_map()
+                Orchestrator->>Agent: reload_knowledge_base()
+                Note over Orchestrator: Knowledge successfully updated
+            else Knowledge update skipped
+                Note over Orchestrator: Update skipped (low quality)
+            end
         end
+
+        alt Every 25 turns
+            Orchestrator->>AdaptiveKM: update_knowledge_with_map()
+            Note over Orchestrator: Map updated more frequently
+        end
+
+        Orchestrator->>Orchestrator: export_current_state() (with S3 support)
 
         alt Game Over OR Max Turns Reached
             Orchestrator->>Orchestrator: Break game loop
         end
-         end
-     
-     Orchestrator->>Orchestrator: experience_tracker.save_experiences()
+    end
     
-    Orchestrator-->>User: (experiences, final_score)
+    Orchestrator->>AdaptiveKM: Final knowledge update if significant progress
+    
+    Orchestrator-->>User: final_score
     deactivate Orchestrator
     
     Note over Orchestrator, AdaptiveKM: Next session continues with<br/>accumulated knowledge from continuous learning
