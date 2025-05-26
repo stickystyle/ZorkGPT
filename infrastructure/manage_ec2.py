@@ -16,7 +16,7 @@ def get_stack_output(output_key: str) -> Optional[str]:
     """Get a specific output from the CloudFormation stack."""
     try:
         result = subprocess.run(
-            f"aws cloudformation describe-stacks --stack-name ZorkGPTViewerStack --query 'Stacks[0].Outputs[?OutputKey==`{output_key}`].OutputValue' --output text",
+            f"aws cloudformation describe-stacks --stack-name ZorkGPTViewerStack --query 'Stacks[0].Outputs[?OutputKey==`{output_key}`].OutputValue' --profile parrishfamily --output text",
             shell=True,
             capture_output=True,
             text=True,
