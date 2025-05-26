@@ -62,6 +62,11 @@ class HybridZorkExtractor:
         self.temperature = temperature
         self.logger = logger
         self.episode_id = episode_id
+        
+        # Prompt logging counter for temporary evaluation
+        self.prompt_counter = 0
+        self.enable_prompt_logging = env.bool("ENABLE_PROMPT_LOGGING", False)
+        
         # Initialize structured parser (always enabled for hybrid extractor)
         self.structured_parser = StructuredZorkParser()
 
@@ -76,6 +81,31 @@ class HybridZorkExtractor:
 
         # Load system prompt for LLM extraction
         self._load_system_prompt()
+
+    def _log_prompt_to_file(self, messages: List[Dict], prefix: str = "extractor") -> None:
+        """Log the full prompt to a temporary file for evaluation."""
+        if not self.enable_prompt_logging:
+            return
+            
+        self.prompt_counter += 1
+        filename = f"tmp/{prefix}_{self.prompt_counter:03d}.txt"
+        
+        try:
+            with open(filename, 'w', encoding='utf-8') as f:
+                f.write(f"=== {prefix.upper()} PROMPT #{self.prompt_counter} ===\n")
+                f.write(f"Model: {self.model}\n")
+                f.write(f"Temperature: {self.temperature}\n")
+                f.write(f"Max Tokens: {self.max_tokens}\n")
+                f.write(f"Episode ID: {self.episode_id}\n")
+                f.write("=" * 50 + "\n\n")
+                
+                for i, message in enumerate(messages):
+                    f.write(f"--- MESSAGE {i+1} ({message['role'].upper()}) ---\n")
+                    f.write(message['content'])
+                    f.write("\n\n")
+        except Exception as e:
+            if self.logger:
+                self.logger.warning(f"Failed to log prompt to {filename}: {e}")
 
     def _load_system_prompt(self) -> None:
         """Load the system prompt for LLM extraction."""
@@ -275,6 +305,9 @@ Extract key information from the game text and return it as JSON with these fiel
             {"role": "system", "content": self.system_prompt},
             {"role": "user", "content": user_prompt_content},
         ]
+
+        # Log the full prompt for evaluation
+        self._log_prompt_to_file(messages, "extractor")
 
         try:
             # Use structured output for OpenAI models, no response_format for others

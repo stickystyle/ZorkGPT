@@ -51,8 +51,33 @@ class AdaptiveKnowledgeManager:
         self.turn_window_size = env.int("TURN_WINDOW_SIZE", 100)
         self.min_quality_threshold = env.float("MIN_KNOWLEDGE_QUALITY", 6.0)
         
+        # Prompt logging counter for temporary evaluation
+        self.prompt_counter = 0
+        self.enable_prompt_logging = env.bool("ENABLE_PROMPT_LOGGING", False)
+        
         # Load agent instructions to avoid duplication
         self.agent_instructions = self._load_agent_instructions()
+
+    def _log_prompt_to_file(self, messages: List[Dict], prefix: str = "knowledge") -> None:
+        """Log the full prompt to a temporary file for evaluation."""
+        if not self.enable_prompt_logging:
+            return
+            
+        self.prompt_counter += 1
+        filename = f"tmp/{prefix}_{self.prompt_counter:03d}.txt"
+        
+        try:
+            with open(filename, 'w', encoding='utf-8') as f:
+                f.write(f"=== {prefix.upper()} PROMPT #{self.prompt_counter} ===\n")
+                f.write(f"Model: {self.analysis_model}\n")
+                f.write("=" * 50 + "\n\n")
+                
+                for i, message in enumerate(messages):
+                    f.write(f"--- MESSAGE {i+1} ({message['role'].upper()}) ---\n")
+                    f.write(message['content'])
+                    f.write("\n\n")
+        except Exception as e:
+            print(f"Failed to log prompt to {filename}: {e}")
 
     def _load_agent_instructions(self) -> str:
         """Load the agent.md prompt to understand what's already covered."""
@@ -303,15 +328,20 @@ SCORE: [0-10]
 REASON: [brief explanation]"""
 
         try:
+            messages = [
+                {
+                    "role": "system",
+                    "content": "You are an expert at evaluating gameplay data quality for knowledge extraction. Be honest about data that would produce low-quality or repetitive insights.",
+                },
+                {"role": "user", "content": prompt},
+            ]
+            
+            # Log the full prompt for evaluation
+            self._log_prompt_to_file(messages, "knowledge_quality")
+            
             response = self.client.chat.completions.create(
                 model=self.analysis_model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are an expert at evaluating gameplay data quality for knowledge extraction. Be honest about data that would produce low-quality or repetitive insights.",
-                    },
-                    {"role": "user", "content": prompt},
-                ],
+                messages=messages,
                 temperature=0.3,
                 max_tokens=500,
             )
@@ -376,15 +406,20 @@ Consider:
 Respond with just the strategy name: FULL_UPDATE, SELECTIVE_UPDATE, CONSOLIDATION_ONLY, or ESCAPE_ANALYSIS"""
 
         try:
+            messages = [
+                {
+                    "role": "system",
+                    "content": "You are an expert at determining optimal knowledge extraction strategies for interactive fiction gameplay.",
+                },
+                {"role": "user", "content": prompt},
+            ]
+            
+            # Log the full prompt for evaluation
+            self._log_prompt_to_file(messages, "knowledge_strategy")
+            
             response = self.client.chat.completions.create(
                 model=self.analysis_model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are an expert at determining optimal knowledge extraction strategies for interactive fiction gameplay.",
-                    },
-                    {"role": "user", "content": prompt},
-                ],
+                messages=messages,
                 temperature=0.2,
                 max_tokens=100,
             )
