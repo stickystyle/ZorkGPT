@@ -94,20 +94,12 @@ class ZorkExtractor:
         self._load_system_prompt()
 
     def _load_system_prompt(self) -> None:
-        """Load extractor system prompt from markdown files."""
+        """Load extractor system prompt from markdown file."""
         try:
-            # Try to use enhanced extractor, fall back to original if not found
-            try:
-                with open("enhanced_extractor.md") as fh:
-                    self.system_prompt = fh.read()
-                if self.logger:
-                    self.logger.info("Using enhanced extractor prompt")
-            except FileNotFoundError:
-                with open("extractor.md") as fh:
-                    self.system_prompt = fh.read()
-                if self.logger:
-                    self.logger.info("Using original extractor prompt")
-
+            with open("extractor.md") as fh:
+                self.system_prompt = fh.read()
+            if self.logger:
+                self.logger.info("Using extractor prompt")
         except FileNotFoundError as e:
             if self.logger:
                 self.logger.error(f"Failed to load extractor prompt file: {e}")

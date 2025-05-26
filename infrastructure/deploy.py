@@ -117,11 +117,15 @@ def get_venv_environment():
     """Get environment variables configured to use the virtual environment."""
     env = os.environ.copy()
     if sys.platform == "win32":
-        venv_path = Path('.venv/Scripts').absolute()
+        venv_path = Path(".venv/Scripts").absolute()
     else:
-        venv_path = Path('.venv/bin').absolute()
-    
-    env['PATH'] = f"{venv_path}:{env['PATH']}" if sys.platform != "win32" else f"{venv_path};{env['PATH']}"
+        venv_path = Path(".venv/bin").absolute()
+
+    env["PATH"] = (
+        f"{venv_path}:{env['PATH']}"
+        if sys.platform != "win32"
+        else f"{venv_path};{env['PATH']}"
+    )
     return env
 
 
@@ -158,12 +162,12 @@ def bootstrap_cdk():
 
     # Bootstrap CDK using virtual environment
     bootstrap_cmd = f"cdk bootstrap aws://{account}/{region}"
-    
+
     # Update the environment to use our virtual environment python
     env = get_venv_environment()
-    env['CDK_DEFAULT_ACCOUNT'] = account
-    env['CDK_DEFAULT_REGION'] = region
-    
+    env["CDK_DEFAULT_ACCOUNT"] = account
+    env["CDK_DEFAULT_REGION"] = region
+
     if not run_command(bootstrap_cmd, "Bootstrapping CDK", env=env):
         print("ℹ️  CDK might already be bootstrapped, continuing...")
 
@@ -182,7 +186,9 @@ def deploy_stack():
         return False
 
     # Deploy the stack
-    if not run_command("cdk deploy --require-approval never", "Deploying stack", env=env):
+    if not run_command(
+        "cdk deploy --require-approval never", "Deploying stack", env=env
+    ):
         return False
 
     print("✅ Stack deployed successfully!")

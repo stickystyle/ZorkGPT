@@ -280,18 +280,18 @@ Evaluate this action based on your criteria. Respond with ONLY a JSON object in 
 
                 # Clean up JSON content to handle common formatting issues
                 # Fix positive numbers with + prefix (e.g., +0.2 -> 0.2)
-                json_content = re.sub(r':\s*\+(\d+\.?\d*)', r': \1', json_content)
-                
+                json_content = re.sub(r":\s*\+(\d+\.?\d*)", r": \1", json_content)
+
                 # Fix unterminated strings by ensuring quotes are properly closed
                 # This is a basic fix - if there's an odd number of quotes, add a closing quote
                 quote_count = json_content.count('"')
                 if quote_count % 2 == 1:
                     json_content += '"'
-                
+
                 # Ensure the JSON object is properly closed
-                if json_content.strip() and not json_content.strip().endswith('}'):
-                    json_content = json_content.strip() + '}'
-                
+                if json_content.strip() and not json_content.strip().endswith("}"):
+                    json_content = json_content.strip() + "}"
+
                 parsed_data = json.loads(json_content)
                 return CriticResponse(**parsed_data)
             except Exception as e:

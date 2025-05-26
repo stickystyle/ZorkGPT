@@ -120,15 +120,17 @@ class ZorkGPTViewerStack(Stack):
         s3deploy.BucketDeployment(
             self,
             "ZorkGPTViewerHTMLDeployment",
-            sources=[s3deploy.Source.asset("../", exclude=["**/*", "!zork_viewer.html"])],
+            sources=[
+                s3deploy.Source.asset("../", exclude=["**/*", "!zork_viewer.html"])
+            ],
             destination_bucket=self.bucket,
             distribution=self.distribution,
             distribution_paths=["/zork_viewer.html"],
         )
-        
+
         s3deploy.BucketDeployment(
             self,
-            "ZorkGPTViewerGameDeployment", 
+            "ZorkGPTViewerGameDeployment",
             sources=[s3deploy.Source.asset("./", exclude=["**/*", "!zork.z5"])],
             destination_bucket=self.bucket,
             destination_key_prefix="infrastructure/",
@@ -321,4 +323,3 @@ class ZorkGPTViewerStack(Stack):
             value=f"ssh -i ~/.ssh/parrishfamily.pem ec2-user@{self.ec2_instance.instance_public_ip}",
             description="SSH command to connect to the ZorkGPT instance",
         )
-

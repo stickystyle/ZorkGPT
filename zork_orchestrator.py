@@ -19,19 +19,15 @@ import json
 from openai import OpenAI
 from zork_api import ZorkInterface
 from map_graph import MapGraph
-from enhanced_map_graph import EnhancedMapGraph
 from movement_analyzer import MovementAnalyzer, MovementContext
-from logger import setup_logging, ZorkExperienceTracker
+from logger import setup_logging
 
 # Import our refactored modules with aliases to avoid conflicts
 from zork_agent import ZorkAgent as AgentModule
-from zork_extractor import ZorkExtractor, ExtractorResponse
+from zork_extractor import ExtractorResponse
 from hybrid_zork_extractor import HybridZorkExtractor
 from zork_critic import ZorkCritic, CriticResponse
-from zork_strategy_generator import (
-    create_integrated_knowledge_base,
-    AdaptiveKnowledgeManager,
-)
+from zork_strategy_generator import AdaptiveKnowledgeManager
 
 # Optional S3 support
 try:
@@ -65,12 +61,9 @@ class ZorkOrchestrator:
         info_ext_model: str = None,
         episode_log_file: str = "zork_episode_log.txt",
         json_log_file: str = "zork_episode_log.jsonl",
-        experiences_file: str = "zork_experiences.json",
         max_turns_per_episode: int = 500,
         client_base_url: str = None,
         client_api_key: str = None,
-        # Automatic knowledge base updating
-        auto_update_knowledge: bool = True,
         # Turn-based knowledge updating
         enable_adaptive_knowledge: bool = True,
         knowledge_update_interval: int = 100,
@@ -79,27 +72,22 @@ class ZorkOrchestrator:
         state_export_file: str = "current_state.json",
         s3_bucket: str = None,
         s3_key_prefix: str = "zorkgpt/",
-        # Extraction configuration
-        use_hybrid_extractor: bool = True,
     ):
         """Initialize the ZorkOrchestrator with all subsystems."""
         # Store configuration
         self.episode_log_file = episode_log_file
         self.json_log_file = json_log_file
-        self.experiences_file = experiences_file
 
         # Game settings
         self.max_turns_per_episode = max_turns_per_episode
-        self.auto_update_knowledge = auto_update_knowledge
 
         # Adaptive knowledge management
         self.enable_adaptive_knowledge = enable_adaptive_knowledge
         self.knowledge_update_interval = knowledge_update_interval
         self.last_knowledge_update_turn = 0
 
-        # Initialize logger and experience tracker FIRST
+        # Initialize logger
         self.logger = setup_logging(episode_log_file, json_log_file)
-        self.experience_tracker = ZorkExperienceTracker()
 
         # State export configuration
         self.enable_state_export = enable_state_export
@@ -127,21 +115,12 @@ class ZorkOrchestrator:
             model=agent_model, client=self.client, logger=self.logger
         )
 
-        # Initialize extractor based on configuration
-        if use_hybrid_extractor:
-            # Use hybrid extractor that combines structured parsing with LLM extraction
-            self.extractor = HybridZorkExtractor(
-                model=info_ext_model, client=self.client, logger=self.logger
-            )
-            if self.logger:
-                self.logger.info("Using hybrid extractor (structured + LLM)")
-        else:
-            # Use traditional LLM-only extractor
-            self.extractor = ZorkExtractor(
-                model=info_ext_model, client=self.client, logger=self.logger
-            )
-            if self.logger:
-                self.logger.info("Using traditional LLM-only extractor")
+        # Initialize hybrid extractor (combines structured parsing with LLM extraction)
+        self.extractor = HybridZorkExtractor(
+            model=info_ext_model, client=self.client, logger=self.logger
+        )
+        if self.logger:
+            self.logger.info("Using hybrid extractor (structured + LLM)")
 
         self.critic = ZorkCritic(
             model=critic_model, client=self.client, logger=self.logger
@@ -171,11 +150,8 @@ class ZorkOrchestrator:
         self.episode_id = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.previous_zork_score = 0
         self.turn_count = 0
-        self.total_episode_reward = 0
-        # Use enhanced map graph for single-episode optimization if adaptive knowledge is enabled
-        self.game_map = (
-            EnhancedMapGraph() if self.enable_adaptive_knowledge else MapGraph()
-        )
+        # Use MapGraph with enhanced confidence tracking
+        self.game_map = MapGraph()
         self.current_room_name_for_map = ""
         self.prev_room_for_prompt_context: Optional[str] = None
         self.action_leading_to_current_room_for_prompt_context: Optional[str] = None
@@ -195,7 +171,7 @@ class ZorkOrchestrator:
         self.extractor.update_episode_id(self.episode_id)
         self.critic.update_episode_id(self.episode_id)
 
-    def play_episode(self, zork_interface_instance) -> Tuple[List, int]:
+    def play_episode(self, zork_interface_instance) -> int:
         """
         Play a single episode of Zork.
 
@@ -203,7 +179,7 @@ class ZorkOrchestrator:
             zork_interface_instance: The Zork game interface
 
         Returns:
-            Tuple of (experiences, final_score)
+            Final Zork score
         """
         # Reset state for new episode
         self.reset_episode_state()
@@ -236,7 +212,7 @@ class ZorkOrchestrator:
                     "extras": {"event_type": "error", "episode_id": self.episode_id}
                 },
             )
-            return self.experience_tracker.get_experiences(), 0
+            return 0
 
         # Initialize game state variables
         game_over = False
@@ -329,29 +305,14 @@ class ZorkOrchestrator:
                         )
                         self.previous_zork_score = current_zork_score_val
 
-                        # Add death experience
-                        reward = -20  # Death penalty
-                        self.total_episode_reward += reward
-
-                        experience = self.experience_tracker.add_experience(
-                            state=current_game_state,
-                            action="inventory",  # The action that caused death
-                            reward=reward,
-                            next_state=inventory_response,
-                            done=True,
-                            critic_score=0.0,
-                            critic_justification="Death during inventory check",
-                            zork_score=self.previous_zork_score,
-                        )
-
-                        # Log experience
-                        self.logger.debug(
-                            "Experience added (death during inventory)",
+                        # Log death during inventory
+                        self.logger.info(
+                            "Death during inventory check - episode ending",
                             extra={
                                 "extras": {
-                                    "event_type": "experience",
+                                    "event_type": "death_during_inventory",
                                     "episode_id": self.episode_id,
-                                    "experience": experience,
+                                    "final_score": self.previous_zork_score,
                                 }
                             },
                         )
@@ -564,8 +525,10 @@ class ZorkOrchestrator:
 
                 # Get clean game text for display (without structured header)
                 clean_game_text = next_game_state
-                if hasattr(self.extractor, 'get_clean_game_text'):
-                    clean_game_text = self.extractor.get_clean_game_text(next_game_state)
+                if hasattr(self.extractor, "get_clean_game_text"):
+                    clean_game_text = self.extractor.get_clean_game_text(
+                        next_game_state
+                    )
 
                 # Log Zork response (using clean text for display)
                 self.logger.info(
@@ -607,34 +570,16 @@ class ZorkOrchestrator:
                     self.action_history.append((action_taken, clean_game_text))
 
                     if game_over:
-                        if "died" in game_over_reason.lower():
-                            reward = -20
-                        elif "victory" in game_over_reason.lower():
-                            reward = 50
-                        else:
-                            reward = 0
-                        self.total_episode_reward += reward
-
-                        # Add experience and log it
-                        experience = self.experience_tracker.add_experience(
-                            state=current_game_state,
-                            action=action_taken,
-                            reward=reward,
-                            next_state=next_game_state,
-                            done=game_over,
-                            critic_score=critic_score_val,
-                            critic_justification=critic_justification,
-                            zork_score=self.previous_zork_score,
-                        )
-
-                        # Log experience
-                        self.logger.debug(
-                            "Experience added",
+                        # Log game over details
+                        self.logger.info(
+                            f"Game over: {game_over_reason}",
                             extra={
                                 "extras": {
-                                    "event_type": "experience",
+                                    "event_type": "game_over_final",
                                     "episode_id": self.episode_id,
-                                    "experience": experience,
+                                    "reason": game_over_reason,
+                                    "final_score": self.previous_zork_score,
+                                    "action_taken": action_taken,
                                 }
                             },
                         )
@@ -729,15 +674,17 @@ class ZorkOrchestrator:
                 # Get score - try structured parser first if using hybrid extractor
                 structured_score = None
                 structured_moves = None
-                
-                if hasattr(self.extractor, 'get_score_and_moves'):
-                    structured_score, structured_moves = self.extractor.get_score_and_moves(next_game_state)
-                
+
+                if hasattr(self.extractor, "get_score_and_moves"):
+                    structured_score, structured_moves = (
+                        self.extractor.get_score_and_moves(next_game_state)
+                    )
+
                 if structured_score is not None:
                     # Use score from structured parser
                     current_zork_score_val = structured_score
                     max_zork_score = 585  # Known max score for Zork I
-                    
+
                     # Log successful structured score extraction
                     self.logger.debug(
                         f"Score extracted via structured parser: {current_zork_score_val} (moves: {structured_moves})",
@@ -772,77 +719,34 @@ class ZorkOrchestrator:
                 next_game_state = "Game ended unexpectedly"
                 continue
 
-            # Determine Reward & Game Over
-            # Base reward from critic
-            reward = critic_score_val
-
-            # Apply repetition penalties
-            if (
-                self.action_counts[agent_action] > 2
-                and "already" in next_game_state.lower()
-            ):
-                repetition_penalty = min(
-                    0.2 * (self.action_counts[agent_action] - 2), 0.6
-                )
-                reward -= repetition_penalty
-
-            # Check for location changes and reward exploration
-            if (
-                self.current_room_name_for_map
-                and self.current_room_name_for_map != room_before_action
-            ):
-                if self.current_room_name_for_map not in self.visited_locations:
-                    exploration_bonus = 0.5
-                    reward += exploration_bonus
-                    self.visited_locations.add(self.current_room_name_for_map)
-
-            # Check for Zork's internal score changes
+            # Check for Zork's internal score changes and log them
             score_change = current_zork_score_val - self.previous_zork_score
             if score_change > 0:
-                score_bonus = score_change * 2  # Amplify positive score changes
-                reward += score_bonus
                 self.logger.info(
-                    f"Score increased by {score_change} points! Bonus reward: +{score_bonus:.2f}",
+                    f"Score increased by {score_change} points!",
                     extra={
                         "extras": {
                             "event_type": "score_increase",
                             "episode_id": self.episode_id,
                             "score_change": score_change,
                             "new_score": current_zork_score_val,
-                            "bonus_reward": score_bonus,
                         }
                     },
                 )
             elif score_change < 0:
-                score_penalty = abs(score_change) * 1.5  # Penalize score losses
-                reward -= score_penalty
+                self.logger.info(
+                    f"Score decreased by {abs(score_change)} points",
+                    extra={
+                        "extras": {
+                            "event_type": "score_decrease",
+                            "episode_id": self.episode_id,
+                            "score_change": score_change,
+                            "new_score": current_zork_score_val,
+                        }
+                    },
+                )
 
             self.previous_zork_score = current_zork_score_val
-            self.total_episode_reward += reward
-
-            # Store experience for RL and log it
-            experience = self.experience_tracker.add_experience(
-                state=current_game_state,
-                action=agent_action,
-                reward=reward,
-                next_state=next_game_state,
-                done=game_over,
-                critic_score=critic_score_val,
-                critic_justification=critic_justification,
-                zork_score=current_zork_score_val,
-            )
-
-            # Log experience
-            self.logger.debug(
-                "Experience added",
-                extra={
-                    "extras": {
-                        "event_type": "experience",
-                        "episode_id": self.episode_id,
-                        "experience": experience,
-                    }
-                },
-            )
 
             current_game_state = next_game_state
 
@@ -896,7 +800,6 @@ class ZorkOrchestrator:
                     "max_score": max_zork_score
                     if "max_zork_score" in locals()
                     else 585,
-                    "total_reward": self.total_episode_reward,
                     "final_max_turns": self.max_turns_per_episode,
                     # Performance metrics
                     "avg_critic_score": self.get_avg_critic_score(),
@@ -904,20 +807,12 @@ class ZorkOrchestrator:
             },
         )
 
-        # Save experiences and optionally update knowledge base
-        self.experience_tracker.save_experiences(self.experiences_file)
+        # Episode cleanup
 
         # Perform final adaptive knowledge update if there's been significant progress
         self._perform_final_knowledge_update()
 
-        if self.auto_update_knowledge:
-            try:
-                create_integrated_knowledge_base(self.json_log_file)
-                self.logger.info("Knowledge base updated successfully")
-            except Exception as e:
-                self.logger.warning(f"Knowledge base update failed: {e}")
-
-        return self.experience_tracker.get_experiences(), self.previous_zork_score
+        return self.previous_zork_score
 
     def _check_adaptive_knowledge_update(self) -> None:
         """Check if it's time for an adaptive knowledge update and perform it if needed."""
@@ -946,15 +841,13 @@ class ZorkOrchestrator:
             )
 
             try:
-                # Include map quality metrics if using enhanced map
-                map_metrics = None
-                if isinstance(self.game_map, EnhancedMapGraph):
-                    map_metrics = self.game_map.get_map_quality_metrics()
-                    self.logger.info(
-                        f"📊 Map Quality: {map_metrics['average_confidence']:.2f} avg confidence, "
-                        f"{map_metrics['high_confidence_ratio']:.1%} high confidence, "
-                        f"{map_metrics['verified_connections']} verified connections"
-                    )
+                # Include map quality metrics
+                map_metrics = self.game_map.get_map_quality_metrics()
+                self.logger.info(
+                    f"📊 Map Quality: {map_metrics['average_confidence']:.2f} avg confidence, "
+                    f"{map_metrics['high_confidence_ratio']:.1%} high confidence, "
+                    f"{map_metrics['verified_connections']} verified connections"
+                )
 
                 # Attempt knowledge update
                 update_success = (
@@ -1154,7 +1047,6 @@ class ZorkOrchestrator:
                 "turn_count": self.turn_count,
                 "game_over": False,  # TODO: Track this properly
                 "score": self.previous_zork_score,
-                "total_reward": self.total_episode_reward,
                 "max_turns": self.max_turns_per_episode,
                 "models": {
                     "agent": self.agent.model,
@@ -1176,13 +1068,9 @@ class ZorkOrchestrator:
                     len(connections)
                     for connections in self.game_map.connections.values()
                 ),
-                # Enhanced map metrics if available
-                "quality_metrics": self.game_map.get_map_quality_metrics()
-                if isinstance(self.game_map, EnhancedMapGraph)
-                else None,
-                "confidence_report": self.game_map.render_confidence_report()
-                if isinstance(self.game_map, EnhancedMapGraph)
-                else None,
+                # Enhanced map metrics
+                "quality_metrics": self.game_map.get_map_quality_metrics(),
+                "confidence_report": self.game_map.render_confidence_report(),
                 # Optional: Include raw data for advanced frontends
                 "raw_data": {
                     "rooms": {
@@ -1291,13 +1179,15 @@ class ZorkOrchestrator:
     def get_avg_critic_score(self) -> float:
         """Get average critic score for recent turns."""
         if (
-            not hasattr(self, "experience_tracker")
-            or not self.experience_tracker.experiences
+            not hasattr(self, "action_reasoning_history")
+            or not self.action_reasoning_history
         ):
             return 0.0
 
-        recent_experiences = self.experience_tracker.experiences[-10:]  # Last 10 turns
-        critic_scores = [exp.get("critic_score", 0.0) for exp in recent_experiences]
+        recent_reasoning = self.action_reasoning_history[-10:]  # Last 10 turns
+        critic_scores = [
+            reasoning.get("critic_score", 0.0) for reasoning in recent_reasoning
+        ]
 
         if not critic_scores:
             return 0.0
@@ -1370,7 +1260,7 @@ if __name__ == "__main__":
 
     with ZorkInterface(timeout=1.0) as zork_game:
         try:
-            episode_experiences, final_score = orchestrator.play_episode(zork_game)
+            final_score = orchestrator.play_episode(zork_game)
             print(f"\nPlayed one episode. Final Zork score: {final_score}")
             print(f"Turns taken: {orchestrator.turn_count}")
             print(orchestrator.game_map.render_ascii())

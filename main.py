@@ -14,8 +14,6 @@ def run_long_episode():
         max_turns_per_episode=5000,  # Very long episodes
         enable_adaptive_knowledge=True,  # Enable turn-based updates
         knowledge_update_interval=100,  # Update every 100 turns
-        # Traditional episode-based updates (optional)
-        auto_update_knowledge=False,  # Disable to rely only on adaptive system
         # S3 integration for live viewer
         enable_state_export=True,  # Enable state export
         # s3_bucket will be read from ZORK_S3_BUCKET environment variable
@@ -30,12 +28,14 @@ def run_long_episode():
     print(f"  - Adaptive knowledge: {orchestrator.enable_adaptive_knowledge}")
     print(f"  - State export: {orchestrator.enable_state_export}")
     print(f"  - S3 bucket: {orchestrator.s3_bucket or 'Not configured'}")
-    print(f"  - S3 client: {'✅ Available' if orchestrator.s3_client else '❌ Not available'}")
+    print(
+        f"  - S3 client: {'✅ Available' if orchestrator.s3_client else '❌ Not available'}"
+    )
     print()
 
     with ZorkInterface(timeout=1.0) as zork_game:
         try:
-            episode_experiences, final_score = orchestrator.play_episode(zork_game)
+            final_score = orchestrator.play_episode(zork_game)
 
             print(f"\n🎯 Episode Complete!")
             print(f"  - Final score: {final_score}")

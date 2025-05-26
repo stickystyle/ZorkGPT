@@ -92,47 +92,6 @@ def setup_logging(
     return logger
 
 
-class ZorkExperienceTracker:
-    """Class for tracking experiences for reinforcement learning in ZorkGPT."""
-
-    def __init__(self):
-        self.experiences = []
-
-    def add_experience(
-        self,
-        state: str,
-        action: str,
-        reward: float,
-        next_state: str,
-        done: bool,
-        critic_score: float = 0,
-        critic_justification: str = None,
-        zork_score: int = 0,
-    ):
-        """Add an experience for RL."""
-        experience = {
-            "state": state,
-            "action": action,
-            "reward": reward,
-            "next_state": next_state,
-            "done": done,
-            "critic_score": critic_score,
-            "critic_justification": critic_justification,
-            "zork_score": zork_score,
-        }
-        self.experiences.append(experience)
-        return experience
-
-    def get_experiences(self) -> List[Dict[str, Any]]:
-        """Get all recorded experiences."""
-        return self.experiences
-
-    def save_experiences(self, filename: str):
-        """Save experiences to a JSON file for RL."""
-        with open(filename, "w", encoding="utf-8") as f:
-            json.dump(self.experiences, f, indent=2)
-
-
 # Create a global instance that can be imported directly
 def create_zork_logger(
     episode_log_file: str = "zork_episode_log.txt",
@@ -140,9 +99,6 @@ def create_zork_logger(
 ):
     """Create and return a logger for ZorkGPT."""
     return setup_logging(episode_log_file, json_log_file)
-
-
-# Experience tracker is now managed within ZorkAgent class instances
 
 
 # Utility functions for parsing and rendering logs
@@ -216,21 +172,3 @@ def render_logs_as_text(logs: List[Dict[str, Any]]) -> str:
             )
 
     return "\n".join(output)
-
-
-def format_experiences_for_rl(experiences: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Format experiences for reinforcement learning frameworks."""
-    # This can be customized based on the specific RL framework being used
-    # For example, formatting for PyTorch, TensorFlow, or other RL libraries
-    formatted_data = {
-        "states": [exp["state"] for exp in experiences],
-        "actions": [exp["action"] for exp in experiences],
-        "rewards": [exp["reward"] for exp in experiences],
-        "next_states": [exp["next_state"] for exp in experiences],
-        "dones": [exp["done"] for exp in experiences],
-        "metadata": {
-            "critic_scores": [exp.get("critic_score", 0) for exp in experiences],
-            "zork_scores": [exp.get("zork_score", 0) for exp in experiences],
-        },
-    }
-    return formatted_data

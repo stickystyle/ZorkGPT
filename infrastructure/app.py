@@ -13,8 +13,10 @@ ZorkGPTViewerStack(
     description="Infrastructure for ZorkGPT Live Viewer - S3 bucket and CloudFront distribution",
     env=cdk.Environment(
         # Use environment variables or CDK context
-        account=os.environ.get("CDK_DEFAULT_ACCOUNT") or app.node.try_get_context("account"),
-        region=os.environ.get("CDK_DEFAULT_REGION") or app.node.try_get_context("region"),
+        account=os.environ.get("CDK_DEFAULT_ACCOUNT")
+        or app.node.try_get_context("account"),
+        region=os.environ.get("CDK_DEFAULT_REGION")
+        or app.node.try_get_context("region"),
     ),
 )
 

@@ -78,8 +78,11 @@ class AdaptiveKnowledgeManager:
             return False
 
         # Check if this is the very first knowledge update (no knowledge base exists)
-        is_first_update = not os.path.exists(self.output_file) or os.path.getsize(self.output_file) == 0
-        
+        is_first_update = (
+            not os.path.exists(self.output_file)
+            or os.path.getsize(self.output_file) == 0
+        )
+
         # Step 1: LLM assesses if this data is worth analyzing
         quality_score, quality_reason = self._assess_knowledge_update_quality(
             turn_data, is_final_update
@@ -100,7 +103,9 @@ class AdaptiveKnowledgeManager:
 
         # Allow first update regardless of quality to bootstrap learning
         if is_first_update:
-            print(f"  🌱 First knowledge update - proceeding regardless of quality score to bootstrap learning")
+            print(
+                f"  🌱 First knowledge update - proceeding regardless of quality score to bootstrap learning"
+            )
         elif quality_score < effective_threshold:
             print(
                 f"  ⏭️ Skipping update - quality below threshold ({effective_threshold})"
@@ -1289,21 +1294,6 @@ The merged guide should be more comprehensive and accurate than either individua
 
         print(f"📝 Strategy guide saved to {self.output_file}")
         return self.output_file
-
-
-def create_integrated_knowledge_base(log_file: str = "zork_episode_log.jsonl") -> str:
-    """
-    Create an integrated knowledge base from episode logs.
-
-    Args:
-        log_file: Path to the episode log file
-
-    Returns:
-        Path to the created knowledge base file
-    """
-    system = ZorkStrategyGenerator()
-    system.log_file = log_file
-    return system.save_strategy_guide()
 
 
 if __name__ == "__main__":

@@ -17,7 +17,11 @@ import environs
 import os
 
 from structured_zork_parser import StructuredZorkParser, StructuredZorkResponse
-from zork_extractor import ExtractorResponse, GENERIC_LOCATION_FALLBACKS, create_json_schema
+from zork_extractor import (
+    ExtractorResponse,
+    GENERIC_LOCATION_FALLBACKS,
+    create_json_schema,
+)
 
 # Load environment variables
 env = environs.Env()
@@ -27,7 +31,7 @@ env.read_env()
 class HybridZorkExtractor:
     """
     Hybrid extractor that combines structured parsing with LLM extraction.
-    
+
     Uses structured parsing for location/score/moves when available,
     and LLM extraction for detailed game state analysis.
     """
@@ -40,7 +44,6 @@ class HybridZorkExtractor:
         temperature: float = 0.1,
         logger=None,
         episode_id: str = "unknown",
-        use_structured_parser: bool = True,
     ):
         """
         Initialize the HybridZorkExtractor.
@@ -52,16 +55,14 @@ class HybridZorkExtractor:
             temperature: Temperature for LLM extraction
             logger: Logger instance for tracking
             episode_id: Current episode ID for logging
-            use_structured_parser: Whether to use structured parsing (default True)
+
         """
         self.model = model or env.str("INFO_EXT_MODEL", "qwen3-30b-a3b-mlx")
         self.max_tokens = max_tokens
         self.temperature = temperature
         self.logger = logger
         self.episode_id = episode_id
-        self.use_structured_parser = use_structured_parser
-
-        # Initialize structured parser
+        # Initialize structured parser (always enabled for hybrid extractor)
         self.structured_parser = StructuredZorkParser()
 
         # Initialize OpenAI client if not provided
@@ -79,16 +80,11 @@ class HybridZorkExtractor:
     def _load_system_prompt(self) -> None:
         """Load the system prompt for LLM extraction."""
         try:
-            with open("enhanced_extractor.md", "r") as f:
+            with open("extractor.md", "r") as f:
                 self.system_prompt = f.read()
         except FileNotFoundError:
-            # Fallback to basic extractor prompt
-            try:
-                with open("extractor.md", "r") as f:
-                    self.system_prompt = f.read()
-            except FileNotFoundError:
-                # Ultimate fallback
-                self.system_prompt = """You are an expert data extraction assistant for a text adventure game.
+            # Ultimate fallback if extractor.md is missing
+            self.system_prompt = """You are an expert data extraction assistant for a text adventure game.
 Extract key information from the game text and return it as JSON with these fields:
 - current_location_name: The name of the current room/area
 - exits: List of available exits
@@ -121,17 +117,21 @@ Extract key information from the game text and return it as JSON with these fiel
             )
 
         # Step 1: Try structured parsing first
-        structured_result = None
-        if self.use_structured_parser:
-            structured_result = self.structured_parser.parse_response(game_text_from_zork)
+        structured_result = self.structured_parser.parse_response(game_text_from_zork)
 
         # Step 2: Determine location using structured parser or fallback
         current_location_name = None
-        if structured_result and structured_result.has_structured_header and structured_result.room_name:
+        if (
+            structured_result
+            and structured_result.has_structured_header
+            and structured_result.room_name
+        ):
             # Use structured parser result
-            current_location_name = self.structured_parser.get_canonical_room_name(structured_result.room_name)
+            current_location_name = self.structured_parser.get_canonical_room_name(
+                structured_result.room_name
+            )
             extraction_source = "Structured Parser"
-            
+
             # Log successful structured extraction
             if self.logger:
                 self.logger.info(
@@ -155,12 +155,12 @@ Extract key information from the game text and return it as JSON with these fiel
         if structured_result and structured_result.has_structured_header:
             # Use the clean game text without the structured header for LLM analysis
             game_text_for_llm = structured_result.game_text
-        
+
         # Use LLM extraction for detailed analysis
         # We still use LLM for exits, objects, characters, and messages
         # even when we have structured location data
         llm_extraction = self._extract_with_llm(game_text_for_llm, previous_location)
-        
+
         if llm_extraction:
             # If we got location from structured parser, use that; otherwise use LLM result
             if current_location_name:
@@ -187,7 +187,9 @@ Extract key information from the game text and return it as JSON with these fiel
                     exits=[],
                     visible_objects=[],
                     visible_characters=[],
-                    important_messages=[structured_result.game_text] if structured_result.game_text else [],
+                    important_messages=[structured_result.game_text]
+                    if structured_result.game_text
+                    else [],
                     in_combat=False,
                 )
                 extraction_source = "Structured Only"
@@ -242,7 +244,9 @@ Extract key information from the game text and return it as JSON with these fiel
                         "episode_id": self.episode_id,
                         "location": final_response.current_location_name,
                         "extraction_source": extraction_source,
-                        "has_structured_data": structured_result.has_structured_header if structured_result else False,
+                        "has_structured_data": structured_result.has_structured_header
+                        if structured_result
+                        else False,
                     }
                 },
             )
@@ -254,7 +258,7 @@ Extract key information from the game text and return it as JSON with these fiel
     ) -> Optional[ExtractorResponse]:
         """
         Extract information using LLM.
-        
+
         Args:
             game_text_from_zork: The raw text output from the Zork game.
             previous_location: The previous location name for context.
@@ -338,33 +342,32 @@ Extract key information from the game text and return it as JSON with these fiel
         """Update the episode ID for logging purposes."""
         self.episode_id = episode_id
 
-    def get_score_and_moves(self, game_text_from_zork: str) -> tuple[Optional[int], Optional[int]]:
+    def get_score_and_moves(
+        self, game_text_from_zork: str
+    ) -> tuple[Optional[int], Optional[int]]:
         """
         Extract score and moves directly from structured response.
-        
+
         Args:
             game_text_from_zork: The raw text output from the Zork game.
-            
+
         Returns:
             Tuple of (score, moves) if available, (None, None) otherwise.
         """
-        if self.use_structured_parser:
-            return self.structured_parser.extract_score_and_moves(game_text_from_zork)
-        return None, None
+        return self.structured_parser.extract_score_and_moves(game_text_from_zork)
 
     def get_clean_game_text(self, game_text_from_zork: str) -> str:
         """
         Get the game text without the structured header for display purposes.
-        
+
         Args:
             game_text_from_zork: The raw text output from the Zork game.
-            
+
         Returns:
             Clean game text without structured header, or original text if no header found.
         """
-        if self.use_structured_parser:
-            structured_result = self.structured_parser.parse_response(game_text_from_zork)
-            if structured_result.has_structured_header:
-                return structured_result.game_text
-        
-        return game_text_from_zork 
+        structured_result = self.structured_parser.parse_response(game_text_from_zork)
+        if structured_result.has_structured_header:
+            return structured_result.game_text
+
+        return game_text_from_zork
