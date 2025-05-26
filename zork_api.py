@@ -125,6 +125,16 @@ class ZorkInterface:
         if not score_text:
             score_text = self.send_command("score").strip()
         current_score, max_score = 0, 0  # Default if parsing fails
+        
+        # Try structured format first: "> Room Name ... Score: X ... Moves: Y"
+        structured_match = re.search(
+            r">\s*(.+?)\s+Score:\s*(\d+)\s+Moves:\s*(\d+)", score_text, re.MULTILINE
+        )
+        if structured_match:
+            current_score = int(structured_match.group(2))
+            max_score = 585  # Default max score for Zork I when not specified
+            return current_score, max_score
+        
         # "Your score is 0 [total of 350 points], in 1 moves."
         match = re.search(
             r"Your score is (\d+)\s*\[total of (\d+) points], in \d+ moves.", score_text

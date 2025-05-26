@@ -141,6 +141,9 @@ class ZorkOrchestrator:
         else:
             self.adaptive_knowledge_manager = None
 
+        # Session-persistent state (survives episode resets)
+        self.death_count = 0  # Track cumulative deaths across all episodes
+
         # Episode state (reset for each episode)
         self.reset_episode_state()
 
@@ -170,8 +173,7 @@ class ZorkOrchestrator:
         # Reset adaptive knowledge tracking for new episode
         self.last_knowledge_update_turn = 0
 
-        # Death tracking for viewer
-        self.death_count = 0
+        # Note: death_count is NOT reset here - it persists across episodes
 
         # Update episode IDs in components
         self.agent.update_episode_id(self.episode_id)
@@ -720,14 +722,52 @@ class ZorkOrchestrator:
                     )
                 else:
                     # Fallback to traditional score extraction
-                    if not game_over and zork_interface_instance.is_running():
-                        current_zork_score_val, max_zork_score = (
-                            zork_interface_instance.score()
+                    try:
+                        if not game_over and zork_interface_instance.is_running():
+                            current_zork_score_val, max_zork_score = (
+                                zork_interface_instance.score()
+                            )
+                        else:
+                            # Use the score method with the game text for parsing
+                            current_zork_score_val, max_zork_score = (
+                                zork_interface_instance.score(next_game_state)
+                            )
+                        
+                        # Check if score parsing returned 0 but we had a previous non-zero score
+                        # This happens when the parser doesn't understand the command and returns default values
+                        if (current_zork_score_val == 0 and max_zork_score == 0 and 
+                            self.previous_zork_score > 0):
+                            self.logger.warning(
+                                f"Score parsing returned 0 but previous score was {self.previous_zork_score}. "
+                                f"Likely parser error - maintaining previous score.",
+                                extra={
+                                    "extras": {
+                                        "event_type": "score_parsing_zero_fallback",
+                                        "episode_id": self.episode_id,
+                                        "previous_score": self.previous_zork_score,
+                                        "parsed_score": current_zork_score_val,
+                                        "game_text": next_game_state[:100] + "..." if len(next_game_state) > 100 else next_game_state,
+                                    }
+                                },
+                            )
+                            current_zork_score_val = self.previous_zork_score
+                            max_zork_score = 585  # Default max score for Zork I
+                            
+                    except Exception as score_parse_error:
+                        # If score parsing fails completely, maintain the previous score
+                        self.logger.warning(
+                            f"Score parsing failed, maintaining previous score: {self.previous_zork_score}. Error: {score_parse_error}",
+                            extra={
+                                "extras": {
+                                    "event_type": "score_parsing_exception_fallback",
+                                    "episode_id": self.episode_id,
+                                    "previous_score": self.previous_zork_score,
+                                    "error": str(score_parse_error),
+                                }
+                            },
                         )
-                    else:
-                        current_zork_score_val, max_zork_score = (
-                            zork_interface_instance.parse_zork_score(next_game_state)
-                        )
+                        current_zork_score_val = self.previous_zork_score
+                        max_zork_score = 585  # Default max score for Zork I
 
             except RuntimeError as e:
                 self.logger.error(
