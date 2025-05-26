@@ -1280,7 +1280,6 @@ The merged guide should be more comprehensive and accurate than either individua
 - Explore systematically using cardinal directions
 - Take all items you find - inventory space is usually not limited
 - Read any text carefully for clues about puzzles
-- Save frequently to avoid losing progress
 
 *This guide will be updated as more episode data becomes available.*
 """
