@@ -97,6 +97,10 @@ class ZorkOrchestrator:
         self.knowledge_update_interval = knowledge_update_interval
         self.last_knowledge_update_turn = 0
 
+        # Initialize logger and experience tracker FIRST
+        self.logger = setup_logging(episode_log_file, json_log_file)
+        self.experience_tracker = ZorkExperienceTracker()
+
         # State export configuration
         self.enable_state_export = enable_state_export
         self.state_export_file = state_export_file
@@ -108,15 +112,9 @@ class ZorkOrchestrator:
         if S3_AVAILABLE and self.s3_bucket:
             try:
                 self.s3_client = boto3.client("s3")
-                if self.logger:
-                    self.logger.info(f"S3 export enabled for bucket: {self.s3_bucket}")
+                self.logger.info(f"S3 export enabled for bucket: {self.s3_bucket}")
             except Exception as e:
-                if self.logger:
-                    self.logger.warning(f"Failed to initialize S3 client: {e}")
-
-        # Initialize logger and experience tracker
-        self.logger = setup_logging(episode_log_file, json_log_file)
-        self.experience_tracker = ZorkExperienceTracker()
+                self.logger.warning(f"Failed to initialize S3 client: {e}")
 
         # Initialize OpenAI client (shared across components)
         self.client = OpenAI(
