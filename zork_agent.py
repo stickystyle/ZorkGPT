@@ -465,3 +465,42 @@ The following strategic guide has been compiled from analyzing previous episodes
     def update_episode_id(self, episode_id: str) -> None:
         """Update the episode ID for logging purposes."""
         self.episode_id = episode_id
+
+    def reload_knowledge_base(self) -> bool:
+        """Reload the knowledge base from file and update the system prompt.
+        
+        Returns:
+            True if knowledge base was successfully reloaded, False otherwise
+        """
+        try:
+            # Load base agent prompt
+            with open("agent.md") as fh:
+                base_agent_prompt = fh.read()
+
+            # Re-enhance with current knowledge base
+            new_system_prompt = self._enhance_prompt_with_knowledge(base_agent_prompt)
+            
+            # Update the system prompt
+            old_length = len(self.system_prompt) if hasattr(self, 'system_prompt') else 0
+            self.system_prompt = new_system_prompt
+            new_length = len(self.system_prompt)
+            
+            if self.logger:
+                self.logger.info(
+                    f"Knowledge base reloaded successfully (prompt: {old_length} -> {new_length} chars)",
+                    extra={
+                        "extras": {
+                            "event_type": "knowledge_base_reloaded",
+                            "episode_id": self.episode_id,
+                            "old_prompt_length": old_length,
+                            "new_prompt_length": new_length,
+                        }
+                    }
+                )
+            
+            return True
+            
+        except Exception as e:
+            if self.logger:
+                self.logger.warning(f"Failed to reload knowledge base: {e}")
+            return False

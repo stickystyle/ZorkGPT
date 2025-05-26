@@ -68,6 +68,8 @@ class ZorkOrchestrator:
         # Turn-based knowledge updating
         enable_adaptive_knowledge: bool = True,
         knowledge_update_interval: int = 100,
+        # Map updating (more frequent than full knowledge updates)
+        map_update_interval: int = 25,
         # State export configuration
         enable_state_export: bool = True,
         state_export_file: str = "current_state.json",
@@ -89,6 +91,10 @@ class ZorkOrchestrator:
         self.enable_adaptive_knowledge = enable_adaptive_knowledge
         self.knowledge_update_interval = knowledge_update_interval
         self.last_knowledge_update_turn = 0
+        
+        # Map updating (more frequent than full knowledge updates)
+        self.map_update_interval = map_update_interval
+        self.last_map_update_turn = 0
 
         # Initialize logger
         self.logger = setup_logging(episode_log_file, json_log_file)
@@ -172,6 +178,7 @@ class ZorkOrchestrator:
 
         # Reset adaptive knowledge tracking for new episode
         self.last_knowledge_update_turn = 0
+        self.last_map_update_turn = 0
 
         # Note: death_count is NOT reset here - it persists across episodes
 
@@ -819,6 +826,9 @@ class ZorkOrchestrator:
 
             # Check for adaptive knowledge update
             self._check_adaptive_knowledge_update()
+            
+            # Check for map update (more frequent than full knowledge updates)
+            self._check_map_update()
 
             # Export current state after each turn
             self.export_current_state()
@@ -966,6 +976,9 @@ class ZorkOrchestrator:
                         },
                     )
 
+                    # Update map in knowledge base after successful knowledge update
+                    self._update_knowledge_base_map()
+
                     # Reload knowledge in agent for immediate use
                     self._reload_agent_knowledge()
 
@@ -993,20 +1006,96 @@ class ZorkOrchestrator:
                     },
                 )
 
-    def _reload_agent_knowledge(self) -> None:
-        """Reload the knowledge base in the agent for immediate use."""
-        try:
-            # The agent will automatically reload the knowledge base on next action
-            # since it reads from the file each time _enhance_prompt_with_knowledge is called
+    def _check_map_update(self) -> None:
+        """Check if it's time for a map update and perform it if needed."""
+        if not self.enable_adaptive_knowledge or not self.adaptive_knowledge_manager:
+            return
+
+        # Check if enough turns have passed since last map update
+        turns_since_last_map_update = self.turn_count - self.last_map_update_turn
+
+        if turns_since_last_map_update >= self.map_update_interval:
             self.logger.info(
-                "Knowledge base reloaded for agent use",
+                f"Updating map in knowledge base (turn {self.turn_count})",
                 extra={
                     "extras": {
-                        "event_type": "agent_knowledge_reload",
+                        "event_type": "map_update_check",
                         "episode_id": self.episode_id,
+                        "turn": self.turn_count,
+                        "turns_since_last_map_update": turns_since_last_map_update,
                     }
                 },
             )
+
+            # Update map in knowledge base
+            self._update_knowledge_base_map()
+            self.last_map_update_turn = self.turn_count
+
+    def _update_knowledge_base_map(self) -> None:
+        """Update the mermaid map in the knowledge base."""
+        if not self.enable_adaptive_knowledge or not self.adaptive_knowledge_manager:
+            return
+            
+        try:
+            map_updated = self.adaptive_knowledge_manager.update_knowledge_with_map(
+                episode_id=self.episode_id,
+                game_map=self.game_map
+            )
+            
+            if map_updated:
+                self.logger.info(
+                    "Map updated in knowledge base",
+                    extra={
+                        "extras": {
+                            "event_type": "knowledge_base_map_update_success",
+                            "episode_id": self.episode_id,
+                            "turn": self.turn_count,
+                        }
+                    },
+                )
+            else:
+                self.logger.info(
+                    "Map update skipped (no map data)",
+                    extra={
+                        "extras": {
+                            "event_type": "knowledge_base_map_update_skipped",
+                            "episode_id": self.episode_id,
+                            "turn": self.turn_count,
+                        }
+                    },
+                )
+                
+        except Exception as e:
+            self.logger.warning(
+                f"Failed to update map in knowledge base: {e}",
+                extra={
+                    "extras": {
+                        "event_type": "knowledge_base_map_update_failed",
+                        "episode_id": self.episode_id,
+                        "error": str(e),
+                    }
+                },
+            )
+
+    def _reload_agent_knowledge(self) -> None:
+        """Reload the knowledge base in the agent for immediate use."""
+        try:
+            # Actually reload the knowledge base in the agent
+            success = self.agent.reload_knowledge_base()
+            
+            if success:
+                self.logger.info(
+                    "Knowledge base reloaded for agent use",
+                    extra={
+                        "extras": {
+                            "event_type": "agent_knowledge_reload",
+                            "episode_id": self.episode_id,
+                        }
+                    },
+                )
+            else:
+                self.logger.warning("Failed to reload agent knowledge base")
+                
         except Exception as e:
             self.logger.warning(f"Failed to reload agent knowledge: {e}")
 
@@ -1064,6 +1153,9 @@ class ZorkOrchestrator:
                             }
                         },
                     )
+                    
+                    # Update map in knowledge base after successful final update
+                    self._update_knowledge_base_map()
                 else:
                     self.logger.info(
                         "Final knowledge update skipped (low quality data)",
