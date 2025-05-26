@@ -49,6 +49,18 @@ class AdaptiveKnowledgeManager:
         # Turn-based configuration
         self.turn_window_size = env.int("TURN_WINDOW_SIZE", 100)
         self.min_quality_threshold = env.float("MIN_KNOWLEDGE_QUALITY", 6.0)
+        
+        # Load agent instructions to avoid duplication
+        self.agent_instructions = self._load_agent_instructions()
+
+    def _load_agent_instructions(self) -> str:
+        """Load the agent.md prompt to understand what's already covered."""
+        try:
+            with open("agent.md", "r", encoding="utf-8") as f:
+                return f.read()
+        except Exception as e:
+            print(f"  ⚠️ Could not load agent.md: {e}")
+            return ""
 
     def update_knowledge_from_turns(
         self,
@@ -418,7 +430,28 @@ Respond with just the strategy name: FULL_UPDATE, SELECTIVE_UPDATE, CONSOLIDATIO
         ]:  # Limit to avoid token overflow
             actions_text += f"Turn {action['turn']}: {action['action']} -> {action['response'][:150]}...\n"
 
-        prompt = f"""Analyze this Zork gameplay data and extract the most valuable strategic insights.
+        # Include agent instructions context if available
+        agent_context = ""
+        if self.agent_instructions:
+            agent_context = f"""
+**IMPORTANT - EXISTING AGENT INSTRUCTIONS CONTEXT:**
+The agent already has comprehensive instructions covering:
+- Basic command syntax and parser rules
+- General exploration and combat strategies  
+- Anti-repetition rules and failure handling
+- Command format requirements and common actions
+
+Focus your analysis on DISCOVERED KNOWLEDGE that goes BEYOND these basics:
+- Specific location details and secrets
+- Exact item locations and usage sequences  
+- Specific puzzle solutions and tricks
+- Particular dangers and how to handle them
+- Advanced tactics discovered through play
+- Specific sequences that work well
+
+DO NOT repeat basic information already covered in the agent instructions."""
+
+        prompt = f"""Analyze this Zork gameplay data and extract the most valuable strategic insights.{agent_context}
 
 TURN RANGE: {turn_data["start_turn"]}-{turn_data["end_turn"]}
 SCORE CHANGES: {turn_data["score_changes"]}
@@ -431,6 +464,7 @@ Focus on extracting insights that are:
 1. Actionable and specific
 2. Non-obvious or newly discovered
 3. Likely to improve future performance
+4. Beyond basic gameplay mechanics (which are already covered)
 
 Provide insights in these categories only if they contain valuable information:
 - **Navigation Discoveries**: New paths, connections, or movement strategies
@@ -440,7 +474,7 @@ Provide insights in these categories only if they contain valuable information:
 - **Efficiency Improvements**: Better action sequences or time-saving approaches
 
 Skip categories that don't have meaningful insights from this data.
-Be specific about locations, items, and sequences when relevant."""
+Be specific about locations, items, and sequences when relevant.
 
         try:
             response = self.client.chat.completions.create(

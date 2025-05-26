@@ -88,7 +88,7 @@ if __name__ == "__main__":
     print("=" * 60)
     while True:
         try:
-            run_episode(max_turns_per_episode=5)
+            run_episode(max_turns_per_episode=5000)
         except Exception as e:
             print(f"❌ Error: {e}")
             import traceback
