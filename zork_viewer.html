@@ -578,7 +578,7 @@
                     <li><strong>Agent:</strong> Decides what actions to take</li>
                     <li><strong>Extractor:</strong> Parses game text into structured data</li>
                     <li><strong>Critic:</strong> Evaluates proposed actions before execution</li>
-                    <li><strong>Strategy Generator:</strong> Learns from experience to improve future play</li>
+                    <li><strong>Knowledge Base:</strong> Analyzes gameplay data to generate strategic guides and learns from experience</li>
                 </ul>
                 <div id="current-models-info">
                     <p><strong>Current Models:</strong></p>
@@ -586,6 +586,7 @@
                         <li><strong>Agent:</strong> <span id="faq-agent-model">Loading...</span></li>
                         <li><strong>Critic:</strong> <span id="faq-critic-model">Loading...</span></li>
                         <li><strong>Extractor:</strong> <span id="faq-extractor-model">Loading...</span></li>
+                        <li><strong>Knowledge Base:</strong> <span id="faq-knowledge-model">Loading...</span></li>
                     </ul>
                 </div>
                 <p>These models may change as experiments progress to test different capabilities and performance characteristics.</p>
@@ -791,10 +792,12 @@
                     document.getElementById('faq-agent-model').textContent = meta.models.agent || 'Unknown';
                     document.getElementById('faq-critic-model').textContent = meta.models.critic || 'Unknown';
                     document.getElementById('faq-extractor-model').textContent = meta.models.extractor || 'Unknown';
+                    document.getElementById('faq-knowledge-model').textContent = meta.models.knowledge_base || 'Unknown';
                 } else {
                     document.getElementById('faq-agent-model').textContent = 'Not available';
                     document.getElementById('faq-critic-model').textContent = 'Not available';
                     document.getElementById('faq-extractor-model').textContent = 'Not available';
+                    document.getElementById('faq-knowledge-model').textContent = 'Not available';
                 }
             }
             

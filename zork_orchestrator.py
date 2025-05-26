@@ -1107,6 +1107,7 @@ class ZorkOrchestrator:
                     "agent": self.agent.model,
                     "critic": self.critic.model,
                     "extractor": self.extractor.model,
+                    "knowledge_base": self.adaptive_knowledge_manager.analysis_model if self.adaptive_knowledge_manager else "Not available",
                 },
             },
             "current_state": {
