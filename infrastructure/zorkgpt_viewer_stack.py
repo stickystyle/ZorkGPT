@@ -128,15 +128,6 @@ class ZorkGPTViewerStack(Stack):
             distribution_paths=["/zork_viewer.html"],
         )
 
-        s3deploy.BucketDeployment(
-            self,
-            "ZorkGPTViewerGameDeployment",
-            sources=[s3deploy.Source.asset("./", exclude=["**/*", "!zork.z5"])],
-            destination_bucket=self.bucket,
-            destination_key_prefix="infrastructure/",
-            distribution=self.distribution,
-            distribution_paths=["/infrastructure/zork.z5"],
-        )
 
         # Create VPC for EC2 instance (or use default VPC)
         vpc = ec2.Vpc.from_lookup(self, "DefaultVPC", is_default=True)
