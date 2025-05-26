@@ -88,6 +88,80 @@ class AdaptiveKnowledgeManager:
             print(f"  ⚠️ Could not load agent.md: {e}")
             return ""
 
+    def _is_first_meaningful_update(self) -> bool:
+        """
+        Check if this is the first meaningful knowledge update.
+        
+        Returns True if:
+        1. No knowledge base exists, OR
+        2. Knowledge base only contains auto-generated basic content (map + basic strategy)
+        
+        This handles the case where knowledgebase.md is auto-created for map updates
+        but doesn't contain any LLM-generated strategic insights yet.
+        """
+        if not os.path.exists(self.output_file):
+            return True
+            
+        if os.path.getsize(self.output_file) == 0:
+            return True
+            
+        try:
+            with open(self.output_file, "r", encoding="utf-8") as f:
+                content = f.read()
+                
+            # Check if content only contains basic auto-generated sections
+            # Look for indicators of LLM-generated strategic content
+            
+            # Remove map section for analysis
+            content_without_map = self._trim_map_section(content)
+            
+            # Basic strategy indicators that suggest auto-generated content
+            basic_indicators = [
+                "Always begin each location with 'look'",
+                "Use systematic exploration patterns",
+                "Execute 'take' commands for all portable items",
+                "Parse all text output for puzzle-solving information",
+                "Prioritize information extraction over rapid action execution"
+            ]
+            
+            # Count how many basic indicators are present
+            basic_indicator_count = sum(1 for indicator in basic_indicators if indicator in content_without_map)
+            
+            # If content is very short and mostly contains basic indicators, treat as first update
+            content_lines = [line.strip() for line in content_without_map.split('\n') if line.strip()]
+            meaningful_content_lines = [line for line in content_lines if not line.startswith('#') and len(line) > 10]
+            
+            # Heuristics for detecting auto-generated vs LLM-generated content:
+            # 1. Very few meaningful content lines (< 10)
+            # 2. High ratio of basic indicators to total content
+            # 3. No complex strategic insights (no sentences > 100 chars with specific game references)
+            
+            if len(meaningful_content_lines) < 10:
+                return True
+                
+            if basic_indicator_count >= 3 and len(meaningful_content_lines) < 15:
+                return True
+                
+            # Look for complex strategic insights (longer sentences with game-specific terms)
+            complex_insights = [
+                line for line in meaningful_content_lines 
+                if len(line) > 80 and any(term in line.lower() for term in [
+                    'puzzle', 'treasure', 'combat', 'inventory', 'specific', 'strategy',
+                    'avoid', 'danger', 'death', 'troll', 'grue', 'lamp', 'sword'
+                ])
+            ]
+            
+            # If no complex insights found, likely still basic content
+            if len(complex_insights) == 0:
+                return True
+                
+            return False
+            
+        except Exception as e:
+            print(f"  ⚠️ Error checking knowledge base content: {e}")
+            # If we can't read it, assume it's not meaningful yet
+            return True
+
     def update_knowledge_from_turns(
         self,
         episode_id: str,
@@ -115,11 +189,8 @@ class AdaptiveKnowledgeManager:
             print("  ⚠️ No turn data found for analysis")
             return False
 
-        # Check if this is the very first knowledge update (no knowledge base exists)
-        is_first_update = (
-            not os.path.exists(self.output_file)
-            or os.path.getsize(self.output_file) == 0
-        )
+        # Check if this is the very first knowledge update (no meaningful knowledge exists)
+        is_first_update = self._is_first_meaningful_update()
 
         # Step 1: LLM assesses if this data is worth analyzing
         quality_score, quality_reason = self._assess_knowledge_update_quality(
