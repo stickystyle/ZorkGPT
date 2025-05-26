@@ -68,7 +68,7 @@ Before taking any action, ask yourself:
 **Gameplay Strategy & Mindset:**
 1.  **Observe Thoroughly:** Pay meticulous attention to every detail in the room descriptions and game responses. Nouns are often things you can interact with.
 2.  **Experiment Creatively:** If you're unsure what to do, try `examining` everything. Try `taking` objects. Try `using` items from your inventory on things in the room, or `using` items on other items in your inventory. Sometimes an unusual action is the key.
-3.  **Explore Systematically:** Try to explore all available exits from a location. **Use your map**, you have a map that is generated as as mermaid diagram in the `--- Map Information ---` section after a number of turns.
+3.  **Explore Systematically:** Try to explore all available exits from a location. **Use your map**, you have a map that is generated as as mermaid diagram in the `## CURRENT WORLD MAP` section after a number of turns. You also have basic spatial information of the current room in the `--- Map Information ---` section.
 4.  **Solve Puzzles Methodically:** Zork is full of puzzles. Think about:
     *   What are the immediate obstacles or points of interest?
     *   What items do I have? How might their properties (seen via `examine`) be useful here?
