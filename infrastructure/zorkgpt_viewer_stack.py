@@ -6,7 +6,7 @@ from aws_cdk import (
     aws_s3 as s3,
     aws_cloudfront as cloudfront,
     aws_cloudfront_origins as origins,
-    aws_s3_deployment as s3deploy,
+
     aws_iam as iam,
     aws_ec2 as ec2,
     aws_route53 as route53,
@@ -175,17 +175,8 @@ class ZorkGPTViewerStack(Stack):
             ),
         )
 
-        # Deploy only the specific files we need for the viewer - use separate deployments for security
-        s3deploy.BucketDeployment(
-            self,
-            "ZorkGPTViewerHTMLDeployment",
-            sources=[
-                s3deploy.Source.asset("../", exclude=["**/*", "!zork_viewer.html"])
-            ],
-            destination_bucket=self.bucket,
-            distribution=self.distribution,
-            distribution_paths=["/zork_viewer.html"],
-        )
+        # Note: HTML files are now deployed from the EC2 instance using the manage_ec2.py update command
+        # This avoids unwanted service restarts caused by CDK BucketDeployment custom resources
 
 
         # Create VPC for EC2 instance (or use default VPC)
@@ -295,6 +286,8 @@ class ZorkGPTViewerStack(Stack):
             "EOF",
             "systemctl daemon-reload",
             "systemctl enable zorkgpt.service",
+            # Upload initial HTML file to S3 for immediate viewer availability
+            f"aws s3 cp /home/zorkgpt/ZorkGPT/zork_viewer.html s3://{self.bucket.bucket_name}/zork_viewer.html || echo 'Could not upload initial zork_viewer.html'",
             # Log completion
             "echo 'ZorkGPT setup completed with Frotz' > /var/log/zorkgpt-setup.log",
         )
