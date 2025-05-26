@@ -232,9 +232,9 @@ class ZorkGPTViewerStack(Stack):
             "cd /home/zorkgpt",
             "git clone https://github.com/stickystyle/ZorkGPT.git",
             "chown -R zorkgpt:zorkgpt /home/zorkgpt/ZorkGPT",
-            # Set up Python environment using uv
+            # Set up Python environment using uv with S3 dependencies
             "cd /home/zorkgpt/ZorkGPT",
-            "sudo -u zorkgpt /home/zorkgpt/.local/bin/uv sync",
+            "sudo -u zorkgpt /home/zorkgpt/.local/bin/uv sync --extra s3",
             # Ensure zork.z5 file is available (download from S3 bucket if needed)
             f"aws s3 cp s3://{self.bucket.bucket_name}/infrastructure/zork.z5 /home/zorkgpt/ZorkGPT/infrastructure/zork.z5 || echo 'Could not download zork.z5 from S3'",
             "chown zorkgpt:zorkgpt /home/zorkgpt/ZorkGPT/infrastructure/zork.z5",

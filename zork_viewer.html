@@ -1079,7 +1079,7 @@
                 const response = await fetch('./zorkgpt/current_state.json?t=' + Date.now());
                 if (response.ok) {
                     console.log('Using current_state.json (live)');
-                    return new ZorkGameViewer('./current_state.json');
+                    return new ZorkGameViewer('./zorkgpt/current_state.json');
                 }
             } catch (e) {
                 console.log('current_state.json not available');
