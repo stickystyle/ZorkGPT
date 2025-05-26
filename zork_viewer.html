@@ -921,7 +921,7 @@
         async function initializeViewer() {
             try {
                 // Try live file first (works for both local and S3 deployment)
-                const response = await fetch('./current_state.json?t=' + Date.now());
+                const response = await fetch('./zorkgpt/current_state.json?t=' + Date.now());
                 if (response.ok) {
                     console.log('Using current_state.json (live)');
                     return new ZorkGameViewer('./current_state.json');

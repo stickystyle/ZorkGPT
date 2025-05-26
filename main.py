@@ -16,6 +16,9 @@ def run_long_episode():
         knowledge_update_interval=100,  # Update every 100 turns
         # Traditional episode-based updates (optional)
         auto_update_knowledge=False,  # Disable to rely only on adaptive system
+        # S3 integration for live viewer
+        enable_state_export=True,  # Enable state export
+        # s3_bucket will be read from ZORK_S3_BUCKET environment variable
     )
 
     print("🚀 Starting long episode with adaptive knowledge management...")
@@ -25,6 +28,9 @@ def run_long_episode():
         f"  - Knowledge update interval: {orchestrator.knowledge_update_interval} turns"
     )
     print(f"  - Adaptive knowledge: {orchestrator.enable_adaptive_knowledge}")
+    print(f"  - State export: {orchestrator.enable_state_export}")
+    print(f"  - S3 bucket: {orchestrator.s3_bucket or 'Not configured'}")
+    print(f"  - S3 client: {'✅ Available' if orchestrator.s3_client else '❌ Not available'}")
     print()
 
     with ZorkInterface(timeout=1.0) as zork_game:

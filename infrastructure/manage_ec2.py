@@ -101,7 +101,7 @@ def update_zorkgpt(public_ip: str) -> None:
     commands = [
         "sudo systemctl stop zorkgpt",
         "cd /home/zorkgpt/ZorkGPT && sudo -u zorkgpt git pull",
-        "cd /home/zorkgpt/ZorkGPT && sudo -u zorkgpt /home/zorkgpt/.cargo/bin/uv sync",
+        "cd /home/zorkgpt/ZorkGPT && sudo -u zorkgpt /home/zorkgpt/.local/bin/uv sync",
         "sudo systemctl start zorkgpt",
     ]
 

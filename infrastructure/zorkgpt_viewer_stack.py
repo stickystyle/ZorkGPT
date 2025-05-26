@@ -116,15 +116,24 @@ class ZorkGPTViewerStack(Stack):
         # Grant CloudFront OAI access to the S3 bucket
         self.bucket.grant_read(oai)
 
-        # Deploy the initial website files
+        # Deploy only the specific files we need for the viewer - use separate deployments for security
         s3deploy.BucketDeployment(
             self,
-            "ZorkGPTViewerDeployment",
-            sources=[s3deploy.Source.asset(".", exclude=["**/.venv/**", "**/cdk.out/**", "**/__pycache__/**", "**/.git/**"])],
+            "ZorkGPTViewerHTMLDeployment",
+            sources=[s3deploy.Source.asset("../", exclude=["**/*", "!zork_viewer.html"])],
             destination_bucket=self.bucket,
-            include=["zork_viewer.html", "infrastructure/zork.z5"],  # Deploy HTML and Z5 game file
             distribution=self.distribution,
-            distribution_paths=["/*"],  # Invalidate all paths after deployment
+            distribution_paths=["/zork_viewer.html"],
+        )
+        
+        s3deploy.BucketDeployment(
+            self,
+            "ZorkGPTViewerGameDeployment", 
+            sources=[s3deploy.Source.asset("./", exclude=["**/*", "!zork.z5"])],
+            destination_bucket=self.bucket,
+            destination_key_prefix="infrastructure/",
+            distribution=self.distribution,
+            distribution_paths=["/infrastructure/zork.z5"],
         )
 
         # Create VPC for EC2 instance (or use default VPC)
@@ -173,7 +182,7 @@ class ZorkGPTViewerStack(Stack):
             "git clone https://gitlab.com/DavidGriffith/frotz.git",
             "cd frotz",
             "make dumb",
-            "make install",
+            "make install_dumb",
             # Create zorkgpt user
             "useradd -m -s /bin/bash zorkgpt",
             "mkdir -p /home/zorkgpt/.ssh",
@@ -312,3 +321,4 @@ class ZorkGPTViewerStack(Stack):
             value=f"ssh -i ~/.ssh/parrishfamily.pem ec2-user@{self.ec2_instance.instance_public_ip}",
             description="SSH command to connect to the ZorkGPT instance",
         )
+
