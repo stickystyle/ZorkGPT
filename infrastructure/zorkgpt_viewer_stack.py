@@ -99,10 +99,23 @@ class ZorkGPTViewerStack(Stack):
                 allowed_methods=cloudfront.AllowedMethods.ALLOW_GET_HEAD,
             ),
             additional_behaviors={
-                # Don't cache current_state.json at all
+                # Cache current_state.json for 6 seconds to balance freshness with origin protection
                 "/current_state.json": cloudfront.BehaviorOptions(
                     origin=s3_origin,
-                    cache_policy=cloudfront.CachePolicy.CACHING_DISABLED,
+                    cache_policy=cloudfront.CachePolicy(
+                        self,
+                        "StateFileCachePolicy",
+                        cache_policy_name=f"ZorkGPT-State-Cache-{self.stack_name}",
+                        comment="Cache policy for current_state.json - 6 second cache for real-time data",
+                        default_ttl=Duration.seconds(6),  # Cache for 6 seconds
+                        max_ttl=Duration.seconds(10),     # Max 10 seconds
+                        min_ttl=Duration.seconds(0),      # Allow no cache if needed
+                        cookie_behavior=cloudfront.CacheCookieBehavior.none(),
+                        header_behavior=cloudfront.CacheHeaderBehavior.none(),
+                        query_string_behavior=cloudfront.CacheQueryStringBehavior.none(),
+                        enable_accept_encoding_gzip=True,
+                        enable_accept_encoding_brotli=True,
+                    ),
                     origin_request_policy=cloudfront.OriginRequestPolicy.CORS_S3_ORIGIN,
                     viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
                     allowed_methods=cloudfront.AllowedMethods.ALLOW_GET_HEAD,
