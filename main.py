@@ -12,8 +12,8 @@ def run_episode(max_turns_per_episode=5000):
     orchestrator = ZorkOrchestrator(
         max_turns_per_episode=max_turns_per_episode,
         enable_adaptive_knowledge=True,  # Enable turn-based updates
-        knowledge_update_interval=10,  # Update every 100 turns
-        map_update_interval=5,  # Update every 5 turns
+        knowledge_update_interval=100,  # Update every 100 turns
+        map_update_interval=25,  # Update every 5 turns
         # S3 integration for live viewer
         enable_state_export=True,  # Enable state export
         # s3_bucket will be read from ZORK_S3_BUCKET environment variable
