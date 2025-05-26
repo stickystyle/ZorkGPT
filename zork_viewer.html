@@ -650,7 +650,7 @@
             
             async fetchCurrentState() {
                 try {
-                    const response = await fetch(this.stateUrl + '?t=' + Date.now());
+                    const response = await fetch(this.stateUrl);
                     if (response.ok) {
                         const newState = await response.json();
                         
@@ -1076,7 +1076,7 @@
         async function initializeViewer() {
             try {
                 // Try live file first (works for both local and S3 deployment)
-                const response = await fetch('./zorkgpt/current_state.json?t=' + Date.now());
+                const response = await fetch('./zorkgpt/current_state.json');
                 if (response.ok) {
                     console.log('Using current_state.json (live)');
                     return new ZorkGameViewer('./zorkgpt/current_state.json');
@@ -1087,7 +1087,7 @@
             
             try {
                 // Fall back to test file (for local development)
-                const testResponse = await fetch('./test_current_state.json?t=' + Date.now());
+                const testResponse = await fetch('./test_current_state.json');
                 if (testResponse.ok) {
                     console.log('Using test_current_state.json (fallback)');
                     return new ZorkGameViewer('./test_current_state.json');
