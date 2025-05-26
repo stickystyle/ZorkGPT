@@ -31,12 +31,20 @@ def get_stack_output(output_key: str) -> Optional[str]:
 def run_ssh_command(command: str, public_ip: str) -> bool:
     """Run a command on the EC2 instance via SSH."""
     ssh_cmd = f"ssh -i ~/.ssh/parrishfamily.pem -o StrictHostKeyChecking=no ec2-user@{public_ip} '{command}'"
-
+    
     try:
-        result = subprocess.run(ssh_cmd, shell=True, check=True)
+        result = subprocess.run(ssh_cmd, shell=True, check=True, capture_output=True, text=True)
+        if result.stdout:
+            print(result.stdout)
+        if result.stderr:
+            print(f"⚠️ stderr: {result.stderr}")
         return result.returncode == 0
     except subprocess.CalledProcessError as e:
         print(f"❌ SSH command failed: {e}")
+        if hasattr(e, 'stdout') and e.stdout:
+            print(f"stdout: {e.stdout}")
+        if hasattr(e, 'stderr') and e.stderr:
+            print(f"stderr: {e.stderr}")
         return False
 
 
@@ -100,21 +108,24 @@ def update_zorkgpt(public_ip: str) -> None:
 
     # Get CloudFront distribution ID for cache invalidation
     distribution_id = get_stack_output("DistributionId")
+    
+    # Get S3 bucket name for uploads
+    bucket_name = get_stack_output("BucketName")
+    if not bucket_name:
+        print("⚠️  Warning: Could not get S3 bucket name from CloudFormation stack")
 
     commands = [
         "sudo systemctl stop zorkgpt",
-        "sudo -u zorkgpt bash -c 'cd /home/zorkgpt/ZorkGPT && git pull'",
-        "sudo -u zorkgpt bash -c 'cd /home/zorkgpt/ZorkGPT && ~/.local/bin/uv sync'",
-        "sudo -u zorkgpt bash -c 'cd /home/zorkgpt/ZorkGPT && ls -la zork_viewer.html'",
-        "sudo -u zorkgpt bash -c 'cd /home/zorkgpt/ZorkGPT && aws s3 cp zork_viewer.html s3://$ZORK_S3_BUCKET/zork_viewer.html'",
+        'sudo -u zorkgpt bash -c "cd /home/zorkgpt/ZorkGPT && git pull"',
+        'sudo -u zorkgpt bash -c "cd /home/zorkgpt/ZorkGPT && ~/.local/bin/uv sync --extra s3"',
+        f'sudo -u zorkgpt bash -c "cd /home/zorkgpt/ZorkGPT && aws s3 cp zork_viewer.html s3://{bucket_name or "BUCKET_NAME_NOT_FOUND"}/zork_viewer.html"',
         "sudo systemctl start zorkgpt",
     ]
 
     step_descriptions = [
         "Stopping ZorkGPT service",
         "Pulling latest code from git",
-        "Syncing Python dependencies",
-        "Checking for zork_viewer.html file",
+        "Syncing Python dependencies with S3 support",
         "Uploading viewer HTML to S3",
         "Starting ZorkGPT service",
     ]
@@ -122,8 +133,13 @@ def update_zorkgpt(public_ip: str) -> None:
     for i, (command, description) in enumerate(zip(commands, step_descriptions), 1):
         print(f"Step {i}/{len(commands)}: {description}")
         if not run_ssh_command(command, public_ip):
-            print(f"❌ Update failed at step {i}")
-            return
+            # Special handling for the HTML upload step - don't fail if upload fails
+            if "aws s3 cp zork_viewer.html" in command:
+                print("⚠️  zork_viewer.html upload failed, continuing anyway (check bucket permissions)")
+                continue
+            else:
+                print(f"❌ Update failed at step {i}")
+                return
 
     # Invalidate CloudFront cache for the HTML file
     if distribution_id:
