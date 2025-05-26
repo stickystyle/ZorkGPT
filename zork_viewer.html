@@ -595,6 +595,7 @@
                 <ul>
                     <li>No ZorkGPT session is currently running</li>
                     <li>The state file isn't being generated</li>
+                    <li>The data is more than 10 minutes old (stale session)</li>
                     <li>There's a network connectivity issue</li>
                 </ul>
                 
@@ -654,6 +655,9 @@
                     if (response.ok) {
                         const newState = await response.json();
                         
+                        // Check if the timestamp is fresh (within last 10 minutes)
+                        const isFresh = this.isTimestampFresh(newState.metadata.timestamp);
+                        
                         // Only update if state actually changed
                         if (!this.currentState || 
                             this.currentState.metadata.turn_count !== newState.metadata.turn_count ||
@@ -662,7 +666,12 @@
                             this.updateUI();
                         }
                         
-                        this.setConnectionStatus(true);
+                        // Set connection status based on data freshness
+                        this.setConnectionStatus(isFresh);
+                        
+                        if (!isFresh) {
+                            console.warn('Game state is stale (more than 10 minutes old)');
+                        }
                     } else {
                         this.setConnectionStatus(false);
                         console.error('Failed to fetch game state:', response.status);
@@ -673,6 +682,28 @@
                 }
             }
             
+            isTimestampFresh(timestamp) {
+                if (!timestamp) {
+                    console.warn('No timestamp found in state data');
+                    return false;
+                }
+                
+                try {
+                    // Parse the timestamp (assuming ISO format)
+                    const stateTime = new Date(timestamp);
+                    const currentTime = new Date();
+                    const diffMinutes = (currentTime - stateTime) / (1000 * 60); // Convert to minutes
+                    
+                    console.log(`State timestamp: ${timestamp}, Age: ${diffMinutes.toFixed(1)} minutes`);
+                    
+                    // Consider fresh if less than 10 minutes old
+                    return diffMinutes < 10;
+                } catch (error) {
+                    console.error('Failed to parse timestamp:', error);
+                    return false;
+                }
+            }
+            
             setConnectionStatus(connected) {
                 this.isConnected = connected;
                 const indicator = document.getElementById('connection-status');
@@ -680,6 +711,12 @@
                 
                 if (!connected && !this.currentState) {
                     document.getElementById('episode-id').textContent = 'Connection Error';
+                } else if (!connected && this.currentState) {
+                    // We have data but it's stale
+                    const episodeElement = document.getElementById('episode-id');
+                    if (!episodeElement.textContent.includes('(Stale)')) {
+                        episodeElement.textContent = this.currentState.metadata.episode_id + ' (Stale)';
+                    }
                 }
             }
             
