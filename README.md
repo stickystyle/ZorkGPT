@@ -1,5 +1,7 @@
 # ZorkGPT: An LLM-Powered Agent for Interactive Fiction
 
+**🎮 Watch ZorkGPT play live at [https://zorkgpt.com](https://zorkgpt.com)**
+
 ## Table of Contents
 
 1. [Project Overview](#project-overview)
