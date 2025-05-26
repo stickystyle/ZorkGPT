@@ -474,7 +474,7 @@ Provide insights in these categories only if they contain valuable information:
 - **Efficiency Improvements**: Better action sequences or time-saving approaches
 
 Skip categories that don't have meaningful insights from this data.
-Be specific about locations, items, and sequences when relevant.
+Be specific about locations, items, and sequences when relevant."""
 
         try:
             response = self.client.chat.completions.create(
