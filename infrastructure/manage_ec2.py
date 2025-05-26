@@ -98,18 +98,43 @@ def update_zorkgpt(public_ip: str) -> None:
     """Update ZorkGPT to the latest version."""
     print("📥 Updating ZorkGPT...")
 
+    # Get CloudFront distribution ID for cache invalidation
+    distribution_id = get_stack_output("DistributionId")
+
     commands = [
         "sudo systemctl stop zorkgpt",
         "cd /home/zorkgpt/ZorkGPT && sudo -u zorkgpt git pull",
         "cd /home/zorkgpt/ZorkGPT && sudo -u zorkgpt /home/zorkgpt/.local/bin/uv sync",
+        "cd /home/zorkgpt/ZorkGPT && aws s3 cp zork_viewer.html s3://$ZORK_S3_BUCKET/zork_viewer.html",
         "sudo systemctl start zorkgpt",
     ]
 
-    for i, command in enumerate(commands, 1):
-        print(f"Step {i}/{len(commands)}: {command.split('&&')[-1].strip()}")
+    step_descriptions = [
+        "Stopping ZorkGPT service",
+        "Pulling latest code from git",
+        "Syncing Python dependencies",
+        "Uploading viewer HTML to S3",
+        "Starting ZorkGPT service",
+    ]
+
+    for i, (command, description) in enumerate(zip(commands, step_descriptions), 1):
+        print(f"Step {i}/{len(commands)}: {description}")
         if not run_ssh_command(command, public_ip):
             print(f"❌ Update failed at step {i}")
             return
+
+    # Invalidate CloudFront cache for the HTML file
+    if distribution_id:
+        print("🔄 Invalidating CloudFront cache for viewer HTML...")
+        invalidation_cmd = f"aws cloudfront create-invalidation --distribution-id {distribution_id} --paths '/zork_viewer.html'"
+        try:
+            result = subprocess.run(invalidation_cmd, shell=True, check=True, capture_output=True, text=True)
+            print("✅ CloudFront cache invalidation initiated")
+        except subprocess.CalledProcessError as e:
+            print(f"⚠️  CloudFront invalidation failed: {e}")
+            print("   The HTML file was uploaded but cache may take time to refresh")
+    else:
+        print("⚠️  Could not get CloudFront distribution ID for cache invalidation")
 
     print("✅ ZorkGPT updated successfully")
 

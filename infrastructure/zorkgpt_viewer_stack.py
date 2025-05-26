@@ -10,6 +10,7 @@ from aws_cdk import (
     aws_iam as iam,
     aws_ec2 as ec2,
     aws_route53 as route53,
+    aws_route53_targets as targets,
     aws_certificatemanager as acm,
     Duration,
     RemovalPolicy,
@@ -46,11 +47,10 @@ class ZorkGPTViewerStack(Stack):
         self.bucket = s3.Bucket(
             self,
             "ZorkGPTViewerBucket",
-            bucket_name=f"zorkgpt-viewer-{self.account}-{self.region}",
             public_read_access=False,  # We'll use CloudFront for access
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
-            removal_policy=RemovalPolicy.DESTROY,  # For development - change for production
-            auto_delete_objects=True,  # For development - change for production
+            removal_policy=RemovalPolicy.DESTROY,
+            auto_delete_objects=True,
             cors=[
                 s3.CorsRule(
                     allowed_methods=[s3.HttpMethods.GET, s3.HttpMethods.HEAD],
@@ -148,7 +148,7 @@ class ZorkGPTViewerStack(Stack):
             zone=hosted_zone,
             record_name=domain_name,
             target=route53.RecordTarget.from_alias(
-                cloudfront.CloudFrontTarget(self.distribution)
+                targets.CloudFrontTarget(self.distribution)
             ),
         )
 
@@ -158,7 +158,7 @@ class ZorkGPTViewerStack(Stack):
             zone=hosted_zone,
             record_name=f"www.{domain_name}",
             target=route53.RecordTarget.from_alias(
-                cloudfront.CloudFrontTarget(self.distribution)
+                targets.CloudFrontTarget(self.distribution)
             ),
         )
 
@@ -300,7 +300,7 @@ class ZorkGPTViewerStack(Stack):
             security_group=security_group,
             role=ec2_role,
             user_data=user_data,
-            key_name="parrishfamily",  # Your existing key pair
+            key_pair=ec2.KeyPair.from_key_pair_name(self, "ImportedKeyPair", "parrishfamily"),
             vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC),
         )
 
@@ -364,7 +364,7 @@ class ZorkGPTViewerStack(Stack):
         CfnOutput(
             self,
             "NameServers",
-            value=",".join(hosted_zone.hosted_zone_name_servers),
+            value=cdk.Fn.join(",", hosted_zone.hosted_zone_name_servers),
             description="Route53 nameservers - configure these with your domain registrar",
         )
 
