@@ -10,6 +10,7 @@ import tomllib
 from typing import Optional, Dict, Any
 from pathlib import Path
 from pydantic import BaseModel
+from dotenv import load_dotenv
 
 
 class LLMConfig(BaseModel):
@@ -101,6 +102,8 @@ class ConfigLoader:
     def __init__(self, config_file: Optional[Path] = None):
         self.config_file = config_file or Path("pyproject.toml")
         self._config: Optional[ZorkGPTConfig] = None
+        # Load environment variables from .env file if it exists
+        load_dotenv()
         
     def load_config(self) -> ZorkGPTConfig:
         """Load configuration from pyproject.toml."""
