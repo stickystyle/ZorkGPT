@@ -144,7 +144,7 @@ def update_zorkgpt(public_ip: str) -> None:
     # Invalidate CloudFront cache for the HTML file
     if distribution_id:
         print("🔄 Invalidating CloudFront cache for viewer HTML...")
-        invalidation_cmd = f"aws cloudfront create-invalidation --distribution-id {distribution_id} --paths '/zork_viewer.html'"
+        invalidation_cmd = f"aws cloudfront create-invalidation --distribution-id {distribution_id} --paths '/zork_viewer.html' --profile parrishfamily"
         try:
             result = subprocess.run(invalidation_cmd, shell=True, check=True, capture_output=True, text=True)
             print("✅ CloudFront cache invalidation initiated")
