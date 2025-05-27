@@ -1,0 +1,592 @@
+Instruction
+Manual for
+ZORK I:
+The Great Underground Empire
+
+An Overview
+Interactive fiction is a story in which you are the main
+character. Your own thinking and imagination determine the actions of that character and guide the story
+from start to finish.
+Each work of Infocomís interactive fiction, such
+as the three ZORK adventures, presents you with a
+series of locations, items, characters and events. You
+can interact with these in a variety of ways.
+To move from place to place, type the direction
+you want to go. When you begin your adventure, itís
+a good idea to become familiar with your surroundings by exploring every location and reading each
+description carefully. (You may notice that ZORK
+occasionally refers to a location as a ìroom,î even if
+you are outdoors.) As you explore the Empire, it is
+helpful to draw a map of the geography.
+
+12
+
+Instruction Manual
+
+An important element of interactive fiction is puzzle-solving. You should think of a locked door or a
+ferocious beast not as a permanent obstacle, but
+merely as a puzzle to be tackled. Solving puzzles will
+frequently involve bringing a certain item with you
+and then using it in the proper way.
+In ZORK, time passes only in response to your
+input. You might imagine a clock that ticks once for
+each sentence you type, and the adventure progresses only at each tick. Nothing happens until you
+type a sentence and press the RETURN (or ENTER)
+key, so you can plan your turns as slowly and carefully as you want.
+To measure your progress, ZORK I keeps track of
+your score. Youíll get points for solving puzzles,
+acquiring treasures, performing certain actions and
+visiting certain locations. You will also get points for
+putting treasures into the trophy case. There may be
+a penalty for getting ìkilled.î
+
+Tips for Novices
+1. Draw a map. It should include each location, the
+directions connecting it to adjoining locations and any
+interesting objects there. (See the small sample map
+that goes along with the sample transcript on page
+21.) Some puzzles are almost impossible to solve
+without completely mapping the area. Note that
+there are 10 possible directions, plus IN and OUT.
+And since some passages twist and curve, going
+NORTH from Place A to Place B doesnít always mean
+that SOUTH will take you back to Place A.
+2. Most objects that you can pick up are important,
+either as treasures or as solutions to puzzles, or
+both!
+3. Save your place often. That way, if you mess up
+or get ìkilled,î you wonít have to start over from the
+beginning. See page 16 for instructions.
+4. Read carefully. There are often clues in the descriptions of locations and objects, as well as in labels, engravings, books and so on. Even strange or
+dangerous actions may provide clues and might
+prove to be fun! You can always save your position
+first if you want. Hereís a fun example:
+> PUT ON THE GREEN CALICO HAT
+The munchkins giggle, but remain unconvinced that
+youíre a witch.
+Youíve just learned there is something which might
+convince the munchkins that youíre a witch. They
+might even give you their enchanted broom. Perhaps
+if you put on that blue calico dress you came across
+earlier in the storyÖ
+
+5. Unlike other ìadventure gamesî that you may
+have played, there are many possible routes to the
+end of ZORK. Some puzzles have more than one
+solution; other puzzles donít need to be solved at all.
+Sometimes you will have to solve one puzzle in order
+to obtain the item(s) or information you need to solve
+another puzzle.
+6. You may find it helpful to explore ZORK with another person. Different people may find different
+puzzles easy and can often complement each other.
+7. If you really have difficulty, you can order a hint
+booklet and a complete map using the order form in
+your package. You donít need the hint booklet to
+enjoy the story, but it will make solving ZORK I
+easier.
+8. Read the sample transcript on page 21 to get a feel
+for how Infocomís interactive fiction works.
+9. You can word a command in many different ways.
+For example, to turn the brass lantern on, you could
+use any of the following:
+> LIGHT LAMP.
+> TURN ON THE LAMP.
+> TURN THE LAMP ON.
+> ACTIVATE THE LAMP.
+> LIGHT THE BRASS LANTERN.
+In fact, if the lamp is the only light source present,
+just typing LIGHT is enough, since ZORK will assume you meant the lamp. But more about that in
+the next section...
+
+Instruction Manual
+
+13
+
+Communicating with ZORK
+In ZORK, you type your sentence in plain English
+each time you see the prompt (>). ZORK usually
+acts as if your sentence begins ìI want to...,î although you shouldnít actually type those words. You
+can use the words like ìTHEî if you want, and you can
+use capital letters if you want; ZORK doesnít care
+either way.
+When you finish typing a sentence, press the RETURN (or ENTER) key and ZORK will process your
+request. ZORK will respond, telling you whether your
+request is possible at this point in the story and what
+happened as a result.
+ZORK recognizes your words by their first six
+letters, and all subsequent letters are ignored.
+Therefore, CANDLE, CANDLEs and CANDLEstick
+would all be treated as the same word by ZORK.
+To move around, just type the desired direction.
+You can use the eight compass directions: NORTH,
+SOUTH, EAST, WEST, NORTHEAST, NORTHWEST,
+SOUTHEAST and SOUTHWEST. You can abbreviate
+these to N, S, E, W, NE, NW, SE and SW, respectively. You can use UP (or U) and DOWN (or D). IN
+and OUT will also work in certain places.
+
+ZORK understands many different kinds of sentences. Here are several examples. (Note that some
+of these objects do not actually appear in ZORK.)
+> WALK NORTH
+> DOWN
+> NE
+> GO SOUTH
+>U
+> TAKE BOX
+> PICK UP THE WOODEN BOX
+> DROP IT
+> PUSH THE BUTTON
+> OPEN THE WOODEN DOOR
+> EXAMINE THE SCUBA GEAR
+> LOOK BEHIND THE STATUE
+> LOOK UNDER THE ROCK
+> LOOK INSIDE THE BUBBLING CAULDRON
+> KILL THE BEAR WITH THE GUN
+> SHOOT BEAR WITH LARGE RIFLE
+You can use multiple objects with certain verbs if
+you separate them by the word AND or by a comma.
+Some examples:
+> TAKE LAMP, JAR, FLUTE
+> DROP THE DAGGER, LANCE, AND MACE
+> PUT THE GOLD BAR AND THE PEARL IN THE
+TROPHY CASE
+The word ALL refers to every visible object except
+those inside something else. If there were an apple
+on the ground and an orange inside a cabinet, TAKE
+ALL would take the apple but not the orange.
+> TAKE ALL
+> TAKE ALL THE BOOKS
+> TAKE ALL FROM THE DESK
+> GIVE ALL BUT THE PENCIL TO THE NYMPH
+> DROP ALL EXCEPT THE DART GUN
+
+14
+
+Instruction Manual
+
+You can include several sentences on one input
+line if you separate them by the word THEN or by a
+period. (Note that each sentence will still count as a
+turn.) You donít need a period at the end of the input
+line. For example, you could type all of the following
+at once, before pressing the RETURN (or ENTER)
+key:
+
+ZORK tries to guess what you really mean when
+you don't give enough information. For example, if
+you say that you want to do something, but not what
+you want to do it to or with, ZORK will sometimes
+decide that there is only one possible object that you
+could mean. When it does so, it will tell you. For
+example:
+
+> NORTH.READ THE BOOK.DROP IT THEN BURN
+IT WITH TORCH
+
+> BURN THE KINDLING
+(with the torch)
+The kindling catches fire and is consumed.
+or
+> GIVE THE SWORD
+(to the gnome)
+The gnome, a sworn pacifist, refuses to take it.
+
+If ZORK doesnít understand one of the sentences in
+your input line, or if something unusual happens, it
+will ignore the rest of your input line (see ìZORK
+Complaintsî on page 20).
+There are only two kinds of questions that ZORK
+understands: WHAT and WHERE. Here are two
+examples that you can actually try in ZORK:
+> WHAT IS A GRUE?
+> WHERE IS THE ZORKMID?
+You will meet other people and creatures as you
+explore ZORK. You can ìtalkî to some of these
+beings by typing their name, then a comma,
+then whatever you want them to do. Here are
+some examples:
+> GNOME, GIVE ME THE KEY
+> TREE SPRITE, OPEN THE SECRET DOOR
+> JOEL, WAIT HERE
+> WARLOCK, TAKE THE SPELL SCROLL
+THEN FOLLOW ME
+> MIKE, NORTH.GET THE BRAN MUFFIN.
+THROW IT AT THE DWARF
+Notice that in the last two examples, you are giving
+one person more than one command on the same
+input line.
+You can use quotes to answer a question or say
+something ìout loud.î For example:
+> SAY ìHELLO SAILORî
+> ANSWER ìA ZEBRAî
+
+If your sentence is ambiguous, ZORK will ask
+what you really mean. You can answer most of these
+questions briefly by supplying the missing information, rather than typing the entire input again. You
+can do this only at the very next prompt. Some examples:
+> TIE THE ROPE
+What do you want to tie the rope to?
+> THE MAST
+The rope is now tied to the mast.
+or
+> HIT THE NAIL WITH THE HAMMER
+Which nail do you mean, the shiny nail or the rusty
+nail?
+> SHINY
+The shiny nail is driven halfway into the piece of
+wood.
+ZORK uses many words in its descriptions that it
+will not recognize in your sentences. For example,
+you might read, ìAbove you, moonlit clouds flit
+across the evening sky.î However, if ZORK doesnít
+recognize the words SKY or CLOUDS in your input,
+you can assume that the sky and clouds are not important to your completion of the story, except to
+provide you with a more vivid description of where
+you are or what is going on. ZORK recognizes over
+600 words, nearly all that you are likely to use in
+your sentences. If ZORK doesnít know a word you
+used, or any of its common synonyms, you are almost certainly trying something that is not important
+in your adventure.
+
+Instruction Manual
+
+15
+
+Starting and Stopping
+Starting the story: Now that you know what to expect
+when you venture into the caverns of ZORK, itís
+time for you to ìbootî your disk. To load ZORK,
+follow the instructions on the Reference Card in your
+ZORK I package.
+Following the copyright notice and the release
+number of the story, you will see a description of the
+place where the story begins.
+Hereís a quick exercise to help you get accustomed to interacting with ZORK I. Try the following
+command first:
+> OPEN THE MAILBOX
+Then press the RETURN (or ENTER) key. ZORK I
+will respond with:
+Opening the mailbox reveals a leaflet.
+Now try:
+> READ THE LEAFLET
+After you press the RETURN (or ENTER) key, ZORK
+I will respond:
+(Taken)
+Welcome to ZORK!
+ZORK is a story of adventure, danger and low cunning.
+In it you will explore some of the most amazing territory
+ever seen by mortals. No computer should be without
+one.
+
+16
+
+Instruction Manual
+
+Saving and restoring: It will probably take you many
+days to complete ZORK I. Using the SAVE feature,
+you can continue at a later time without having to
+start over from the beginning, just as you can place a
+bookmark in a book you are reading. SAVE puts a
+ìsnapshotî of your place in the story onto another
+diskette. If you are a cautious adventurer, you may
+want to save your place before (or after) trying
+something dangerous or tricky. That way, you can go
+back to that position later, even if you have gotten
+lost or ìkilledî since then.
+To save your place in the story, type SAVE at the
+prompt (>), and then press the RETURN (or ENTER)
+key. Then follow the instructions for saving and restoring on your Reference Card. Some systems require a blank disk, initialized and formatted, for
+saves. Using a disk with data on it (not counting
+other ZORK saves) may result in the loss of that data,
+depending on your system.
+You can restore a saved position any time you
+want. To do so, type RESTORE at the prompt (>),
+and press the RETURN (or ENTER) key. Then follow
+the instructions on your Reference Card. You can
+then continue the story from the point where you
+used the SAVE command. You can type LOOK for a
+description of where you are.
+Quitting and restarting: If you want to start over
+from the beginning of the story, type RESTART.
+(This is usually faster than re-booting.) Just to make
+sure, ZORK will ask if you really want to start over.
+If you do, type Y or YES, and press the RETURN
+(or ENTER) key.
+If you want to stop, type QUIT. Once again,
+ZORK will ask if this is really what you want to do.
+If you do, type Y and press the RETURN key.
+Remember when you RESTART or QUIT: if you
+want to be able to return to your current position, you
+must first do a SAVE.
+
+Appendix A
+Quick Reference Guide
+The object of ZORK I is to find the treasures of the
+Great Underground Empire and put them in your
+trophy case.
+
+3. Important! After typing your sentence or command, you must press the RETURN (or ENTER) key
+before ZORK will respond.
+
+1. To start the story (ìboot upî), see the separate
+Reference Card in your ZORK package.
+
+4. On most computers, your screen will have a special line called the status line. It tells you the name
+of your current location, your score, and the number
+of turns you have taken.
+
+2. When you see the prompt (>) on your screen,
+ZORK is waiting for your command. There are
+four kinds of sentences or commands that ZORK
+understands:
+
+5. You can pick up and carry many of the items youíll
+find in the story. For example, if you type TAKE THE
+NECKLACE, you will be carrying it. Type INVENTORY to see a list of everything you are carrying.
+
+A. Direction commands: To move from place to
+place, just type the direction you want to go: N (or
+NORTH), E, S, W, NE, SE, NW, SW, U (or UP),
+D, IN, OUT.
+B. Actions: Just type whatever you want to do.
+Some examples: READ THE BOOK or OPEN THE
+DOOR or LOOK THROUGH THE WINDOW.
+Once youíre familiar with simple commands,
+youíll want to use more complex ones as described
+in ìCommunicating with ZORKî on page 14.
+
+6. When you want to stop, save your place for later,
+or start over, read the ìStarting and Stoppingî section on page 16.
+7. If you have trouble, refer to the specific section of
+the manual for more detailed instructions.
+
+C. Commands given to people: To talk to characters in the story, type their name, then a comma,
+then what you want to say to them. For example:
+TROLL, GIVE ME THE AXE or OLD MAN, GO
+NORTH.
+D. Special one-word commands: some one-word
+commands, such as INVENTORY or DIAGNOSE,
+give you specific information or affect your output.
+A list of these appears in the ìImportant Commandsî appendix on page 18.
+
+Instruction Manual
+
+17
+
+Appendix B
+Important Commands
+There are a number of one-word commands which
+you can type instead of a sentence. You can use them
+over and over as needed. Some count as a turn,
+others do not. Type the command after the prompt
+(>) and hit the RETURN (or ENTER) key.
+AGAINóZORK will usually respond as if you had
+repeated your previous sentence. Among the cases
+where AGAIN will not work is if you were just talking
+to another character. You can abbreviate AGAIN to
+G.
+BRIEFóThis tells ZORK to give you the full description of a location only the first time you enter it. On
+subsequent visits, ZORK will tell you only the name
+of the location and the objects present. This is how
+ZORK will normally act, unless you tell it otherwise
+using the VERBOSE or SUPERBRIEF commands.
+
+DIAGNOSEóZORK will give you a medical report
+of your physical condition. This is particularly useful if
+you have just survived a dangerous battle or if you are
+under the effects of a magical spell.
+INVENTORYóZORK will list what you are carrying. You can abbreviate INVENTORY to I.
+LOOKóThis tells ZORK to describe your location in
+full detail. You can abbreviate LOOK to L.
+QUITóThis lets you stop. If you want to save your
+position before quitting, follow the instructions in
+ìStarting and Stoppingî on page 16. You can abbreviate QUIT to Q.
+RESTARTóThis stops the story and starts over from
+the beginning.
+RESTOREóThis restores a story position made using
+the SAVE command. See ìStarting and Stoppingî for
+more details.
+SAVEóThis makes a ìsnapshotî of your current
+story position onto your storage disk. You can return
+to a saved position in the future using the RESTORE
+command. See ìStarting and Stoppingî for more
+details.
+SCOREóZORK will show your current score and
+the number of turns you have taken. It will also tell
+you your rank, which is based on your score.
+
+18
+
+Instruction Manual
+
+SCRIPTóThis command tells your printer to begin
+making a transcript of the story as you venture onwards. A transcript may aid your memory but is not
+necessary. It will work only on certain computers;
+read your Reference Card for details.
+SUPERBRIEFóThis commands ZORK to display only
+the name of a place you have entered, even if you
+have never been there before. In this mode, ZORK
+will not even mention which objects are present. Of
+course, you can always get a description of your
+location, and the items there, by typing LOOK. In
+SUPERBRIEF mode, the blank line between turns will
+be eliminated. This mode is meant for adventurers
+who are already very familiar with the geography.
+Also see VERBOSE and BRIEF.
+UNSCRIPTóThis commands your printer to stop
+making a transcript.
+VERBOSEóThis tells ZORK that you want a complete description of each location and the objects in it
+every time you enter a location, even if youíve been
+there before. Also see BRIEF and SUPERBRIEF.
+VERSIONóZORK responds by showing you the
+release number and the serial number of your copy of
+the story. Please include this information if you ever
+report a ìbugî in ZORK.
+WAITóThis will cause time in the story to pass.
+Normally, between turns, nothing happens in the
+story. You could leave your computer, take a nap and
+return to the story to find that nothing has changed.
+You can use WAIT to make time pass in the story
+without doing anything. For example, if you encounter an alien being, you could WAIT to see what it will
+do. Or, if you are in a moving vehicle, you could
+WAIT to see where it will go. You can abbreviate
+WAIT to Z.
+
+Appendix C
+Some Recognized Verbs
+This is only a partial list of the verbs that all three
+ZORK adventures understand. There are many
+more. Remember that you can use a variety of prepositions with them. For example, LOOK can become
+LOOK INSIDE, LOOK BEHIND, LOOK UNDER,
+LOOK THROUGH, LOOK AT and so on.
+ANSWER
+ATTACK
+BLOW
+BREAK
+BURN
+CLIMB
+CLOSE
+COUNT
+CROSS
+CUT
+DEFLATE
+DIG
+DRINK
+DROP
+EAT
+ENTER
+EXAMINE
+EXIT
+EXTINGUISH
+FILL
+
+FOLLOW
+GIVE
+INFLATE
+JUMP
+KICK
+KNOCK
+LIGHT
+LISTEN
+LOCK
+LOOK
+LOWER
+MOVE
+OPEN
+POUR
+PRAY
+PULL
+PUSH
+PUT
+RAISE
+READ
+
+SAY
+SEARCH
+SHAKE
+SLIDE
+SMELL
+STAY
+STRIKE
+SWIM
+TAKE
+TELL
+THROW
+TIE
+TOUCH
+TURN
+UNLOCK
+WAKE
+WALK
+WAVE
+WEAR
+WIND
+
+Instruction Manual
+
+19
+
+Appendix D
+ZORK Complaints
+ZORK will complain if you type a sentence that confuses it completely. ZORK will then ignore the rest
+of the input line. (Unusual events, such as being
+attacked, may also cause ZORK to ignore the rest of
+the sentences you typed, since the event may have
+changed your situation drastically.) Some of ZORKís
+complaints:
+I DONíT KNOW THE WORD ì(your word).î The
+word you typed is not in the storyís vocabulary.
+Sometimes using a synonym or rephrasing will help.
+If not, ZORK probably doesnít know the idea you
+were trying to get across.
+YOU USED THE WORD ì(your word)î IN A WAY
+THAT I DONíT UNDERSTAND. ZORK knows the
+word you typed, but couldnít use it in that sense.
+Usually this is because ZORK knows the word as a
+different part of speech. For example, if you typed
+PRESS THE LOWER BUTTON, you are using LOWER
+as an adjective, but ZORK might know LOWER only
+as a verb, as in LOWER THE ROPE.
+THAT SENTENCE ISNíT ONE I RECOGNIZE. The
+sentence you typed may have been gibberish, such
+as GIVE TROLL WITH SWORD. Or, you may have
+typed a reasonable sentence but used a syntax that
+ZORK does not recognize, such as SMELL UNDER
+THE ROCK. Try rephrasing the sentence.
+
+THERE WAS NO VERB IN THAT SENTENCE! Unless
+you are answering a question, each sentence must
+have a verb (or a command) in it somewhere.
+THERE SEEMS TO BE A NOUN MISSING IN THAT
+SENTENCE! This usually means that your sentence
+was incomplete, such as EAT THE BLUE.
+THERE WERE TOO MANY NOUNS IN THAT SENTENCE. An example is PUT THE SOUP IN THE BOWL
+WITH THE LADLE, which has three noun ìphrases,î
+one more than ZORK can digest in a single action.
+I BEG YOUR PARDON? You hit the RETURN
+(or ENTER) key without typing anything.
+ITíS TOO DARK TO SEE. In the story, there was not
+enough light to perform your action.
+I DONíT SEE WHAT YOU ARE REFERRING TO. You
+used HIM, HER or IT, but ZORK isnít sure what person or object you meant.
+YOU CANíT SEE ANY ì(object)î HERE! The item
+you referred to was not visible. It may be somewhere else, inside a closed container, and so on.
+THE OTHER OBJECT(S) THAT YOU MENTIONED
+ISNíT (ARENíT) HERE. You referred to two or more
+items in the same sentence, and at least one of them
+wasnít visible to you in your present location.
+YOU CANíT GO THAT WAY. There was no passage
+or exit in the direction you tried to move.
+YOU CANíT USE MULTIPLE (IN)DIRECT OBJECTS
+WITH ì(your verb).î You can refer to several items
+at the same time only with certain verbs. Among the
+more useful of these verbs are TAKE, DROP and PUT.
+This restriction also applies to the use of ALL, as in
+DROP ALL. For example, ATTACK will not work with
+multiple objects; you couldnít say ATTACK ALL or
+ATTACK THE WARLOCK AND THE ENCHANTER.
+
+20
+
+Instruction Manual
+
+
