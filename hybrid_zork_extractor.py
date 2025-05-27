@@ -12,16 +12,12 @@ structured data that's now available.
 import json
 from typing import Optional, List, Any, Dict, Type
 from pydantic import BaseModel
-from openai import OpenAI
-import environs
+from llm_client import LLMClientWrapper
 import os
 
 from structured_zork_parser import StructuredZorkParser, StructuredZorkResponse
 from shared_utils import create_json_schema
-
-# Load environment variables
-env = environs.Env()
-env.read_env()
+from config import get_config, get_client_api_key
 
 # Generic location fallbacks for location persistence
 GENERIC_LOCATION_FALLBACKS = {
@@ -59,9 +55,12 @@ class HybridZorkExtractor:
     def __init__(
         self,
         model: str = None,
-        client: Optional[OpenAI] = None,
-        max_tokens: int = 300,
-        temperature: float = 0.1,
+        client: Optional[LLMClientWrapper] = None,
+        max_tokens: int = None,
+        temperature: float = None,
+        top_p: float = None,
+        top_k: int = None,
+        min_p: float = None,
         logger=None,
         episode_id: str = "unknown",
     ):
@@ -73,28 +72,36 @@ class HybridZorkExtractor:
             client: OpenAI client instance (if None, creates new one)
             max_tokens: Maximum tokens for LLM extraction
             temperature: Temperature for LLM extraction
+            top_p: Top-p nucleus sampling
+            top_k: Top-k sampling
+            min_p: Minimum probability sampling
             logger: Logger instance for tracking
             episode_id: Current episode ID for logging
 
         """
-        self.model = model or env.str("INFO_EXT_MODEL", "qwen3-30b-a3b-mlx")
-        self.max_tokens = max_tokens
-        self.temperature = temperature
+        config = get_config()
+        
+        self.model = model or config.llm.info_ext_model
+        self.max_tokens = max_tokens if max_tokens is not None else config.extractor_sampling.max_tokens
+        self.temperature = temperature if temperature is not None else config.extractor_sampling.temperature
+        self.top_p = top_p if top_p is not None else config.extractor_sampling.top_p
+        self.top_k = top_k if top_k is not None else config.extractor_sampling.top_k
+        self.min_p = min_p if min_p is not None else config.extractor_sampling.min_p
         self.logger = logger
         self.episode_id = episode_id
         
         # Prompt logging counter for temporary evaluation
         self.prompt_counter = 0
-        self.enable_prompt_logging = env.bool("ENABLE_PROMPT_LOGGING", False)
+        self.enable_prompt_logging = config.logging.enable_prompt_logging
         
         # Initialize structured parser (always enabled for hybrid extractor)
         self.structured_parser = StructuredZorkParser()
 
-        # Initialize OpenAI client if not provided
+        # Initialize LLM client if not provided
         if client is None:
-            self.client = OpenAI(
-                base_url=env.str("CLIENT_BASE_URL", None),
-                api_key=env.str("CLIENT_API_KEY", None),
+            self.client = LLMClientWrapper(
+                base_url=config.llm.client_base_url,
+                api_key=get_client_api_key(),
             )
         else:
             self.client = client
@@ -319,6 +326,7 @@ Extract key information from the game text and return it as JSON with these fiel
         user_prompt_content = (
             f"Game Text:\n```\n{game_text_from_zork}\n```\n\nJSON Output:\n```json\n"
         )
+        # Incase using Qwen qwen3-30b-a3b
         user_prompt_content = r"\no_think " + user_prompt_content
 
         messages = [
@@ -330,31 +338,21 @@ Extract key information from the game text and return it as JSON with these fiel
         self._log_prompt_to_file(messages, "extractor")
 
         try:
-            # Use structured output for OpenAI models, no response_format for others
-            if "gpt-" in self.model.lower() or "o1-" in self.model.lower():
-                response = self.client.chat.completions.create(
-                    model=self.model,
-                    messages=messages,
-                    temperature=self.temperature,
-                    max_tokens=self.max_tokens,
-                    response_format=create_json_schema(ExtractorResponse),
-                    extra_headers={
-                        "X-Title": "ZorkGPT",
-                    },
-                )
-            else:
-                # For non-OpenAI models, rely on prompt instructions for JSON format
-                response = self.client.chat.completions.create(
-                    model=self.model,
-                    messages=messages,
-                    temperature=self.temperature,
-                    max_tokens=self.max_tokens,
-                    extra_headers={
-                        "X-Title": "ZorkGPT",
-                    },
-                )
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+                top_p=self.top_p,
+                top_k=self.top_k,
+                min_p=self.min_p,
+                response_format=create_json_schema(ExtractorResponse),
+                extra_headers={
+                    "X-Title": "ZorkGPT",
+                },
+            )
 
-            response_content = response.choices[0].message.content
+            response_content = response.content
 
             try:
                 # Extract JSON from markdown code blocks if present

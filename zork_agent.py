@@ -4,16 +4,12 @@ ZorkAgent module for generating actions and managing game memory.
 
 import re
 from typing import Optional, List, Tuple, Dict
-from openai import OpenAI
 from collections import Counter
-import environs
 import os
 from map_graph import MapGraph
 from hybrid_zork_extractor import ExtractorResponse
-
-# Load environment variables
-env = environs.Env()
-env.read_env()
+from llm_client import LLMClientWrapper
+from config import get_config, get_client_api_key
 
 
 class ZorkAgent:
@@ -24,9 +20,12 @@ class ZorkAgent:
     def __init__(
         self,
         model: str = None,
-        client: Optional[OpenAI] = None,
+        client: Optional[LLMClientWrapper] = None,
         max_tokens: Optional[int] = None,
-        temperature: float = 0.5,
+        temperature: float = None,
+        top_p: float = None,
+        top_k: int = None,
+        min_p: float = None,
         logger=None,
         episode_id: str = "unknown",
     ):
@@ -38,24 +37,32 @@ class ZorkAgent:
             client: OpenAI client instance (if None, creates new one)
             max_tokens: Maximum tokens for agent responses
             temperature: Temperature for agent model
+            top_p: Top-p nucleus sampling
+            top_k: Top-k sampling
+            min_p: Minimum probability sampling
             logger: Logger instance for tracking
             episode_id: Current episode ID for logging
         """
-        self.model = model or env.str("AGENT_MODEL", "qwen3-30b-a3b-mlx")
-        self.max_tokens = max_tokens
-        self.temperature = temperature
+        config = get_config()
+        
+        self.model = model or config.llm.agent_model
+        self.max_tokens = max_tokens or config.agent_sampling.max_tokens
+        self.temperature = temperature if temperature is not None else config.agent_sampling.temperature
+        self.top_p = top_p if top_p is not None else config.agent_sampling.top_p
+        self.top_k = top_k if top_k is not None else config.agent_sampling.top_k
+        self.min_p = min_p if min_p is not None else config.agent_sampling.min_p
         self.logger = logger
         self.episode_id = episode_id
         
         # Prompt logging counter for temporary evaluation
         self.prompt_counter = 0
-        self.enable_prompt_logging = env.bool("ENABLE_PROMPT_LOGGING", False)
+        self.enable_prompt_logging = config.logging.enable_prompt_logging
 
-        # Initialize OpenAI client if not provided
+        # Initialize LLM client if not provided
         if client is None:
-            self.client = OpenAI(
-                base_url=env.str("CLIENT_BASE_URL", None),
-                api_key=env.str("CLIENT_API_KEY", None),
+            self.client = LLMClientWrapper(
+                base_url=config.llm.client_base_url,
+                api_key=get_client_api_key(),
             )
         else:
             self.client = client
@@ -76,6 +83,9 @@ class ZorkAgent:
                 f.write(f"=== {prefix.upper()} PROMPT #{self.prompt_counter} ===\n")
                 f.write(f"Model: {self.model}\n")
                 f.write(f"Temperature: {self.temperature}\n")
+                f.write(f"Top-p: {self.top_p}\n")
+                f.write(f"Top-k: {self.top_k}\n")
+                f.write(f"Min-p: {self.min_p}\n")
                 f.write(f"Max Tokens: {self.max_tokens}\n")
                 f.write(f"Episode ID: {self.episode_id}\n")
                 f.write("=" * 50 + "\n\n")
@@ -214,6 +224,9 @@ The following strategic guide has been compiled from analyzing previous episodes
                 messages=messages,
                 stop=None,
                 temperature=self.temperature,
+                top_p=self.top_p,
+                top_k=self.top_k,
+                min_p=self.min_p,
                 max_tokens=self.max_tokens,
                 extra_headers={
                     "X-Title": "ZorkGPT",
@@ -221,7 +234,7 @@ The following strategic guide has been compiled from analyzing previous episodes
             )
 
             response = self.client.chat.completions.create(**client_args)
-            action = response.choices[0].message.content.strip()
+            action = response.content.strip()
 
             # Clean up the action: remove any thinking
             action = re.sub(r"<think>.*?</think>\s*", "", action, flags=re.DOTALL)
@@ -310,6 +323,9 @@ The following strategic guide has been compiled from analyzing previous episodes
                 messages=messages,
                 stop=None,
                 temperature=self.temperature,
+                top_p=self.top_p,
+                top_k=self.top_k,
+                min_p=self.min_p,
                 max_tokens=self.max_tokens,
                 extra_headers={
                     "X-Title": "ZorkGPT",
@@ -317,7 +333,7 @@ The following strategic guide has been compiled from analyzing previous episodes
             )
 
             response = self.client.chat.completions.create(**client_args)
-            raw_response = response.choices[0].message.content.strip()
+            raw_response = response.content.strip()
 
             # Extract reasoning from thinking tags
             reasoning_parts = []

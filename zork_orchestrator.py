@@ -12,13 +12,12 @@ This module contains the main game loop and ties together all other modules:
 from typing import List, Tuple, Optional, Dict, Any
 from collections import Counter
 from datetime import datetime
-import environs
 import os
 import json
 import time
 
-from openai import OpenAI
 from zork_api import ZorkInterface
+from llm_client import LLMClientWrapper
 from map_graph import MapGraph
 from movement_analyzer import MovementAnalyzer, MovementContext
 from logger import setup_logging
@@ -29,6 +28,7 @@ from hybrid_zork_extractor import ExtractorResponse
 from hybrid_zork_extractor import HybridZorkExtractor
 from zork_critic import ZorkCritic, CriticResponse
 from zork_strategy_generator import AdaptiveKnowledgeManager
+from config import get_config, get_client_api_key
 
 # Optional S3 support
 try:
@@ -37,10 +37,6 @@ try:
     S3_AVAILABLE = True
 except ImportError:
     S3_AVAILABLE = False
-
-# Load environment variables
-env = environs.Env()
-env.read_env()
 
 
 class ZorkOrchestrator:
@@ -60,50 +56,51 @@ class ZorkOrchestrator:
         agent_model: str = None,
         critic_model: str = None,
         info_ext_model: str = None,
-        episode_log_file: str = "zork_episode_log.txt",
-        json_log_file: str = "zork_episode_log.jsonl",
-        max_turns_per_episode: int = 500,
+        episode_log_file: str = None,
+        json_log_file: str = None,
+        max_turns_per_episode: int = None,
         client_base_url: str = None,
         client_api_key: str = None,
         # Turn-based knowledge updating
-        enable_adaptive_knowledge: bool = True,
-        knowledge_update_interval: int = 100,
+        knowledge_update_interval: int = None,
         # Map updating (more frequent than full knowledge updates)
-        map_update_interval: int = 25,
+        map_update_interval: int = None,
         # State export configuration
-        enable_state_export: bool = True,
-        state_export_file: str = "current_state.json",
+        enable_state_export: bool = None,
+        state_export_file: str = None,
         s3_bucket: str = None,
-        s3_key_prefix: str = "zorkgpt/",
+        s3_key_prefix: str = None,
         # Gameplay delay for viewer experience
-        turn_delay_seconds: float = 0.0,
+        turn_delay_seconds: float = None,
     ):
         """Initialize the ZorkOrchestrator with all subsystems."""
-        # Store configuration
-        self.episode_log_file = episode_log_file
-        self.json_log_file = json_log_file
+        # Load configuration
+        config = get_config()
+        
+        # Store configuration with precedence: parameters > config > defaults
+        self.episode_log_file = episode_log_file if episode_log_file is not None else config.files.episode_log_file
+        self.json_log_file = json_log_file if json_log_file is not None else config.files.json_log_file
 
         # Game settings
-        self.max_turns_per_episode = max_turns_per_episode
-        self.turn_delay_seconds = turn_delay_seconds or env.float("ZORK_TURN_DELAY_SECONDS", 0.0)
+        self.max_turns_per_episode = max_turns_per_episode if max_turns_per_episode is not None else config.orchestrator.max_turns_per_episode
+        self.turn_delay_seconds = turn_delay_seconds if turn_delay_seconds is not None else config.gameplay.turn_delay_seconds
 
-        # Adaptive knowledge management
-        self.enable_adaptive_knowledge = enable_adaptive_knowledge
-        self.knowledge_update_interval = knowledge_update_interval
+        # Adaptive knowledge management (always enabled)
+        self.knowledge_update_interval = knowledge_update_interval if knowledge_update_interval is not None else config.orchestrator.knowledge_update_interval
         self.last_knowledge_update_turn = 0
         
         # Map updating (more frequent than full knowledge updates)
-        self.map_update_interval = map_update_interval
+        self.map_update_interval = map_update_interval if map_update_interval is not None else config.orchestrator.map_update_interval
         self.last_map_update_turn = 0
 
         # Initialize logger
-        self.logger = setup_logging(episode_log_file, json_log_file)
+        self.logger = setup_logging(self.episode_log_file, self.json_log_file)
 
         # State export configuration
-        self.enable_state_export = enable_state_export
-        self.state_export_file = state_export_file
-        self.s3_bucket = s3_bucket or env.str("ZORK_S3_BUCKET", None)
-        self.s3_key_prefix = s3_key_prefix
+        self.enable_state_export = enable_state_export if enable_state_export is not None else config.orchestrator.enable_state_export
+        self.state_export_file = state_export_file if state_export_file is not None else config.files.state_export_file
+        self.s3_bucket = s3_bucket or config.aws.s3_bucket
+        self.s3_key_prefix = s3_key_prefix if s3_key_prefix is not None else config.files.s3_key_prefix
 
         # Initialize S3 client if available and configured
         self.s3_client = None
@@ -114,10 +111,10 @@ class ZorkOrchestrator:
             except Exception as e:
                 self.logger.warning(f"Failed to initialize S3 client: {e}")
 
-        # Initialize OpenAI client (shared across components)
-        self.client = OpenAI(
-            base_url=client_base_url or env.str("CLIENT_BASE_URL", None),
-            api_key=client_api_key or env.str("CLIENT_API_KEY", None),
+        # Initialize LLM client (shared across components)
+        self.client = LLMClientWrapper(
+            base_url=client_base_url or config.llm.client_base_url,
+            api_key=client_api_key or get_client_api_key(),
         )
 
         # Initialize core components
@@ -139,13 +136,10 @@ class ZorkOrchestrator:
         # Initialize shared movement analyzer
         self.movement_analyzer = MovementAnalyzer()
 
-        # Initialize adaptive knowledge manager
-        if self.enable_adaptive_knowledge:
-            self.adaptive_knowledge_manager = AdaptiveKnowledgeManager(
-                log_file=self.json_log_file, output_file="knowledgebase.md"
-            )
-        else:
-            self.adaptive_knowledge_manager = None
+        # Initialize adaptive knowledge manager (always enabled)
+        self.adaptive_knowledge_manager = AdaptiveKnowledgeManager(
+            log_file=self.json_log_file, output_file="knowledgebase.md"
+        )
 
         # Session-persistent state (survives episode resets)
         self.death_count = 0  # Track cumulative deaths across all episodes
@@ -921,7 +915,7 @@ class ZorkOrchestrator:
 
     def _check_adaptive_knowledge_update(self) -> None:
         """Check if it's time for an adaptive knowledge update and perform it if needed."""
-        if not self.enable_adaptive_knowledge or not self.adaptive_knowledge_manager:
+        if not self.adaptive_knowledge_manager:
             return
 
         # Check if enough turns have passed since last update
@@ -1008,7 +1002,7 @@ class ZorkOrchestrator:
 
     def _check_map_update(self) -> None:
         """Check if it's time for a map update and perform it if needed."""
-        if not self.enable_adaptive_knowledge or not self.adaptive_knowledge_manager:
+        if not self.adaptive_knowledge_manager:
             return
 
         # Check if enough turns have passed since last map update
@@ -1033,7 +1027,7 @@ class ZorkOrchestrator:
 
     def _update_knowledge_base_map(self) -> None:
         """Update the mermaid map in the knowledge base."""
-        if not self.enable_adaptive_knowledge or not self.adaptive_knowledge_manager:
+        if not self.adaptive_knowledge_manager:
             return
             
         try:
@@ -1101,7 +1095,7 @@ class ZorkOrchestrator:
 
     def _perform_final_knowledge_update(self) -> None:
         """Perform a final knowledge update at episode end if there's been significant progress."""
-        if not self.enable_adaptive_knowledge or not self.adaptive_knowledge_manager:
+        if not self.adaptive_knowledge_manager:
             return
 
         # Calculate turns since last update

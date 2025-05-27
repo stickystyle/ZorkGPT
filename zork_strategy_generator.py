@@ -9,14 +9,10 @@ import json
 import os
 from datetime import datetime
 from typing import List, Dict, Optional, Tuple
-import environs
-from openai import OpenAI
 from map_graph import MapGraph
 from movement_analyzer import MovementAnalyzer, create_movement_context
-
-# Load environment variables
-env = environs.Env()
-env.read_env()
+from llm_client import LLMClientWrapper
+from config import get_config, get_client_api_key
 
 
 class AdaptiveKnowledgeManager:
@@ -38,22 +34,23 @@ class AdaptiveKnowledgeManager:
         self.log_file = log_file
         self.output_file = output_file
 
-        # Initialize OpenAI client
-        self.client = OpenAI(
-            base_url=env.str("CLIENT_BASE_URL", None),
-            api_key=env.str("CLIENT_API_KEY", None),
+        # Initialize LLM client
+        config = get_config()
+        self.client = LLMClientWrapper(
+            base_url=config.llm.client_base_url,
+            api_key=get_client_api_key(),
         )
 
         # Model for analysis
-        self.analysis_model = env.str("ANALYSIS_MODEL", "gpt-4")
+        self.analysis_model = config.llm.analysis_model
 
         # Turn-based configuration
-        self.turn_window_size = env.int("TURN_WINDOW_SIZE", 100)
-        self.min_quality_threshold = env.float("MIN_KNOWLEDGE_QUALITY", 6.0)
+        self.turn_window_size = config.gameplay.turn_window_size
+        self.min_quality_threshold = config.gameplay.min_knowledge_quality
         
         # Prompt logging counter for temporary evaluation
         self.prompt_counter = 0
-        self.enable_prompt_logging = env.bool("ENABLE_PROMPT_LOGGING", False)
+        self.enable_prompt_logging = config.logging.enable_prompt_logging
         
         # Load agent instructions to avoid duplication
         self.agent_instructions = self._load_agent_instructions()
@@ -398,6 +395,8 @@ Format your response as:
 SCORE: [0-10]
 REASON: [brief explanation]"""
 
+        # Incase using Qwen qwen3-30b-a3b
+        prompt = r"\no_think " + prompt
         try:
             messages = [
                 {
@@ -415,9 +414,12 @@ REASON: [brief explanation]"""
                 messages=messages,
                 temperature=0.3,
                 max_tokens=500,
+                extra_headers={
+                    "X-Title": "ZorkGPT",
+                },
             )
 
-            content = response.choices[0].message.content.strip()
+            content = response.content.strip()
 
             # Parse score and reason
             lines = content.split("\n")
@@ -476,6 +478,9 @@ Consider:
 
 Respond with just the strategy name: FULL_UPDATE, SELECTIVE_UPDATE, CONSOLIDATION_ONLY, or ESCAPE_ANALYSIS"""
 
+        # Incase using Qwen qwen3-30b-a3b
+        prompt = r"\no_think " + prompt
+
         try:
             messages = [
                 {
@@ -493,9 +498,12 @@ Respond with just the strategy name: FULL_UPDATE, SELECTIVE_UPDATE, CONSOLIDATIO
                 messages=messages,
                 temperature=0.2,
                 max_tokens=100,
+                extra_headers={
+                    "X-Title": "ZorkGPT",
+                },
             )
 
-            strategy = response.choices[0].message.content.strip().upper()
+            strategy = response.content.strip().upper()
 
             # Validate strategy
             valid_strategies = [
@@ -583,6 +591,9 @@ Provide insights in these categories only if they contain valuable information:
 Skip categories that don't have meaningful insights from this data.
 Be specific about locations, items, and sequences when relevant."""
 
+        # Incase using Qwen qwen3-30b-a3b
+        prompt = r"\no_think " + prompt
+
         try:
             response = self.client.chat.completions.create(
                 model=self.analysis_model,
@@ -595,9 +606,12 @@ Be specific about locations, items, and sequences when relevant."""
                 ],
                 temperature=0.3,
                 max_tokens=1500,
+                extra_headers={
+                    "X-Title": "ZorkGPT",
+                },
             )
 
-            return response.choices[0].message.content.strip()
+            return response.content.strip()
 
         except Exception as e:
             print(f"  ⚠️ Selective analysis failed: {e}")
@@ -630,7 +644,7 @@ Focus on:
 4. **Warning Signs**: How to recognize and avoid this situation in the future?
 
 Provide specific, actionable advice for escaping this type of situation."""
-
+    
         try:
             response = self.client.chat.completions.create(
                 model=self.analysis_model,
@@ -643,9 +657,12 @@ Provide specific, actionable advice for escaping this type of situation."""
                 ],
                 temperature=0.4,
                 max_tokens=1000,
+                extra_headers={
+                    "X-Title": "ZorkGPT",
+                },
             )
 
-            return response.choices[0].message.content.strip()
+            return response.content.strip()
 
         except Exception as e:
             print(f"  ⚠️ Escape analysis failed: {e}")
@@ -678,6 +695,9 @@ Provide insights in these categories:
 
 Focus on actionable insights that would help improve future gameplay. Be specific about locations, items, and sequences when relevant."""
 
+        # Incase using Qwen qwen3-30b-a3b
+        prompt = r"\no_think " + prompt
+
         try:
             response = self.client.chat.completions.create(
                 model=self.analysis_model,
@@ -690,9 +710,12 @@ Focus on actionable insights that would help improve future gameplay. Be specifi
                 ],
                 temperature=0.3,
                 max_tokens=2000,
+                extra_headers={
+                    "X-Title": "ZorkGPT",
+                },
             )
 
-            return response.choices[0].message.content.strip()
+            return response.content.strip()
 
         except Exception as e:
             print(f"  ⚠️ Full analysis failed: {e}")
@@ -732,6 +755,8 @@ Tasks:
 Maintain the same general structure but improve the content quality.
 Do not add new information - only reorganize and clarify existing knowledge for AI consumption."""
 
+        # Incase using Qwen qwen3-30b-a3b
+        prompt = r"\no_think " + prompt
         try:
             response = self.client.chat.completions.create(
                 model=self.analysis_model,
@@ -744,9 +769,12 @@ Do not add new information - only reorganize and clarify existing knowledge for 
                 ],
                 temperature=0.2,
                 max_tokens=3000,
+                extra_headers={
+                    "X-Title": "ZorkGPT",
+                },
             )
 
-            return response.choices[0].message.content.strip()
+            return response.content.strip()
 
         except Exception as e:
             print(f"  ⚠️ Knowledge consolidation failed: {e}")
@@ -824,7 +852,8 @@ Merge guidelines:
 
 The merged guide should be more comprehensive and accurate than either individual source.
 Maintain the existing structure but enhance it with the new insights."""
-
+        # Incase using Qwen qwen3-30b-a3b
+        prompt = r"\no_think " + prompt
         try:
             response = self.client.chat.completions.create(
                 model=self.analysis_model,
@@ -837,9 +866,12 @@ Maintain the existing structure but enhance it with the new insights."""
                 ],
                 temperature=0.2,
                 max_tokens=4000,
+                extra_headers={
+                    "X-Title": "ZorkGPT",
+                },
             )
 
-            return response.choices[0].message.content.strip()
+            return response.content.strip()
 
         except Exception as e:
             print(f"  ⚠️ Knowledge merging failed: {e}")
@@ -870,7 +902,8 @@ Structure the guide with these sections:
 
 Make the guide practical and actionable for an AI agent. Use specific locations, items, and commands when relevant.
 Focus on decision trees, conditional logic, and systematic approaches rather than human intuition."""
-
+        # Incase using Qwen qwen3-30b-a3b
+        prompt = r"\no_think " + prompt
         try:
             response = self.client.chat.completions.create(
                 model=self.analysis_model,
@@ -883,9 +916,12 @@ Focus on decision trees, conditional logic, and systematic approaches rather tha
                 ],
                 temperature=0.2,
                 max_tokens=3000,
+                extra_headers={
+                    "X-Title": "ZorkGPT",
+                },
             )
 
-            return response.choices[0].message.content.strip()
+            return response.content.strip()
 
         except Exception as e:
             print(f"  ⚠️ New knowledge base creation failed: {e}")

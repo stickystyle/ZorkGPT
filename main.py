@@ -5,21 +5,10 @@ from zork_orchestrator import ZorkOrchestrator
 import time
 
 
-def run_episode(max_turns_per_episode=5000):
+def run_episode():
     """Run a long episode with adaptive knowledge management."""
 
-    # Configure for long episodes with adaptive knowledge
-    orchestrator = ZorkOrchestrator(
-        max_turns_per_episode=max_turns_per_episode,
-        enable_adaptive_knowledge=True,  # Enable turn-based updates
-        knowledge_update_interval=100,  # Update every 100 turns
-        map_update_interval=25,  # Update every 5 turns
-        # S3 integration for live viewer
-        enable_state_export=True,  # Enable state export
-        # s3_bucket will be read from ZORK_S3_BUCKET environment variable
-        # Gameplay delay for viewer experience
-        turn_delay_seconds=10.0,  # 10 second delay between turns for viewers
-    )
+    orchestrator = ZorkOrchestrator()
 
     print("🚀 Starting long episode with adaptive knowledge management...")
     print(f"📋 Configuration:")
@@ -27,7 +16,7 @@ def run_episode(max_turns_per_episode=5000):
     print(
         f"  - Knowledge update interval: {orchestrator.knowledge_update_interval} turns"
     )
-    print(f"  - Adaptive knowledge: {orchestrator.enable_adaptive_knowledge}")
+    print(f"  - Map update interval: {orchestrator.map_update_interval} turns")
     print(f"  - State export: {orchestrator.enable_state_export}")
     print(f"  - Turn delay: {orchestrator.turn_delay_seconds} seconds")
     print(f"  - S3 bucket: {orchestrator.s3_bucket or 'Not configured'}")
@@ -86,13 +75,13 @@ def run_episode(max_turns_per_episode=5000):
 
 
 if __name__ == "__main__":
-    print("=" * 60)
-    while True:
-        try:
-            run_episode(max_turns_per_episode=5000)
-        except Exception as e:
-            print(f"❌ Error: {e}")
-            import traceback
+    # print("=" * 60)
+    # while True:
+    try:
+        run_episode()
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        import traceback
 
-            traceback.print_exc()
-            time.sleep(1)
+        traceback.print_exc()
+        time.sleep(1)

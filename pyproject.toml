@@ -6,7 +6,7 @@ requires-python = ">=3.11"
 dependencies = [
     "openai>=1.79.0",
     "pydantic>=2.11.4",
-    "environs>=14.1.1",
+    "requests>=2.31.0",
 ]
 
 [project.optional-dependencies]
@@ -22,3 +22,64 @@ s3 = [
 dev = [
     "pytest>=8.3.5",
 ]
+
+[tool.zorkgpt.llm]
+# LLM Configuration
+client_base_url = "https://openrouter.ai/api/v1"
+agent_model = "qwen/qwen3-30b-a3b"
+info_ext_model = "google/gemma-3-12b-it"
+critic_model = "google/gemma-3-12b-it"
+analysis_model = "qwen/qwen3-30b-a3b"
+
+[tool.zorkgpt.agent_sampling]
+# Agent LLM Sampling Parameters
+temperature = 0.5
+top_p = 0.95
+top_k = 20
+min_p = 0.0
+# max_tokens = null  # Optional - leave commented to use default
+
+[tool.zorkgpt.critic_sampling]
+# Critic LLM Sampling Parameters
+temperature = 0.2
+max_tokens = 100
+# top_p = null     # Optional - leave commented for default
+# top_k = null     # Optional - leave commented for default
+# min_p = null     # Optional - leave commented for default
+
+[tool.zorkgpt.extractor_sampling]
+# Information Extractor LLM Sampling Parameters
+temperature = 0.1
+max_tokens = 300
+# top_p = null     # Optional - leave commented for default
+# top_k = null     # Optional - leave commented for default
+# min_p = null     # Optional - leave commented for default
+
+[tool.zorkgpt.gameplay]
+# Gameplay Configuration
+turn_delay_seconds = 10.0
+turn_window_size = 100
+min_knowledge_quality = 6.0
+critic_rejection_threshold = -0.05
+
+[tool.zorkgpt.logging]
+# Logging Configuration
+enable_prompt_logging = false
+
+[tool.zorkgpt.orchestrator]
+# Orchestrator Configuration
+max_turns_per_episode = 500
+knowledge_update_interval = 15
+map_update_interval = 10
+enable_state_export = true
+
+[tool.zorkgpt.files]
+# File Configuration
+episode_log_file = "zork_episode_log.txt"
+json_log_file = "zork_episode_log.jsonl"
+state_export_file = "current_state.json"
+s3_key_prefix = "zorkgpt/"
+
+[tool.zorkgpt.aws]
+# AWS Configuration (optional)
+# s3_bucket = ""  # Leave empty or commented if not using S3
