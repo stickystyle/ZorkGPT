@@ -297,11 +297,11 @@ class MapGraph:
         self.add_room(from_room_name)
         self.add_room(to_room_name)
 
-        # exit_taken should already be normalized (or the raw action) by the caller in main.py
-        # Here, we just ensure it's lowercase if it was a raw action.
-        # If it was a normalized direction, it's already lowercase.
-        processed_exit_taken = exit_taken.lower()
-
+        # Use basic normalization for standard directions only
+        # Let LLM layers handle semantic equivalence
+        normalized_action = normalize_direction(exit_taken)
+        processed_exit_taken = normalized_action if normalized_action else exit_taken.lower().strip()
+        
         # Track confidence for this connection
         connection_key = (from_room_normalized, processed_exit_taken)
 
@@ -659,7 +659,10 @@ class MapGraph:
     def get_connection_confidence(self, from_room: str, exit_taken: str) -> float:
         """Get the confidence score for a specific connection."""
         from_room_normalized = self._normalize_room_name(from_room)
-        connection_key = (from_room_normalized, exit_taken.lower())
+        # Use same normalization logic as add_connection
+        normalized_action = normalize_direction(exit_taken)
+        processed_exit_taken = normalized_action if normalized_action else exit_taken.lower().strip()
+        connection_key = (from_room_normalized, processed_exit_taken)
         return self.connection_confidence.get(connection_key, 0.0)
 
     def get_map_quality_metrics(self) -> Dict[str, float]:

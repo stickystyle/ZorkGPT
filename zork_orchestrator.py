@@ -157,6 +157,7 @@ class ZorkOrchestrator:
         self.episode_id = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.previous_zork_score = 0
         self.turn_count = 0
+        self.game_over_flag = False  # Track game over state for state export
         # Use MapGraph with enhanced confidence tracking
         self.game_map = MapGraph()
         self.current_room_name_for_map = ""
@@ -304,6 +305,9 @@ class ZorkOrchestrator:
                         if self._is_death_reason(game_over_reason):
                             self.death_count += 1
                         
+                        # Set the game over flag for state export
+                        self.game_over_flag = True
+                        
                         # Log game over from inventory
                         self.logger.info(
                             f"Game over during inventory check: {game_over_reason}",
@@ -335,6 +339,22 @@ class ZorkOrchestrator:
                                 }
                             },
                         )
+
+                        # Store reasoning for inventory-based death (for state export)
+                        self.action_reasoning_history.append(
+                            {
+                                "turn": self.turn_count,
+                                "action": "inventory",
+                                "reasoning": f"Death occurred during inventory check: {game_over_reason}",
+                                "critic_score": 0.0,
+                                "critic_justification": "Death during inventory - no action evaluation",
+                                "was_overridden": False,
+                                "rejected_actions": None,
+                            }
+                        )
+
+                        # Export final state with death information
+                        self.export_current_state()
 
                         # Episode ends here
                         break
@@ -572,6 +592,9 @@ class ZorkOrchestrator:
                     if self._is_death_reason(game_over_reason):
                         self.death_count += 1
                     
+                    # Set the game over flag for state export
+                    self.game_over_flag = True
+                    
                     # Log game over
                     self.logger.info(
                         f"{game_over_reason}",
@@ -593,21 +616,60 @@ class ZorkOrchestrator:
                     # Store clean game text in action history (without structured header)
                     self.action_history.append((action_taken, clean_game_text))
 
-                    if game_over:
-                        # Log game over details
+                    # Log game over details
+                    self.logger.info(
+                        f"Game over: {game_over_reason}",
+                        extra={
+                            "extras": {
+                                "event_type": "game_over_final",
+                                "episode_id": self.episode_id,
+                                "reason": game_over_reason,
+                                "final_score": self.previous_zork_score,
+                                "action_taken": action_taken,
+                            }
+                        },
+                    )
+                    
+                    # Store reasoning for death action (for state export)
+                    if 'agent_reasoning' in locals():
+                        self.action_reasoning_history.append(
+                            {
+                                "turn": self.turn_count,
+                                "action": action_taken,
+                                "reasoning": agent_reasoning,
+                                "critic_score": critic_score_val if 'critic_score_val' in locals() else 0.0,
+                                "critic_justification": critic_justification if 'critic_justification' in locals() else "Game Over",
+                                "was_overridden": was_overridden if 'was_overridden' in locals() else False,
+                                "rejected_actions": rejected_actions_with_justifications if 'rejected_actions_with_justifications' in locals() else None,
+                            }
+                        )
+                    
+                    # Extract information about the death state
+                    llm_extracted_info = self.extractor.extract_info(
+                        next_game_state, room_before_action
+                    )
+                    if llm_extracted_info:
+                        self.memory_log_history.append(llm_extracted_info)
+                        # Update current room for state export
+                        self.current_room_name_for_map = llm_extracted_info.current_location_name
+                        
+                        # Log death extraction
                         self.logger.info(
-                            f"Game over: {game_over_reason}",
+                            f"Death state extracted: {llm_extracted_info.current_location_name}",
                             extra={
                                 "extras": {
-                                    "event_type": "game_over_final",
+                                    "event_type": "death_state_extracted",
                                     "episode_id": self.episode_id,
-                                    "reason": game_over_reason,
-                                    "final_score": self.previous_zork_score,
-                                    "action_taken": action_taken,
+                                    "extracted_info": llm_extracted_info.model_dump(),
                                 }
                             },
                         )
-                        continue
+                    
+                    # Export final state with death information
+                    self.export_current_state()
+                    
+                    # End the episode
+                    break
 
                 # Store clean game text in action history (without structured header)
                 self.action_history.append((action_taken, clean_game_text))
@@ -1226,7 +1288,7 @@ class ZorkOrchestrator:
                 "episode_id": self.episode_id,
                 "timestamp": datetime.now().isoformat(),
                 "turn_count": self.turn_count,
-                "game_over": False,  # TODO: Track this properly
+                "game_over": self.game_over_flag,
                 "score": self.previous_zork_score,
                 "max_turns": self.max_turns_per_episode,
                 "models": {

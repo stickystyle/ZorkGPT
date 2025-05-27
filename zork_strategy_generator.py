@@ -249,6 +249,8 @@ class AdaptiveKnowledgeManager:
             "score_changes": [],
             "location_changes": [],
             "inventory_changes": [],
+            "death_events": [],  # Track death events for knowledge base
+            "game_over_events": [],  # Track all game over events
         }
 
         try:
@@ -257,6 +259,9 @@ class AdaptiveKnowledgeManager:
                 current_score = 0
                 current_location = ""
                 current_inventory = []
+                
+                # Store death messages temporarily for proper association
+                death_messages_by_turn = {}
 
                 for line in f:
                     try:
@@ -292,9 +297,52 @@ class AdaptiveKnowledgeManager:
                             and turn_data["actions_and_responses"]
                         ):
                             # Update the last action with its response
-                            turn_data["actions_and_responses"][-1]["response"] = (
-                                log_entry.get("zork_response", "")
-                            )
+                            response = log_entry.get("zork_response", "")
+                            turn_data["actions_and_responses"][-1]["response"] = response
+                            
+                            # Check if this zork response contains death information and store it
+                            if any(death_indicator in response.lower() for death_indicator in [
+                                "you have died", "you are dead", "slavering fangs", "eaten by a grue",
+                                "you have been killed", "****  you have died  ****", "fatal"
+                            ]):
+                                action = log_entry.get("action", "")
+                                # Create contextual description instead of bare action
+                                death_context = f"{action} from {current_location}" if current_location else action
+                                death_messages_by_turn[current_turn] = {
+                                    "detailed_death_message": response,
+                                    "death_context": death_context,
+                                    "death_location": current_location,
+                                    "fatal_action": action  # Keep raw action for reference
+                                }
+
+                        # Track death and game over events
+                        elif event_type in ["game_over", "game_over_final", "death_during_inventory"]:
+                            death_event = {
+                                "turn": current_turn,
+                                "event_type": event_type,
+                                "reason": log_entry.get("reason", ""),
+                                "action_taken": log_entry.get("action_taken", ""),
+                                "final_score": log_entry.get("final_score", current_score),
+                                "death_count": log_entry.get("death_count", 0),
+                            }
+                            
+                            # Add to both death_events and game_over_events for different analysis purposes
+                            turn_data["game_over_events"].append(death_event)
+                            
+                            # Check if this is specifically a death (vs victory)
+                            reason = log_entry.get("reason", "").lower()
+                            death_indicators = ["died", "death", "eaten", "grue", "killed", "fall", "crushed"]
+                            if any(indicator in reason for indicator in death_indicators):
+                                turn_data["death_events"].append(death_event)
+
+                        # Track death state extraction for context
+                        elif event_type == "death_state_extracted":
+                            extracted_info = log_entry.get("extracted_info", {})
+                            if extracted_info and turn_data["death_events"]:
+                                # Add extraction details to the most recent death event
+                                turn_data["death_events"][-1]["death_location"] = extracted_info.get("current_location_name", "")
+                                turn_data["death_events"][-1]["death_objects"] = extracted_info.get("visible_objects", [])
+                                turn_data["death_events"][-1]["death_messages"] = extracted_info.get("important_messages", [])
 
                         # Track score changes
                         elif event_type == "experience" and "zork_score" in log_entry:
@@ -336,6 +384,18 @@ class AdaptiveKnowledgeManager:
         except FileNotFoundError:
             print(f"  ⚠️ Log file {self.log_file} not found")
             return None
+        
+        # Apply stored death messages to death events
+        for turn_num, death_info in death_messages_by_turn.items():
+            # Apply to death events
+            for death_event in turn_data["death_events"]:
+                if death_event["turn"] == turn_num:
+                    death_event.update(death_info)
+            
+            # Apply to game over events  
+            for game_over_event in turn_data["game_over_events"]:
+                if game_over_event["turn"] == turn_num:
+                    game_over_event.update(death_info)
 
         return turn_data if turn_data["actions_and_responses"] else None
 
@@ -348,6 +408,8 @@ class AdaptiveKnowledgeManager:
         num_actions = len(turn_data["actions_and_responses"])
         num_score_changes = len(turn_data["score_changes"])
         num_location_changes = len(turn_data["location_changes"])
+        num_death_events = len(turn_data.get("death_events", []))
+        num_game_over_events = len(turn_data.get("game_over_events", []))
 
         # Sample some actions for context (limit to avoid token overflow)
         sample_actions = turn_data["actions_and_responses"][:10]
@@ -359,6 +421,19 @@ class AdaptiveKnowledgeManager:
                 for action in sample_actions
             ]
         )
+
+        # Add death event summary if any occurred
+        death_summary = ""
+        if num_death_events > 0:
+            death_summary = "\n\nDEATH EVENTS:\n" + "\n".join([
+                f"Turn {event['turn']}: {event['reason']} ({'Context: ' + event.get('death_context', 'N/A') if event.get('death_context') else 'Action: ' + event.get('action_taken', 'N/A')})"
+                for event in turn_data["death_events"]
+            ])
+        elif num_game_over_events > 0:
+            death_summary = "\n\nGAME OVER EVENTS:\n" + "\n".join([
+                f"Turn {event['turn']}: {event['reason']} ({'Context: ' + event.get('death_context', 'N/A') if event.get('death_context') else 'Action: ' + event.get('action_taken', 'N/A')})"
+                for event in turn_data["game_over_events"]
+            ])
 
         # Adjust prompt based on whether this is a final update
         context_note = ""
@@ -376,9 +451,11 @@ TURN WINDOW SUMMARY:
 - Total actions: {num_actions}
 - Score changes: {num_score_changes}
 - Location changes: {num_location_changes}
+- Death events: {num_death_events}
+- Game over events: {num_game_over_events}
 
 SAMPLE ACTIONS:
-{actions_summary}
+{actions_summary}{death_summary}
 
 Before doing the full analysis, assess the potential value of this data:
 
@@ -387,6 +464,9 @@ Before doing the full analysis, assess the potential value of this data:
 3. Would analyzing this data improve or degrade the knowledge base?
 4. What type of gameplay situation does this represent?
 5. {"Are there any dangers, deaths, or new discoveries that should be documented?" if is_final_update else ""}
+
+**IMPORTANT**: Death events are typically HIGH VALUE for learning - they teach about dangers to avoid.
+New locations and score changes also indicate valuable discoveries.
 
 Rate the potential knowledge value from 0-10 and provide a brief explanation.
 {"For final updates: Focus on ANY useful insights, especially dangers or new areas." if is_final_update else "Focus on whether this data would generate actionable, non-repetitive insights."}
@@ -539,6 +619,25 @@ Respond with just the strategy name: FULL_UPDATE, SELECTIVE_UPDATE, CONSOLIDATIO
         ]:  # Limit to avoid token overflow
             actions_text += f"Turn {action['turn']}: {action['action']} -> {action['response'][:150]}...\n"
 
+        # Prepare death event details if any
+        death_analysis = ""
+        if turn_data.get("death_events"):
+            death_analysis = "\n\nDEATH EVENT DETAILS:\n"
+            for event in turn_data["death_events"]:
+                death_analysis += f"Turn {event['turn']}: {event['reason']}\n"
+                # Use contextual death information if available
+                if event.get('death_context'):
+                    death_analysis += f"- Dangerous action/location: {event['death_context']}\n"
+                else:
+                    death_analysis += f"- Action leading to death: {event.get('action_taken', 'Unknown')}\n"
+                if event.get('death_location'):
+                    death_analysis += f"- Location: {event['death_location']}\n"
+                if event.get('death_objects'):
+                    death_analysis += f"- Objects present: {', '.join(event['death_objects'])}\n"
+                if event.get('death_messages'):
+                    death_analysis += f"- Key messages: {', '.join(event['death_messages'])}\n"
+                death_analysis += "\n"
+
         # Include agent instructions context if available
         agent_context = ""
         if self.agent_instructions:
@@ -565,9 +664,10 @@ DO NOT repeat basic information already covered in the agent instructions."""
 TURN RANGE: {turn_data["start_turn"]}-{turn_data["end_turn"]}
 SCORE CHANGES: {turn_data["score_changes"]}
 LOCATION CHANGES: {turn_data["location_changes"]}
+DEATH EVENTS: {len(turn_data.get("death_events", []))} death(s) occurred
 
 ACTION SEQUENCE:
-{actions_text}
+{actions_text}{death_analysis}
 
 Focus on extracting insights that are:
 1. Actionable and specific
@@ -579,8 +679,15 @@ Provide insights in these categories only if they contain valuable information:
 - **Navigation Discoveries**: New paths, connections, or movement strategies
 - **Item Insights**: Useful items found, usage patterns, or combinations
 - **Puzzle Solutions**: Successful problem-solving approaches
-- **Danger Avoidance**: Threats identified and how to handle them
+- **Danger Avoidance**: Threats identified and how to handle them (ESPECIALLY IMPORTANT if deaths occurred)
 - **Efficiency Improvements**: Better action sequences or time-saving approaches
+- **Death Analysis**: If deaths occurred, analyze the exact cause and prevention strategies
+
+**SPECIAL FOCUS**: If death events occurred, prioritize analyzing:
+- What specific action or condition led to death
+- What warning signs were present
+- How to recognize and avoid this danger in the future
+- What alternative actions could have been taken
 
 Skip categories that don't have meaningful insights from this data.
 Be specific about locations, items, and sequences when relevant."""
@@ -664,14 +771,35 @@ Provide specific, actionable advice for escaping this type of situation."""
         for action in turn_data["actions_and_responses"][:30]:
             actions_text += f"Turn {action['turn']}: {action['action']} -> {action['response'][:150]}...\n"
 
+        # Prepare death event analysis
+        death_analysis = ""
+        if turn_data.get("death_events"):
+            death_analysis = "\n\nDEATH EVENT ANALYSIS:\n"
+            for event in turn_data["death_events"]:
+                death_analysis += f"Turn {event['turn']}: {event['reason']}\n"
+                # Use contextual death information if available
+                if event.get('death_context'):
+                    death_analysis += f"- Dangerous action/location: {event['death_context']}\n"
+                else:
+                    death_analysis += f"- Fatal action: {event.get('action_taken', 'Unknown')}\n"
+                death_analysis += f"- Final score: {event.get('final_score', 'Unknown')}\n"
+                if event.get('death_location'):
+                    death_analysis += f"- Death location: {event['death_location']}\n"
+                if event.get('death_objects'):
+                    death_analysis += f"- Objects at death scene: {', '.join(event['death_objects'])}\n"
+                if event.get('death_messages'):
+                    death_analysis += f"- Death messages: {', '.join(event['death_messages'])}\n"
+                death_analysis += "\n"
+
         prompt = f"""Analyze this Zork gameplay data and provide comprehensive strategic insights.
 
 TURN RANGE: {turn_data["start_turn"]}-{turn_data["end_turn"]}
 SCORE CHANGES: {turn_data["score_changes"]}
 LOCATION CHANGES: {turn_data["location_changes"]}
+DEATH EVENTS: {len(turn_data.get("death_events", []))} death(s) occurred
 
 ACTION SEQUENCE:
-{actions_text}
+{actions_text}{death_analysis}
 
 Provide insights in these categories:
 1. **Key Successful Strategies**: What actions or patterns led to progress?
@@ -679,7 +807,14 @@ Provide insights in these categories:
 3. **Navigation Insights**: How effectively was the world navigated?
 4. **Item Management**: Were items collected and used effectively?
 5. **Combat/Danger Handling**: How well were threats managed?
-6. **Learning Opportunities**: What should be done differently?
+6. **Death Prevention**: If deaths occurred, what specific strategies would prevent them?
+7. **Learning Opportunities**: What should be done differently?
+
+**DEATH ANALYSIS PRIORITY**: If deaths occurred, prioritize understanding:
+- The exact sequence of events leading to death
+- Warning signs that should have been recognized
+- Alternative actions that could have been taken
+- How to recognize similar dangerous situations in the future
 
 Focus on actionable insights that would help improve future gameplay. Be specific about locations, items, and sequences when relevant."""
 
