@@ -26,7 +26,8 @@ class ZorkAgent:
         model: str = None,
         client: Optional[OpenAI] = None,
         max_tokens: Optional[int] = None,
-        temperature: float = 0.5,
+        temperature: float = 0.6,
+        top_p: Optional[float] = 0.95,
         logger=None,
         episode_id: str = "unknown",
     ):
@@ -44,6 +45,7 @@ class ZorkAgent:
         self.model = model or env.str("AGENT_MODEL", "qwen3-30b-a3b-mlx")
         self.max_tokens = max_tokens
         self.temperature = temperature
+        self.top_p = top_p
         self.logger = logger
         self.episode_id = episode_id
         
@@ -76,6 +78,8 @@ class ZorkAgent:
                 f.write(f"=== {prefix.upper()} PROMPT #{self.prompt_counter} ===\n")
                 f.write(f"Model: {self.model}\n")
                 f.write(f"Temperature: {self.temperature}\n")
+                if hasattr(self, 'top_p') and self.top_p is not None:
+                    f.write(f"TopP: {self.top_p}\n")
                 f.write(f"Max Tokens: {self.max_tokens}\n")
                 f.write(f"Episode ID: {self.episode_id}\n")
                 f.write("=" * 50 + "\n\n")
@@ -214,11 +218,14 @@ The following strategic guide has been compiled from analyzing previous episodes
                 messages=messages,
                 stop=None,
                 temperature=self.temperature,
-                max_tokens=self.max_tokens,
                 extra_headers={
                     "X-Title": "ZorkGPT",
                 },
             )
+            if self.max_tokens is not None:
+                client_args["max_tokens"] = self.max_tokens
+            if self.top_p is not None:
+                client_args["top_p"] = self.top_p
 
             response = self.client.chat.completions.create(**client_args)
             action = response.choices[0].message.content.strip()
@@ -310,11 +317,14 @@ The following strategic guide has been compiled from analyzing previous episodes
                 messages=messages,
                 stop=None,
                 temperature=self.temperature,
-                max_tokens=self.max_tokens,
                 extra_headers={
                     "X-Title": "ZorkGPT",
                 },
             )
+            if self.max_tokens is not None:
+                client_args["max_tokens"] = self.max_tokens
+            if self.top_p is not None:
+                client_args["top_p"] = self.top_p
 
             response = self.client.chat.completions.create(**client_args)
             raw_response = response.choices[0].message.content.strip()
