@@ -74,12 +74,12 @@ class FilesConfig(BaseModel):
     episode_log_file: str = "zork_episode_log.txt"
     json_log_file: str = "zork_episode_log.jsonl"
     state_export_file: str = "current_state.json"
-    s3_key_prefix: str = "zorkgpt/"
 
 
 class AWSConfig(BaseModel):
     """AWS configuration settings."""
     s3_bucket: Optional[str] = None
+    s3_key_prefix: str = "zorkgpt/"
 
 
 class ZorkGPTConfig(BaseModel):

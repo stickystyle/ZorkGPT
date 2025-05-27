@@ -270,9 +270,6 @@ Evaluate this action based on your criteria. Respond with ONLY a JSON object in 
                 top_k=self.top_k,
                 min_p=self.min_p,
                 response_format=create_json_schema(CriticResponse),
-                extra_headers={
-                    "X-Title": "ZorkGPT",
-                },
             )
 
             response_content = response.content

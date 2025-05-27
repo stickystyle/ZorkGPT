@@ -347,9 +347,6 @@ Extract key information from the game text and return it as JSON with these fiel
                 top_k=self.top_k,
                 min_p=self.min_p,
                 response_format=create_json_schema(ExtractorResponse),
-                extra_headers={
-                    "X-Title": "ZorkGPT",
-                },
             )
 
             response_content = response.content

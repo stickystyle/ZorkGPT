@@ -69,8 +69,8 @@ enable_prompt_logging = false
 [tool.zorkgpt.orchestrator]
 # Orchestrator Configuration
 max_turns_per_episode = 500
-knowledge_update_interval = 15
-map_update_interval = 10
+knowledge_update_interval = 100
+map_update_interval = 25
 enable_state_export = true
 
 [tool.zorkgpt.files]
@@ -78,8 +78,8 @@ enable_state_export = true
 episode_log_file = "zork_episode_log.txt"
 json_log_file = "zork_episode_log.jsonl"
 state_export_file = "current_state.json"
-s3_key_prefix = "zorkgpt/"
 
 [tool.zorkgpt.aws]
 # AWS Configuration (optional)
 # s3_bucket = ""  # Leave empty or commented if not using S3
+s3_key_prefix = "zorkgpt/"

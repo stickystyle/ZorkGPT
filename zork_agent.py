@@ -228,9 +228,6 @@ The following strategic guide has been compiled from analyzing previous episodes
                 top_k=self.top_k,
                 min_p=self.min_p,
                 max_tokens=self.max_tokens,
-                extra_headers={
-                    "X-Title": "ZorkGPT",
-                },
             )
 
             response = self.client.chat.completions.create(**client_args)
@@ -327,9 +324,6 @@ The following strategic guide has been compiled from analyzing previous episodes
                 top_k=self.top_k,
                 min_p=self.min_p,
                 max_tokens=self.max_tokens,
-                extra_headers={
-                    "X-Title": "ZorkGPT",
-                },
             )
 
             response = self.client.chat.completions.create(**client_args)

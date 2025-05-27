@@ -100,7 +100,7 @@ class ZorkOrchestrator:
         self.enable_state_export = enable_state_export if enable_state_export is not None else config.orchestrator.enable_state_export
         self.state_export_file = state_export_file if state_export_file is not None else config.files.state_export_file
         self.s3_bucket = s3_bucket or config.aws.s3_bucket
-        self.s3_key_prefix = s3_key_prefix if s3_key_prefix is not None else config.files.s3_key_prefix
+        self.s3_key_prefix = s3_key_prefix if s3_key_prefix is not None else config.aws.s3_key_prefix
 
         # Initialize S3 client if available and configured
         self.s3_client = None

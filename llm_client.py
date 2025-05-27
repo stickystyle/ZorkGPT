@@ -44,6 +44,12 @@ class LLMClient:
         self.base_url = base_url or config.llm.client_base_url
         self.api_key = api_key or get_client_api_key() or "not-needed"
         
+        # Set default headers that will be included in all requests
+        self.default_headers = {
+            "X-Title": "ZorkGPT",
+            "HTTP-Referer": "https://zorkgpt.com",
+        }
+        
         # Ensure base_url ends with /v1 if it doesn't already
         if not self.base_url.endswith('/v1'):
             if not self.base_url.endswith('/'):
@@ -90,6 +96,10 @@ class LLMClient:
             "Authorization": f"Bearer {self.api_key}",
         }
         
+        # Add default headers
+        headers.update(self.default_headers)
+        
+        # Add any extra headers (will override defaults if same key)
         if extra_headers:
             headers.update(extra_headers)
         

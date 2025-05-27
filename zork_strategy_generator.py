@@ -414,9 +414,6 @@ REASON: [brief explanation]"""
                 messages=messages,
                 temperature=0.3,
                 max_tokens=500,
-                extra_headers={
-                    "X-Title": "ZorkGPT",
-                },
             )
 
             content = response.content.strip()
@@ -498,9 +495,6 @@ Respond with just the strategy name: FULL_UPDATE, SELECTIVE_UPDATE, CONSOLIDATIO
                 messages=messages,
                 temperature=0.2,
                 max_tokens=100,
-                extra_headers={
-                    "X-Title": "ZorkGPT",
-                },
             )
 
             strategy = response.content.strip().upper()
@@ -606,9 +600,6 @@ Be specific about locations, items, and sequences when relevant."""
                 ],
                 temperature=0.3,
                 max_tokens=1500,
-                extra_headers={
-                    "X-Title": "ZorkGPT",
-                },
             )
 
             return response.content.strip()
@@ -657,9 +648,6 @@ Provide specific, actionable advice for escaping this type of situation."""
                 ],
                 temperature=0.4,
                 max_tokens=1000,
-                extra_headers={
-                    "X-Title": "ZorkGPT",
-                },
             )
 
             return response.content.strip()
@@ -710,9 +698,6 @@ Focus on actionable insights that would help improve future gameplay. Be specifi
                 ],
                 temperature=0.3,
                 max_tokens=2000,
-                extra_headers={
-                    "X-Title": "ZorkGPT",
-                },
             )
 
             return response.content.strip()
@@ -769,9 +754,6 @@ Do not add new information - only reorganize and clarify existing knowledge for 
                 ],
                 temperature=0.2,
                 max_tokens=3000,
-                extra_headers={
-                    "X-Title": "ZorkGPT",
-                },
             )
 
             return response.content.strip()
@@ -866,9 +848,6 @@ Maintain the existing structure but enhance it with the new insights."""
                 ],
                 temperature=0.2,
                 max_tokens=4000,
-                extra_headers={
-                    "X-Title": "ZorkGPT",
-                },
             )
 
             return response.content.strip()
@@ -916,9 +895,6 @@ Focus on decision trees, conditional logic, and systematic approaches rather tha
                 ],
                 temperature=0.2,
                 max_tokens=3000,
-                extra_headers={
-                    "X-Title": "ZorkGPT",
-                },
             )
 
             return response.content.strip()
