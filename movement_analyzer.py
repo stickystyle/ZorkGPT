@@ -10,20 +10,8 @@ from dataclasses import dataclass
 from map_graph import MapGraph, normalize_direction, is_non_movement_command
 
 
-# Import generic location fallbacks from main.py constants
-GENERIC_LOCATION_FALLBACKS = {
-    "unknown location",
-    "unknown area",
-    "unclear area",
-    "unspecified location",
-    "same area",
-    "same place",
-    "no specific location",
-    "not applicable",
-    "na",
-    "n/a",
-    "",  # Empty string also a fallback
-}
+# Import generic location fallbacks to avoid duplication
+from hybrid_zork_extractor import GENERIC_LOCATION_FALLBACKS
 
 
 @dataclass

@@ -9,7 +9,7 @@ from collections import Counter
 import environs
 import os
 from map_graph import MapGraph
-from zork_extractor import ExtractorResponse
+from hybrid_zork_extractor import ExtractorResponse
 
 # Load environment variables
 env = environs.Env()

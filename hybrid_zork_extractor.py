@@ -1,7 +1,7 @@
 """
 Hybrid Zork Extractor that combines structured parsing with LLM extraction.
 
-This extractor uses the new structured Zork output format to directly extract
+This extractor uses the structured Zork output format to directly extract
 room names, scores, and moves when available, while still using LLM extraction
 for other information like exits, objects, characters, and important messages.
 
@@ -17,15 +17,35 @@ import environs
 import os
 
 from structured_zork_parser import StructuredZorkParser, StructuredZorkResponse
-from zork_extractor import (
-    ExtractorResponse,
-    GENERIC_LOCATION_FALLBACKS,
-    create_json_schema,
-)
+from shared_utils import create_json_schema
 
 # Load environment variables
 env = environs.Env()
 env.read_env()
+
+# Generic location fallbacks for location persistence
+GENERIC_LOCATION_FALLBACKS = {
+    "unknown location",
+    "unknown area",
+    "unclear area",
+    "unspecified location",
+    "same area",
+    "same place",
+    "no specific location",
+    "not applicable",
+    "na",
+    "n/a",
+    "",  # Empty string also a fallback
+}
+
+
+class ExtractorResponse(BaseModel):
+    current_location_name: str
+    exits: List[str]
+    visible_objects: List[str]
+    visible_characters: List[str]
+    important_messages: List[str]
+    in_combat: bool
 
 
 class HybridZorkExtractor:

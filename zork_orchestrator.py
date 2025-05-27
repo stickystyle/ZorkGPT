@@ -25,7 +25,7 @@ from logger import setup_logging
 
 # Import our refactored modules with aliases to avoid conflicts
 from zork_agent import ZorkAgent as AgentModule
-from zork_extractor import ExtractorResponse
+from hybrid_zork_extractor import ExtractorResponse
 from hybrid_zork_extractor import HybridZorkExtractor
 from zork_critic import ZorkCritic, CriticResponse
 from zork_strategy_generator import AdaptiveKnowledgeManager

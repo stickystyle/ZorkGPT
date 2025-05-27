@@ -15,16 +15,8 @@ env = environs.Env()
 env.read_env()
 
 
-def create_json_schema(model: Type[BaseModel]) -> Dict[str, Any]:
-    schema = model.model_json_schema()
-    return {
-        "type": "json_schema",
-        "json_schema": {
-            "name": "test_schema",
-            "strict": True,
-            "schema": schema,
-        },
-    }
+# Import create_json_schema from shared utilities
+from shared_utils import create_json_schema
 
 
 class CriticResponse(BaseModel):
