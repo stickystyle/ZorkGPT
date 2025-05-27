@@ -75,13 +75,13 @@ def run_episode():
 
 
 if __name__ == "__main__":
-    # print("=" * 60)
-    # while True:
-    try:
-        run_episode()
-    except Exception as e:
-        print(f"❌ Error: {e}")
-        import traceback
+    print("=" * 60)
+    while True:
+        try:
+            run_episode()
+        except Exception as e:
+            print(f"❌ Error: {e}")
+            import traceback
 
-        traceback.print_exc()
-        time.sleep(1)
+            traceback.print_exc()
+            time.sleep(1)
