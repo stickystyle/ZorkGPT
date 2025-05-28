@@ -90,5 +90,4 @@ state_export_file = "current_state.json"
 
 [tool.zorkgpt.aws]
 # AWS Configuration (optional)
-# s3_bucket = ""  # Leave empty or commented if not using S3
 s3_key_prefix = "zorkgpt/"
