@@ -703,9 +703,9 @@ class MapGraph:
             Mermaid diagram syntax as a string
         """
         if not self.rooms:
-            return "graph TD\n    A[No rooms mapped yet]"
+            return "graph LR\n    A[No rooms mapped yet]"
 
-        lines = ["graph TD"]
+        lines = ["graph LR"]
 
         # Create node definitions with sanitized IDs
         room_to_id = {}
