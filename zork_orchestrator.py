@@ -735,7 +735,7 @@ class ZorkOrchestrator:
                 # Create unique location identifiers for movement tracking
                 current_location_id = self.game_map._create_unique_location_id(
                     final_current_room_name,
-                    description=extracted_info.description if extracted_info else '',
+                    description=' '.join(extracted_info.important_messages) if extracted_info else '',
                     objects=extracted_info.visible_objects if extracted_info else [],
                     exits=extracted_info.exits if extracted_info else []
                 )
@@ -763,7 +763,7 @@ class ZorkOrchestrator:
                     )
                     to_location_id = self.game_map._create_unique_location_id(
                         movement_result.to_location,
-                        description=extracted_info.description if extracted_info else '',
+                        description=' '.join(extracted_info.important_messages) if extracted_info else '',
                         objects=extracted_info.visible_objects if extracted_info else [],
                         exits=extracted_info.exits if extracted_info else []
                     )
