@@ -279,16 +279,12 @@ class AdaptiveKnowledgeManager:
 
                         event_type = log_entry.get("event_type", "")
 
-                        # Track turn progression
+                        # Track turn progression - always update current_turn for this episode
                         if event_type == "turn_start":
                             current_turn = log_entry.get("turn", 0)
 
-                        # Only collect data within our turn window
-                        if not (start_turn <= current_turn <= end_turn):
-                            continue
-
-                        # Collect action-response pairs
-                        if event_type == "final_action_selection":
+                        # Collect action-response pairs - but only within our turn window
+                        if event_type == "final_action_selection" and (start_turn <= current_turn <= end_turn):
                             action_data = {
                                 "turn": current_turn,
                                 "action": log_entry.get("agent_action", ""),
@@ -301,6 +297,7 @@ class AdaptiveKnowledgeManager:
                         elif (
                             event_type == "zork_response"
                             and turn_data["actions_and_responses"]
+                            and (start_turn <= current_turn <= end_turn)
                         ):
                             # Update the last action with its response
                             response = log_entry.get("zork_response", "")
@@ -321,8 +318,12 @@ class AdaptiveKnowledgeManager:
                                     "fatal_action": action  # Keep raw action for reference
                                 }
 
+                        # Only collect data within our turn window for other events
+                        if not (start_turn <= current_turn <= end_turn):
+                            continue
+
                         # Track death and game over events
-                        elif event_type in ["game_over", "game_over_final", "death_during_inventory"]:
+                        if event_type in ["game_over", "game_over_final", "death_during_inventory"]:
                             death_event = {
                                 "turn": current_turn,
                                 "event_type": event_type,
