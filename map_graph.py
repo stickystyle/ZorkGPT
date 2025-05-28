@@ -298,10 +298,12 @@ class MapGraph:
                 continue
             norm_exit = normalize_direction(exit_name)
             if norm_exit:
-                normalized_current_exits.add(norm_exit)
+                # Ensure all normalized directions are lowercase for consistency
+                normalized_current_exits.add(norm_exit.lower())
             else:
                 clean_exit = exit_name.strip()
                 if clean_exit:
+                    # Ensure non-directional exits are also lowercase for consistency
                     normalized_current_exits.add(clean_exit.lower())
         
         # Attempt to find a compatible existing node
@@ -361,11 +363,10 @@ class MapGraph:
                 exit_name
             )  # Try to normalize to canonical direction
             if norm_exit:
-                # Use canonical direction (e.g., "north", "up")
-                normalized_new_exits.add(norm_exit)
+                # Use canonical direction (e.g., "north", "up") in lowercase
+                normalized_new_exits.add(norm_exit.lower())
             else:
-                # For non-directional exits, preserve original case but strip whitespace
-                # This handles things like "window", "trapdoor", "ladder", etc.
+                # For non-directional exits, ensure lowercase consistency
                 clean_exit = exit_name.strip()
                 if clean_exit:
                     normalized_new_exits.add(clean_exit.lower())
@@ -925,21 +926,23 @@ class MapGraph:
         # PRIMARY APPROACH: Use exit patterns as the main differentiator
         # Exits are much more stable than descriptions or objects
         if exits:
-            # Normalize exits to canonical directions
+            # Normalize exits to canonical directions with consistent lowercase
             normalized_exits = set()
             for exit in exits:
                 if not exit or not exit.strip():
                     continue
                 norm_exit = normalize_direction(exit)
                 if norm_exit:
-                    normalized_exits.add(norm_exit)
+                    # Ensure all normalized directions are lowercase for consistency
+                    normalized_exits.add(norm_exit.lower())
                 else:
-                    # Keep non-directional exits (like "window", "trapdoor") as-is
+                    # Keep non-directional exits (like "window", "trapdoor") as lowercase
                     normalized_exits.add(exit.lower().strip())
             
             if normalized_exits:
                 # Create distinctive patterns based on exit combinations
                 exit_count = len(normalized_exits)
+                # Sort exits in a consistent manner for deterministic IDs
                 sorted_exits = sorted(list(normalized_exits))
                 
                 # Single exit rooms (dead ends) - highly distinctive
@@ -962,16 +965,17 @@ class MapGraph:
                 # Three-exit rooms - moderately distinctive
                 elif exit_count == 3:
                     # Check for common three-way patterns
-                    if "north" in normalized_exits and "east" in normalized_exits and "south" in normalized_exits:
-                        return f"{base_name} (T-junction east)"
-                    elif "north" in normalized_exits and "west" in normalized_exits and "south" in normalized_exits:
-                        return f"{base_name} (T-junction west)"
-                    elif "east" in normalized_exits and "west" in normalized_exits and "north" in normalized_exits:
-                        return f"{base_name} (T-junction north)"
-                    elif "east" in normalized_exits and "west" in normalized_exits and "south" in normalized_exits:
-                        return f"{base_name} (T-junction south)"
+                    normalized_exits_set = set(sorted_exits)
+                    if {"north", "east", "south"}.issubset(normalized_exits_set):
+                        return f"{base_name} (t-junction east)"
+                    elif {"north", "west", "south"}.issubset(normalized_exits_set):
+                        return f"{base_name} (t-junction west)"
+                    elif {"east", "west", "north"}.issubset(normalized_exits_set):
+                        return f"{base_name} (t-junction north)"
+                    elif {"east", "west", "south"}.issubset(normalized_exits_set):
+                        return f"{base_name} (t-junction south)"
                     else:
-                        # Other three-exit combinations
+                        # Other three-exit combinations - ensure consistent lowercase
                         return f"{base_name} (3-way: {'-'.join(sorted_exits[:3])})"
                 
                 # Four or more exits - use count-based identifier
