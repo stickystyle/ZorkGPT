@@ -1011,6 +1011,10 @@ class MapGraph:
         Automatically detect and consolidate locations that are likely the same place
         but have different unique IDs due to extractor inconsistencies.
         
+        This includes:
+        1. Same base name with different suffixes
+        2. Same base name and suffix pattern but different case
+        
         Returns:
             Number of consolidations performed
         """
@@ -1019,35 +1023,27 @@ class MapGraph:
         # Reset the flag since we're about to consolidate
         self.has_new_rooms_since_consolidation = False
         
-        # Group locations by their base name (removing parenthetical suffixes)
-        location_groups = defaultdict(list)
+        # Group locations by their normalized full name to catch case variations
+        normalized_groups = defaultdict(list)
         
         for location_name in self.rooms.keys():
-            room_obj = self.rooms[location_name]
-            # Use the stored base_name if available, otherwise extract from node_id
-            if hasattr(room_obj, 'base_name') and room_obj.base_name:
-                base_name = room_obj.base_name
-            else:
-                # Fallback to extracting base name from location_name (old behavior)
-                base_name = self._extract_base_name(location_name)
-            location_groups[base_name].append(location_name)
+            # Normalize the entire location name (including suffixes) to lowercase
+            normalized_full_name = location_name.lower()
+            normalized_groups[normalized_full_name].append(location_name)
         
         consolidations_performed = 0
         
-        # Find groups with multiple variants (fragmentation)
-        for base_name, variants in location_groups.items():
+        # Find groups with multiple variants (case variations)
+        for normalized_name, variants in normalized_groups.items():
             if len(variants) <= 1:
-                continue  # No fragmentation for this location
+                continue  # No case variations for this location
                 
-            print(f"🔄 Consolidating fragmented location: {base_name}")
+            print(f"🔄 Consolidating case variations: {normalized_name}")
             print(f"   Variants found: {variants}")
             
-            # Choose the consolidation target (prefer the base name if it exists)
-            if base_name in variants:
-                target_location = base_name
-            else:
-                # Choose the shortest variant as the target
-                target_location = min(variants, key=len)
+            # Choose the consolidation target - prefer the one that matches our normalization style
+            # Prefer Title Case for base names and consistent patterns for suffixes
+            target_location = self._choose_best_variant(variants)
             
             # Collect all exits from variants
             all_exits = set()
@@ -1088,8 +1084,13 @@ class MapGraph:
             # Update the target location with all collected exits
             if target_location in self.rooms:
                 self.rooms[target_location].exits = all_exits
+                # Ensure the target has the correct base_name
+                room_obj = self.rooms[target_location]
+                if not hasattr(room_obj, 'base_name') or not room_obj.base_name:
+                    room_obj.base_name = self._extract_base_name(target_location)
             else:
                 # Create the target location if it doesn't exist
+                base_name = self._extract_base_name(target_location)
                 self.add_room(target_location, base_name=base_name)
                 self.rooms[target_location].exits = all_exits
         
@@ -1097,6 +1098,67 @@ class MapGraph:
             print(f"✅ Consolidation complete: {consolidations_performed} locations merged")
         
         return consolidations_performed
+
+    def _choose_best_variant(self, variants: List[str]) -> str:
+        """
+        Choose the best variant for consolidation target.
+        Prefer consistent capitalization and clean formatting.
+        """
+        if len(variants) == 1:
+            return variants[0]
+        
+        # Scoring system for variant quality
+        def score_variant(variant):
+            score = 0
+            
+            # Prefer variants without parentheses (base names)
+            if '(' not in variant:
+                score += 1000
+            
+            # Prefer consistent Title Case in base name
+            base_name = variant.split('(')[0].strip()
+            words = base_name.split()
+            if all(word[0].isupper() and word[1:].islower() for word in words if word):
+                score += 100
+            
+            # Prefer lowercase in suffixes (our standard)
+            if '(' in variant:
+                suffix = variant[variant.find('('):]
+                # Count lowercase words in suffix
+                suffix_words = suffix.replace('(', '').replace(')', '').replace('-', ' ').replace(':', ' ').split()
+                lowercase_count = sum(1 for word in suffix_words if word.islower())
+                score += lowercase_count * 10
+            
+            # Prefer shorter variants (less verbose)
+            score -= len(variant)
+            
+            return score
+        
+        # Choose the variant with the highest score
+        best_variant = max(variants, key=score_variant)
+        return best_variant
+
+    def force_consolidation(self) -> int:
+        """
+        Force consolidation of similar locations regardless of the needs_consolidation flag.
+        
+        This is useful for fixing existing fragmented maps or when manual consolidation is needed.
+        
+        Returns:
+            Number of consolidations performed
+        """
+        print("🔧 Forcing map consolidation (bypassing needs_consolidation flag)...")
+        
+        # Temporarily set the flag to ensure consolidation runs
+        old_flag = self.has_new_rooms_since_consolidation
+        self.has_new_rooms_since_consolidation = True
+        
+        # Run consolidation
+        consolidations = self.consolidate_similar_locations()
+        
+        # Don't restore the old flag since consolidation resets it
+        
+        return consolidations
 
 
 if __name__ == "__main__":
