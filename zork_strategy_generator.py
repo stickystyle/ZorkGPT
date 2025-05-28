@@ -13,6 +13,7 @@ from map_graph import MapGraph
 from movement_analyzer import MovementAnalyzer, create_movement_context
 from llm_client import LLMClientWrapper
 from config import get_config, get_client_api_key
+import re
 
 
 class AdaptiveKnowledgeManager:
@@ -1087,9 +1088,17 @@ Create a comprehensive strategy guide that incorporates these insights while fol
         if not knowledge_content or "## CURRENT WORLD MAP" not in knowledge_content:
             return knowledge_content
             
-        # Split on map section and take only the part before it
-        sections = knowledge_content.split("## CURRENT WORLD MAP")
-        return sections[0].strip() if sections else knowledge_content
+        # Remove the mermaid diagram section more precisely
+        # Look for the pattern: ## CURRENT WORLD MAP followed by ```mermaid...```
+        pattern = r'## CURRENT WORLD MAP\s*\n\s*```mermaid\s*\n.*?\n```'
+        
+        # Remove the mermaid diagram section while preserving other content
+        knowledge_only = re.sub(pattern, '', knowledge_content, flags=re.DOTALL)
+        
+        # Clean up any extra whitespace that might be left
+        knowledge_only = re.sub(r'\n\s*\n\s*\n', '\n\n', knowledge_only)
+        
+        return knowledge_only.strip()
 
     def _preserve_map_section(self, original_knowledge: str, new_knowledge: str) -> str:
         """Preserve the map section from original knowledge in the new knowledge."""
