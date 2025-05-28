@@ -732,10 +732,18 @@ class ZorkOrchestrator:
                     action_taken, room_before_action, final_current_room_name
                 )
 
+                # Create unique location identifiers for movement tracking
+                current_location_id = self.game_map._create_unique_location_id(
+                    final_current_room_name,
+                    description=extracted_info.description if extracted_info else '',
+                    objects=extracted_info.visible_objects if extracted_info else [],
+                    exits=extracted_info.exits if extracted_info else []
+                )
+                
                 # Use shared MovementAnalyzer for consistent movement detection
                 movement_context = MovementContext(
-                    current_location=final_current_room_name,
-                    previous_location=room_before_action,
+                    current_location=current_location_id,
+                    previous_location=room_before_action,  # Will be converted to unique ID in movement analysis
                     action=action_taken,
                     game_response=next_game_state,
                     turn_number=self.turn_count,
@@ -746,22 +754,36 @@ class ZorkOrchestrator:
                     movement_context
                 )
                 if movement_result.connection_created:
-                    # Add connection to map
-                    self.game_map.add_connection(
+                    # Create unique location identifiers to handle multiple locations with same name
+                    from_location_id = self.game_map._create_unique_location_id(
                         movement_result.from_location,
-                        movement_result.action,
+                        description=getattr(movement_result, 'from_description', ''),
+                        objects=getattr(movement_result, 'from_objects', []),
+                        exits=getattr(movement_result, 'from_exits', [])
+                    )
+                    to_location_id = self.game_map._create_unique_location_id(
                         movement_result.to_location,
+                        description=extracted_info.description if extracted_info else '',
+                        objects=extracted_info.visible_objects if extracted_info else [],
+                        exits=extracted_info.exits if extracted_info else []
+                    )
+                    
+                    # Add connection to map with unique identifiers
+                    self.game_map.add_connection(
+                        from_location_id,
+                        movement_result.action,
+                        to_location_id,
                     )
 
                     # Log the connection
                     self.logger.info(
-                        f"Movement connection: {movement_result.from_location} --[{movement_result.action}]--> {movement_result.to_location}",
+                        f"Movement connection: {from_location_id} --[{movement_result.action}]--> {to_location_id}",
                         extra={
                             "extras": {
                                 "event_type": "movement_connection_created",
                                 "episode_id": self.episode_id,
-                                "from_room": movement_result.from_location,
-                                "to_room": movement_result.to_location,
+                                "from_room": from_location_id,
+                                "to_room": to_location_id,
                                 "action": movement_result.action,
                                 "confidence": getattr(
                                     movement_result, "confidence", 1.0
@@ -888,7 +910,7 @@ class ZorkOrchestrator:
             current_game_state = next_game_state
 
             # Update current room name for next iteration
-            self.current_room_name_for_map = final_current_room_name
+            self.current_room_name_for_map = current_location_id
 
             # Reset critic rejection system for next turn
             self.critic.rejection_system.reset_turn()

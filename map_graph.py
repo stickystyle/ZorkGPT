@@ -252,10 +252,11 @@ class MapGraph:
         return " ".join(word.capitalize() for word in room_name.strip().split())
 
     def add_room(self, room_name: str) -> Room:
-        normalized_name = self._normalize_room_name(room_name)
-        if normalized_name not in self.rooms:
-            self.rooms[normalized_name] = Room(name=normalized_name)
-        return self.rooms[normalized_name]
+        # Use the room name as-is (it should already be a unique ID if needed)
+        room_key = room_name
+        if room_key not in self.rooms:
+            self.rooms[room_key] = Room(name=room_key)
+        return self.rooms[room_key]
 
     def update_room_exits(self, room_name: str, new_exits: List[str]):
         normalized_name = self._normalize_room_name(room_name)
@@ -291,9 +292,9 @@ class MapGraph:
         to_room_name: str,
         confidence: float = 1.0,
     ):
-        # Ensure rooms exist and normalize names
-        from_room_normalized = self._normalize_room_name(from_room_name)
-        to_room_normalized = self._normalize_room_name(to_room_name)
+        # Use the room names as-is (they should already be unique IDs if needed)
+        from_room_key = from_room_name
+        to_room_key = to_room_name
         self.add_room(from_room_name)
         self.add_room(to_room_name)
 
@@ -303,18 +304,18 @@ class MapGraph:
         processed_exit_taken = normalized_action if normalized_action else exit_taken.lower().strip()
         
         # Track confidence for this connection
-        connection_key = (from_room_normalized, processed_exit_taken)
+        connection_key = (from_room_key, processed_exit_taken)
 
         # Check for existing connections and handle conflicts/verifications
         if (
-            from_room_normalized in self.connections
-            and processed_exit_taken in self.connections[from_room_normalized]
+            from_room_key in self.connections
+            and processed_exit_taken in self.connections[from_room_key]
         ):
-            existing_destination = self.connections[from_room_normalized][
+            existing_destination = self.connections[from_room_key][
                 processed_exit_taken
             ]
 
-            if existing_destination == to_room_normalized:
+            if existing_destination == to_room_key:
                 # Same connection verified again - increase confidence
                 current_verifications = self.connection_verifications.get(
                     connection_key, 0
@@ -327,37 +328,63 @@ class MapGraph:
                     1.0, self.connection_confidence.get(connection_key, 0.5) + 0.1
                 )
                 print(
-                    f"✅ Map connection verified: {from_room_normalized} -> {processed_exit_taken} -> {to_room_normalized}"
+                    f"✅ Map connection verified: {from_room_key} -> {processed_exit_taken} -> {to_room_key} (verifications: {self.connection_verifications[connection_key]})"
                 )
             else:
                 # Conflicting connection - this is important to track
+                existing_confidence = self.connection_confidence.get(connection_key, 0.5)
+                existing_verifications = self.connection_verifications.get(connection_key, 0)
+                
                 conflict = {
-                    "from_room": from_room_normalized,
+                    "from_room": from_room_key,
                     "exit": processed_exit_taken,
                     "existing_destination": existing_destination,
-                    "new_destination": to_room_normalized,
-                    "existing_confidence": self.connection_confidence.get(
-                        connection_key, 0.5
-                    ),
+                    "new_destination": to_room_key,
+                    "existing_confidence": existing_confidence,
                     "new_confidence": confidence,
+                    "existing_verifications": existing_verifications,
+                    "new_verifications": 1,
                 }
                 self.connection_conflicts.append(conflict)
 
                 print(
-                    f"⚠️  Map conflict detected: {from_room_normalized} -> {processed_exit_taken}"
+                    f"⚠️  Map conflict detected: {from_room_key} -> {processed_exit_taken}"
                 )
                 print(
-                    f"   Existing: {existing_destination} (confidence: {conflict['existing_confidence']:.2f})"
+                    f"   Existing: {existing_destination} (confidence: {existing_confidence:.2f}, verifications: {existing_verifications})"
                 )
-                print(f"   New: {to_room_normalized} (confidence: {confidence:.2f})")
+                print(f"   New: {to_room_key} (confidence: {confidence:.2f}, verifications: 1)")
 
-                # Use higher confidence connection
-                if confidence > conflict["existing_confidence"]:
-                    print(f"   → Using new connection (higher confidence)")
+                # Enhanced conflict resolution logic
+                should_update = False
+                reason = ""
+                
+                if confidence > existing_confidence:
+                    should_update = True
+                    reason = "higher confidence"
+                elif confidence == existing_confidence:
+                    # When confidence is equal, prefer the connection with more verifications
+                    if existing_verifications > 1:
+                        should_update = False
+                        reason = f"existing has more verifications ({existing_verifications} vs 1)"
+                    else:
+                        # Both have low verification count - this is suspicious
+                        # Log this as a critical conflict that needs investigation
+                        print(f"   🚨 CRITICAL CONFLICT: Both connections have equal confidence and low verifications!")
+                        print(f"   🚨 This suggests inconsistent movement behavior or extraction errors.")
+                        print(f"   🚨 Keeping existing connection but flagging for investigation.")
+                        should_update = False
+                        reason = "keeping existing due to critical conflict (needs investigation)"
+                else:
+                    should_update = False
+                    reason = "existing has higher confidence"
+
+                if should_update:
+                    print(f"   → Using new connection ({reason})")
                     self.connection_confidence[connection_key] = confidence
                     self.connection_verifications[connection_key] = 1
                 else:
-                    print(f"   → Keeping existing connection (higher confidence)")
+                    print(f"   → Keeping existing connection ({reason})")
                     return  # Don't update the connection
         else:
             # New connection
@@ -365,32 +392,32 @@ class MapGraph:
             self.connection_verifications[connection_key] = 1
 
         # Add the forward connection
-        if from_room_normalized not in self.connections:
-            self.connections[from_room_normalized] = {}
-        self.connections[from_room_normalized][processed_exit_taken] = (
-            to_room_normalized
+        if from_room_key not in self.connections:
+            self.connections[from_room_key] = {}
+        self.connections[from_room_key][processed_exit_taken] = (
+            to_room_key
         )
-        self.rooms[from_room_normalized].add_exit(
+        self.rooms[from_room_key].add_exit(
             processed_exit_taken
         )  # Ensure exit is recorded for the room
 
         # Add the reverse connection if an opposite direction exists
         opposite_exit = self._get_opposite_direction(processed_exit_taken)
         if opposite_exit:
-            reverse_connection_key = (to_room_normalized, opposite_exit)
+            reverse_connection_key = (to_room_key, opposite_exit)
 
-            if to_room_normalized not in self.connections:
-                self.connections[to_room_normalized] = {}
+            if to_room_key not in self.connections:
+                self.connections[to_room_key] = {}
             # Only add reverse connection if it doesn't overwrite an existing one from that direction
             # This handles cases where "north" from A leads to B, but "south" from B leads to C (unlikely but possible)
-            if opposite_exit not in self.connections[to_room_normalized]:
-                self.connections[to_room_normalized][opposite_exit] = (
-                    from_room_normalized
+            if opposite_exit not in self.connections[to_room_key]:
+                self.connections[to_room_key][opposite_exit] = (
+                    from_room_key
                 )
                 # Set confidence for reverse connection (slightly lower since it's inferred)
                 self.connection_confidence[reverse_connection_key] = confidence * 0.9
                 self.connection_verifications[reverse_connection_key] = 1
-            self.rooms[to_room_normalized].add_exit(
+            self.rooms[to_room_key].add_exit(
                 opposite_exit
             )  # Ensure reverse exit is recorded
 
@@ -447,13 +474,18 @@ class MapGraph:
             # Return immediately if current_room_name is missing, as no further processing is useful.
             return "--- Map Information ---\n" + "\n".join(context_parts)
 
-        current_room_normalized = self._normalize_room_name(current_room_name)
+        # Handle unique location IDs by extracting base name for display
+        display_name = current_room_name
+        if " (" in current_room_name and current_room_name.endswith(")"):
+            display_name = current_room_name.split(" (")[0]
+        
+        current_room_normalized = current_room_name  # Use full unique ID for lookup
         room_known = current_room_normalized in self.rooms
 
         if room_known:
             room = self.rooms[current_room_normalized]
             context_parts.append(
-                f"Current location: {room.name} (according to map)."
+                f"Current location: {display_name} (according to map)."
             )  # Added map context
 
             if previous_room_name and action_taken_to_current:
@@ -486,7 +518,7 @@ class MapGraph:
             # No exit information added to context_parts - the consensus map will provide navigation info
         else:  # current_room_name is not in self.rooms
             context_parts.append(
-                f"Map: Location '{current_room_name}' is new or not yet mapped. No detailed map data available for it yet."
+                f"Map: Location '{display_name}' is new or not yet mapped. No detailed map data available for it yet."
             )
 
         if not context_parts:  # Should not be reached given the logic above
@@ -658,11 +690,12 @@ class MapGraph:
 
     def get_connection_confidence(self, from_room: str, exit_taken: str) -> float:
         """Get the confidence score for a specific connection."""
-        from_room_normalized = self._normalize_room_name(from_room)
+        # Use the full unique ID (no normalization for unique IDs)
+        from_room_key = from_room
         # Use same normalization logic as add_connection
         normalized_action = normalize_direction(exit_taken)
         processed_exit_taken = normalized_action if normalized_action else exit_taken.lower().strip()
-        connection_key = (from_room_normalized, processed_exit_taken)
+        connection_key = (from_room_key, processed_exit_taken)
         return self.connection_confidence.get(connection_key, 0.0)
 
     def get_map_quality_metrics(self) -> Dict[str, float]:
@@ -740,14 +773,15 @@ class MapGraph:
 
     def get_navigation_suggestions(self, current_room: str) -> List[Dict]:
         """Get navigation suggestions based on confidence scores."""
-        current_room_normalized = self._normalize_room_name(current_room)
+        # Use the full unique ID for lookup (no normalization)
+        current_room_key = current_room
         suggestions = []
 
-        if current_room_normalized in self.connections:
-            for exit, destination in self.connections[current_room_normalized].items():
+        if current_room_key in self.connections:
+            for exit, destination in self.connections[current_room_key].items():
                 confidence = self.get_connection_confidence(current_room, exit)
                 verifications = self.connection_verifications.get(
-                    (current_room_normalized, exit), 0
+                    (current_room_key, exit), 0
                 )
 
                 suggestions.append(
@@ -776,6 +810,84 @@ class MapGraph:
             return "MODERATE"
         else:
             return "UNCERTAIN"
+
+    def _create_unique_location_id(self, location_name: str, description: str = "", objects: List[str] = None, exits: List[str] = None) -> str:
+        """
+        Create a unique identifier for a location that handles cases where multiple 
+        locations have the same name but different characteristics.
+        
+        This prevents map conflicts when games have multiple rooms with identical names
+        but different descriptions, objects, or exit patterns.
+        
+        Args:
+            location_name: The base location name (e.g., "Clearing")
+            description: Full location description text
+            objects: List of visible objects in the location
+            exits: List of available exits from the location
+            
+        Returns:
+            Unique location identifier (e.g., "Clearing (pile of leaves)" or "Clearing (forest path)")
+        """
+        if not location_name:
+            return ""
+            
+        base_name = self._normalize_room_name(location_name)
+        
+        # If no additional context provided, return the base name
+        if not description and not objects and not exits:
+            return base_name
+            
+        # Look for distinguishing features
+        distinguishing_features = []
+        
+        # Check for distinctive objects
+        if objects:
+            distinctive_objects = []
+            for obj in objects:
+                obj_lower = obj.lower().strip()
+                # Skip generic objects that don't help distinguish locations
+                if obj_lower and obj_lower not in ["path", "ground", "floor", "wall", "ceiling"]:
+                    distinctive_objects.append(obj_lower)
+            
+            if distinctive_objects:
+                # Use the most distinctive object (prefer unique items)
+                if "pile of leaves" in distinctive_objects:
+                    distinguishing_features.append("pile of leaves")
+                elif "forest path" in distinctive_objects:
+                    distinguishing_features.append("forest path")
+                else:
+                    # Use the first distinctive object
+                    distinguishing_features.append(distinctive_objects[0])
+        
+        # Check for distinctive description elements
+        if description:
+            desc_lower = description.lower()
+            if "pile of leaves" in desc_lower and "pile of leaves" not in distinguishing_features:
+                distinguishing_features.append("pile of leaves")
+            elif "forest path" in desc_lower and "forest path" not in distinguishing_features:
+                distinguishing_features.append("forest path")
+            elif "well marked" in desc_lower:
+                distinguishing_features.append("well marked")
+            elif "forest surrounding you on all sides" in desc_lower:
+                distinguishing_features.append("surrounded by forest")
+        
+        # Check for distinctive exit patterns
+        if exits:
+            exit_set = set(exit.lower().strip() for exit in exits)
+            if exit_set == {"east", "west"}:
+                if "forest path" not in distinguishing_features:
+                    distinguishing_features.append("east-west path")
+            elif exit_set == {"south"}:
+                if "pile of leaves" not in distinguishing_features:
+                    distinguishing_features.append("south exit only")
+        
+        # Create the unique identifier
+        if distinguishing_features:
+            # Use the most specific feature
+            feature = distinguishing_features[0]
+            return f"{base_name} ({feature})"
+        else:
+            return base_name
 
 
 if __name__ == "__main__":

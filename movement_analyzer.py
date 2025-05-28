@@ -37,6 +37,13 @@ class MovementResult:
     environmental_factors: List[str]
     requires_resolution: bool
     connection_created: bool = False  # Whether a map connection should be created
+    # Additional context for unique location identification
+    from_description: str = ""
+    from_objects: List[str] = None
+    from_exits: List[str] = None
+    to_description: str = ""
+    to_objects: List[str] = None
+    to_exits: List[str] = None
 
 
 class PendingConnection:

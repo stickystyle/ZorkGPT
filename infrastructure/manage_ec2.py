@@ -9,6 +9,8 @@ import subprocess
 import json
 import sys
 import argparse
+import os
+from datetime import datetime
 from typing import Optional
 
 
@@ -157,6 +159,85 @@ def update_zorkgpt(public_ip: str) -> None:
     print("✅ ZorkGPT updated successfully")
 
 
+def download_analysis_files(public_ip: str) -> None:
+    """Download analysis files from the EC2 instance."""
+    print("📥 Downloading analysis files from EC2 instance...")
+    
+    # Create timestamped directory for analysis files
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    analysis_dir = f"analysis_{timestamp}"
+    
+    try:
+        os.makedirs(analysis_dir, exist_ok=True)
+        print(f"📁 Created analysis directory: {analysis_dir}")
+    except OSError as e:
+        print(f"❌ Failed to create analysis directory: {e}")
+        return
+    
+    # Files to download from the ZorkGPT working directory
+    files_to_download = [
+        "current_state.json",
+        "knowledgebase.md", 
+        "zork_episode_log.jsonl"
+    ]
+    
+    success_count = 0
+    
+    for filename in files_to_download:
+        print(f"📄 Downloading {filename}...")
+        
+        # First, copy the file to a temporary location accessible by ec2-user
+        # Use sudo -u zorkgpt to access the file as the zorkgpt user
+        temp_path = f"/tmp/{filename}"
+        copy_cmd = f"sudo -u zorkgpt cp /home/zorkgpt/ZorkGPT/{filename} {temp_path} && sudo chown ec2-user:ec2-user {temp_path}"
+        
+        # Copy file to temp location on EC2
+        if not run_ssh_command(copy_cmd, public_ip):
+            print(f"⚠️  Failed to copy {filename} to temporary location")
+            continue
+        
+        # Use scp to download the file from temp location
+        scp_cmd = f"scp -i ~/.ssh/parrishfamily.pem -o StrictHostKeyChecking=no ec2-user@{public_ip}:{temp_path} {analysis_dir}/"
+        
+        try:
+            result = subprocess.run(scp_cmd, shell=True, check=True, capture_output=True, text=True)
+            print(f"✅ Downloaded {filename}")
+            success_count += 1
+            
+            # Clean up temp file on EC2
+            cleanup_cmd = f"rm -f {temp_path}"
+            run_ssh_command(cleanup_cmd, public_ip)
+            
+        except subprocess.CalledProcessError as e:
+            print(f"⚠️  Failed to download {filename}: {e}")
+            if hasattr(e, 'stderr') and e.stderr:
+                print(f"   Error details: {e.stderr}")
+            
+            # Still try to clean up temp file
+            cleanup_cmd = f"rm -f {temp_path}"
+            run_ssh_command(cleanup_cmd, public_ip)
+    
+    if success_count > 0:
+        print(f"\n🎉 Downloaded {success_count}/{len(files_to_download)} files to {analysis_dir}/")
+        print(f"📊 Analysis files ready for review:")
+        
+        # List what was actually downloaded
+        for filename in files_to_download:
+            filepath = os.path.join(analysis_dir, filename)
+            if os.path.exists(filepath):
+                file_size = os.path.getsize(filepath)
+                print(f"   ✓ {filename} ({file_size:,} bytes)")
+            else:
+                print(f"   ✗ {filename} (not downloaded)")
+    else:
+        print("❌ No files were successfully downloaded")
+        # Clean up empty directory
+        try:
+            os.rmdir(analysis_dir)
+        except OSError:
+            pass
+
+
 def ssh_connect(public_ip: str) -> None:
     """Open an interactive SSH session."""
     print(f"🔗 Connecting to EC2 instance...")
@@ -176,6 +257,7 @@ def main():
             "logs",
             "logs-follow",
             "update",
+            "download",
             "ssh",
             "info",
         ],
@@ -222,6 +304,8 @@ def main():
         view_logs(public_ip, follow=True)
     elif args.action == "update":
         update_zorkgpt(public_ip)
+    elif args.action == "download":
+        download_analysis_files(public_ip)
     elif args.action == "ssh":
         ssh_connect(public_ip)
 
