@@ -916,6 +916,23 @@ class ZorkOrchestrator:
             
             # Check for map update (more frequent than full knowledge updates)
             self._check_map_update()
+            
+            # Consolidate fragmented map locations only when new rooms have been added
+            if self.game_map.needs_consolidation():
+                consolidations = self.game_map.consolidate_similar_locations()
+                if consolidations > 0:
+                    self.logger.info(
+                        f"Map consolidation: merged {consolidations} fragmented locations",
+                        extra={
+                            "extras": {
+                                "event_type": "map_consolidation",
+                                "episode_id": self.episode_id,
+                                "turn": self.turn_count,
+                                "consolidations_performed": consolidations,
+                                "trigger": "new_rooms_added",
+                            }
+                        },
+                    )
 
             # Export current state after each turn
             self.export_current_state()

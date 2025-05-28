@@ -221,6 +221,8 @@ class MapGraph:
         self.connection_verifications: Dict[Tuple[str, str], int] = {}
         # Track conflicts for analysis
         self.connection_conflicts: List[Dict] = []
+        # Track whether new rooms have been added since last consolidation
+        self.has_new_rooms_since_consolidation: bool = False
 
     def _get_opposite_direction(self, direction: str) -> str:
         opposites = {
@@ -256,11 +258,14 @@ class MapGraph:
         room_key = room_name
         if room_key not in self.rooms:
             self.rooms[room_key] = Room(name=room_key)
+            # Flag that we have new rooms since last consolidation
+            self.has_new_rooms_since_consolidation = True
         return self.rooms[room_key]
 
     def update_room_exits(self, room_name: str, new_exits: List[str]):
-        normalized_name = self._normalize_room_name(room_name)
-        if normalized_name not in self.rooms:
+        # Use the room name as-is to match add_room behavior (no normalization)
+        room_key = room_name
+        if room_key not in self.rooms:
             self.add_room(room_name)
 
         # Normalize exit names for consistency
@@ -283,7 +288,7 @@ class MapGraph:
                     normalized_new_exits.add(clean_exit.lower())
 
         for exit_name in normalized_new_exits:
-            self.rooms[normalized_name].add_exit(exit_name)
+            self.rooms[room_key].add_exit(exit_name)
 
     def add_connection(
         self,
@@ -923,6 +928,99 @@ class MapGraph:
         # This ensures the same room gets the same ID unless there are
         # truly distinctive permanent features
         return base_name
+
+    def needs_consolidation(self) -> bool:
+        """Check if consolidation is needed based on new room additions."""
+        return self.has_new_rooms_since_consolidation
+
+    def consolidate_similar_locations(self) -> int:
+        """
+        Automatically detect and consolidate locations that are likely the same place
+        but have different unique IDs due to extractor inconsistencies.
+        
+        Returns:
+            Number of consolidations performed
+        """
+        from collections import defaultdict
+        
+        # Reset the flag since we're about to consolidate
+        self.has_new_rooms_since_consolidation = False
+        
+        # Group locations by their base name (removing parenthetical suffixes)
+        location_groups = defaultdict(list)
+        
+        for location_name in self.rooms.keys():
+            # Extract base name by removing parenthetical suffixes like "(north only)"
+            base_name = location_name.split('(')[0].strip()
+            # Normalize case and spacing
+            base_name = ' '.join(word.capitalize() for word in base_name.split())
+            location_groups[base_name].append(location_name)
+        
+        consolidations_performed = 0
+        
+        # Find groups with multiple variants (fragmentation)
+        for base_name, variants in location_groups.items():
+            if len(variants) <= 1:
+                continue  # No fragmentation for this location
+                
+            print(f"🔄 Consolidating fragmented location: {base_name}")
+            print(f"   Variants found: {variants}")
+            
+            # Choose the consolidation target (prefer the base name if it exists)
+            if base_name in variants:
+                target_location = base_name
+            else:
+                # Choose the shortest variant as the target
+                target_location = min(variants, key=len)
+            
+            # Collect all exits from variants
+            all_exits = set()
+            for variant in variants:
+                if variant in self.rooms:
+                    all_exits.update(self.rooms[variant].exits)
+            
+            print(f"   Target location: {target_location}")
+            print(f"   Combined exits: {sorted(list(all_exits))}")
+            
+            # Merge all connections from variants into the target
+            for variant in variants:
+                if variant == target_location:
+                    continue  # Skip the target itself
+                    
+                if variant in self.connections:
+                    # Move outgoing connections from variant to target
+                    for exit_action, destination in self.connections[variant].items():
+                        print(f"   Moving connection: {variant} --[{exit_action}]--> {destination}")
+                        self.add_connection(target_location, exit_action, destination)
+                    
+                    # Remove the old connections
+                    del self.connections[variant]
+                
+                # Update incoming connections that point to this variant
+                for from_location, exits in self.connections.items():
+                    for exit_action, destination in list(exits.items()):
+                        if destination == variant:
+                            print(f"   Redirecting connection: {from_location} --[{exit_action}]--> {variant} => {target_location}")
+                            exits[exit_action] = target_location
+                
+                # Remove the variant room if it's not the target
+                if variant in self.rooms:
+                    del self.rooms[variant]
+                    
+                consolidations_performed += 1
+            
+            # Update the target location with all collected exits
+            if target_location in self.rooms:
+                self.rooms[target_location].exits = all_exits
+            else:
+                # Create the target location if it doesn't exist
+                self.add_room(target_location)
+                self.rooms[target_location].exits = all_exits
+        
+        if consolidations_performed > 0:
+            print(f"✅ Consolidation complete: {consolidations_performed} locations merged")
+        
+        return consolidations_performed
 
 
 if __name__ == "__main__":
