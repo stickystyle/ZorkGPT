@@ -248,11 +248,11 @@ Extract key information from the game text and return it as JSON with these fiel
         structured_result = self.structured_parser.parse_response(game_text_from_zork)
         return {
             "current_location_name": self.structured_parser.get_canonical_room_name(structured_result.room_name) if structured_result.has_structured_header else None,
-            "exits": structured_result.exits if structured_result.has_structured_header else [],
-            "visible_objects": structured_result.visible_objects if structured_result.has_structured_header else [],
-            "visible_characters": structured_result.visible_characters if structured_result.has_structured_header else [],
+            "exits": [],  # Structured parser doesn't extract exits, leave empty for LLM
+            "visible_objects": [],  # Structured parser doesn't extract objects, leave empty for LLM
+            "visible_characters": [],  # Structured parser doesn't extract characters, leave empty for LLM
             "important_messages": [structured_result.game_text] if structured_result.game_text else [],
-            "in_combat": structured_result.in_combat if structured_result.has_structured_header else False,
+            "in_combat": False,  # Structured parser doesn't detect combat, leave false for LLM
             "score": structured_result.score if structured_result.has_structured_header else None,
             "moves": structured_result.moves if structured_result.has_structured_header else None,
         }
