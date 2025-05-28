@@ -729,19 +729,51 @@ Be specific about locations, items, and sequences when relevant."""
 
         prompt = f"""This gameplay data appears to show a stuck or repetitive situation. Analyze it to identify escape strategies.
 
+**CRITICAL FOCUS**: This analysis should provide actionable guidance for an AI agent to escape loops and stuck situations.
+
 RECENT ACTIONS:
 {actions_text}
 
 LOCATION CHANGES: {turn_data["location_changes"]}
 SCORE CHANGES: {turn_data["score_changes"]}
 
-Focus on:
-1. **Situation Analysis**: What type of stuck situation is this? (maze, puzzle, combat, etc.)
-2. **Escape Strategies**: What actions might break the pattern or lead to progress?
-3. **Alternative Approaches**: What different strategies should be tried?
-4. **Warning Signs**: How to recognize and avoid this situation in the future?
+Provide comprehensive escape strategies focusing on:
 
-Provide specific, actionable advice for escaping this type of situation."""
+1. **Loop Detection Patterns**: What specific patterns indicate the agent is stuck?
+   - Same location for multiple turns
+   - Repetitive failed actions
+   - No progress indicators (score, location, inventory changes)
+
+2. **Immediate Response Protocol**: What should the agent do IMMEDIATELY when stuck?
+   - Stop all object interactions (examine, take, open, etc.)
+   - Check "Available exits" information in context
+   - Consult the CURRENT WORLD MAP mermaid diagram
+
+3. **Mermaid Diagram Navigation**: How to use the diagram for escape:
+   - Find current location in the diagram (e.g., R3["Forest"])
+   - Identify ALL possible exits shown by arrows leaving that room
+   - Use EXACT commands from arrow labels (e.g., "climb tree", "southeast")
+   - Plan multi-step routes to distant locations using the diagram
+   - Trust diagram data over assumptions about "failed" attempts
+
+4. **Movement Priority System**: When stuck, what order should the agent try commands?
+   - FIRST: Commands shown in mermaid diagram arrows from current room
+   - SECOND: Basic directional commands (north, south, east, west)
+   - THIRD: Vertical movement (up, down)
+   - FOURTH: Special movement (in, out, enter, exit)
+
+5. **Systematic Exploration**: How to break out of loops?
+   - Use mermaid diagram to identify unexplored exits
+   - Pick random destinations from diagram when completely stuck
+   - Follow diagram paths to reach distant, unexplored areas
+   - Prioritize movement over object manipulation when stuck
+
+6. **False Memory Prevention**: How to avoid repeating "failed" attempts?
+   - Trust mermaid diagram over memories of failed movement
+   - Use exact commands from diagram arrows, not variations
+   - Don't assume directions have failed without clear recent evidence
+
+Provide specific, actionable guidance that an AI agent can follow algorithmically. Focus on using the mermaid diagram as the primary navigation tool for escape strategies."""
     
         try:
             response = self.client.chat.completions.create(
@@ -1003,19 +1035,31 @@ Maintain the existing structure but enhance it with the new insights."""
 - Use precise command syntax and logical conditions
 - Provide algorithmic approaches to problem-solving
 
-INSIGHTS:
+**CRITICAL REQUIREMENT**: Include a high-priority section about loop detection and escape strategies:
+- How to detect when stuck in the same location repeatedly
+- Immediate actions to take when loops are detected
+- Map-based navigation strategies using available exits
+- Priority system for movement commands when stuck
+- How to interpret and use the mermaid diagram in the CURRENT WORLD MAP section
+
+**MERMAID DIAGRAM GUIDANCE**: The knowledge base will include a mermaid diagram showing room connections. Provide detailed guidance on:
+- How to read mermaid syntax (R3 -->|"east"| R4 means "from room R3, command 'east' goes to room R4")
+- How to use the diagram for multi-step navigation planning
+- How to find the shortest path between any two locations
+- How to use exact commands from arrow labels rather than assumptions
+- How diagram data relates to "Available exits" information in the agent's context
+- How to consult the diagram when stuck to find ALL possible exits from current location
+
+**NAVIGATION PRIORITY**: When the agent is stuck in loops:
+1. FIRST: Consult the mermaid diagram to see all possible exits
+2. SECOND: Use exact commands from the diagram arrows
+3. THIRD: Try basic directional commands if not in diagram
+4. Movement takes absolute priority over object interactions when stuck
+
+INSIGHTS TO ANALYZE:
 {insights}
 
-Structure the guide with these sections:
-## PRIORITY OBJECTIVES
-## NAVIGATION STRATEGY  
-## ITEM COLLECTION & USAGE
-## COMBAT & DANGER MANAGEMENT
-## COMMON MISTAKES TO AVOID
-## ADVANCED TACTICS
-
-Make the guide practical and actionable for an AI agent. Use specific locations, items, and commands when relevant.
-Focus on decision trees, conditional logic, and systematic approaches rather than human intuition."""
+Create a comprehensive strategy guide that incorporates these insights while following the requirements above. Focus on actionable, algorithmic guidance that helps an AI agent play Zork effectively."""
         # Incase using Qwen qwen3-30b-a3b
         prompt = r"\no_think " + prompt
         try:
@@ -1173,6 +1217,92 @@ Focus on decision trees, conditional logic, and systematic approaches rather tha
 - Execute 'take' commands for all portable items - inventory constraints are minimal
 - Parse all text output for puzzle-solving information and command hints
 - Prioritize information extraction over rapid action execution
+
+---
+
+## CRITICAL: LOOP ESCAPE AND MAP NAVIGATION
+
+### **When Stuck in the Same Location (PRIORITY #1)**
+If you find yourself in the same location for 3+ consecutive turns:
+
+1. **IMMEDIATELY STOP** all object interactions (examine, take, open, etc.)
+2. **CHECK THE MAP DATA** - Look for "Available exits" in your context
+3. **USE BASIC DIRECTIONAL COMMANDS** - Try `north`, `south`, `east`, `west`, `up`, `down` in that order
+4. **IGNORE FALSE MEMORIES** - Do not assume directions have failed unless you have CLEAR recent evidence
+5. **MOVEMENT IS MANDATORY** - When stuck, exploration takes absolute priority over puzzles
+
+### **Map-Based Navigation Strategy**
+The CURRENT WORLD MAP shows connections between locations. Use this strategically:
+
+- **Forest** connects to: Clearing (north/south), Forest Path (east/west)
+- **Clearing** is a central hub connecting to: Canyon View (southeast), Forest (east/north/west), Forest Path (south), Up A Tree (climb tree)
+- **Forest Path** connects to: Clearing (north), Forest (east/west), North Of House (south), Up A Tree (climb tree/up)
+
+### **UNDERSTANDING THE MERMAID DIAGRAM (CRITICAL)**
+
+The `## CURRENT WORLD MAP` section contains a mermaid diagram that shows ALL possible connections between rooms. Here's how to read it:
+
+**Diagram Syntax:**
+- `R3["Forest"]` = Room R3 is named "Forest"
+- `R3 -->|"east"| R4` = From Forest (R3), the command "east" takes you to Forest Path (R4)
+- `R2 -->|"climb tree"| R6` = From Clearing (R2), the command "climb tree" takes you to Up A Tree (R6)
+
+**How to Use the Diagram for Navigation:**
+1. **Find your current location** in the diagram (e.g., R3["Forest"])
+2. **Look for arrows leaving that room** - these show ALL possible exits
+3. **Read the arrow labels** - these are the EXACT commands to use
+4. **Follow the arrows to destination rooms** - plan multi-step journeys
+
+**Example Navigation Planning:**
+- **Current Location**: Forest (R3)
+- **Goal**: North Of House (R5)
+- **Path**: Forest → Forest Path → North Of House
+- **Commands**: `east` (Forest to Forest Path), then `south` (Forest Path to North Of House)
+
+**Multi-Step Journey Planning:**
+- Use the diagram to find the shortest path between any two locations
+- Each arrow shows a single command that will work from that room
+- Plan your route BEFORE moving, especially when trying to reach distant locations
+
+**Diagram vs. "Available exits" Information:**
+- The mermaid diagram shows ALL possible connections in the game world
+- The "Available exits" in your context shows what's accessible from your CURRENT location
+- Use BOTH together: diagram for planning, "Available exits" for immediate options
+
+### **Random Exploration When Completely Stuck**
+If you've been in the same location for 5+ turns:
+1. **Consult the mermaid diagram** - find your current room and see ALL possible exits
+2. **Pick an exit you haven't tried recently** from the diagram
+3. **Use the EXACT command shown on the arrow** (e.g., "climb tree", not "climb")
+4. **Move there immediately** and explore thoroughly before returning
+5. This breaks loops and often reveals new puzzle elements
+
+### **Navigation Command Priority**
+When movement is needed:
+1. **First**: Check the mermaid diagram for available exits from your current room
+2. **Second**: Use the EXACT commands shown on the arrows (e.g., "climb tree", "southeast")
+3. **Third**: Try basic directions if not shown in diagram: `north`, `south`, `east`, `west`
+4. **Fourth**: Try vertical movement: `up`, `down`
+5. **Never**: Assume a direction has failed without trying the exact command from the diagram
+
+### **Loop Detection Patterns**
+Recognize these warning signs of being stuck:
+- Same location for 3+ consecutive turns
+- Repetitive failed actions (examine, take, open on same objects)
+- No progress indicators (score changes, location changes, new inventory)
+- Declining critic scores for repeated actions
+
+### **Immediate Response Protocol**
+When loop detected:
+1. **STOP** current action pattern immediately
+2. **CONSULT** the mermaid diagram for your current location
+3. **IDENTIFY** all possible exits from the diagram
+4. **PRIORITIZE** movement using diagram commands over object manipulation
+5. **USE** exact commands from arrow labels, not assumptions
+6. **TRUST** diagram data over memories of "failed" attempts
+
+---
+
 {map_section}"""
 
     def _build_map_from_logs(self, episode_id: str) -> Optional[str]:

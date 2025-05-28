@@ -239,8 +239,19 @@ The following strategic guide has been compiled from analyzing previous episodes
             action = re.sub(
                 r"<reflection>.*?</reflection>\s*", "", action, flags=re.DOTALL
             )
+            
+            # Remove any remaining markup tags (like <s>, </s>, etc.)
+            action = re.sub(r"<[^>]*>", "", action)
+            
+            # Remove backticks and other formatting
+            action = re.sub(r"`([^`]*)`", r"\1", action)  # Remove backticks but keep content
+            action = re.sub(r"```[^`]*```", "", action, flags=re.DOTALL)  # Remove code blocks
+            
             # Basic cleaning: Zork commands are usually lowercase
-            action = action.lower()
+            action = action.lower().strip()
+            
+            # Remove any leading/trailing punctuation that might interfere
+            action = action.strip(".,!?;:")
 
             # Validate action is not empty
             if not action or action.isspace():
@@ -361,8 +372,19 @@ The following strategic guide has been compiled from analyzing previous episodes
             action = re.sub(
                 r"<reflection>.*?</reflection>\s*", "", action, flags=re.DOTALL
             )
+            
+            # Remove any remaining markup tags (like <s>, </s>, etc.)
+            action = re.sub(r"<[^>]*>", "", action)
+            
+            # Remove backticks and other formatting
+            action = re.sub(r"`([^`]*)`", r"\1", action)  # Remove backticks but keep content
+            action = re.sub(r"```[^`]*```", "", action, flags=re.DOTALL)  # Remove code blocks
+            
             # Basic cleaning: Zork commands are usually lowercase
             action = action.lower().strip()
+            
+            # Remove any leading/trailing punctuation that might interfere
+            action = action.strip(".,!?;:")
 
             # Validate action is not empty
             if not action or action.isspace():
@@ -413,6 +435,18 @@ The following strategic guide has been compiled from analyzing previous episodes
         Returns:
             Formatted string of relevant memories for the agent
         """
+        # Check for loop situation - if agent has been in same location for multiple recent turns
+        recent_locations = []
+        if memory_log_history and len(memory_log_history) >= 3:
+            # Check last 5 turns for same location
+            for obs in memory_log_history[-5:]:
+                if obs.current_location_name:
+                    recent_locations.append(obs.current_location_name)
+        
+        # Count how many of the recent turns were in current location
+        current_location_count = recent_locations.count(current_location_name_from_current_extraction)
+        is_stuck_in_loop = current_location_count >= 3
+        
         map_context_str = ""
         if game_map:
             map_info = game_map.get_context_for_prompt(
@@ -420,10 +454,34 @@ The following strategic guide has been compiled from analyzing previous episodes
                 previous_room_name=previous_room_name_for_map_context,
                 action_taken_to_current=action_taken_to_current_room,
             )
+            
+            # Add navigation suggestions to the map context
+            nav_suggestions = game_map.get_navigation_suggestions(current_location_name_from_current_extraction)
+            if nav_suggestions:
+                nav_text = "Available exits: " + ", ".join([
+                    f"{suggestion['exit']} (to {suggestion['destination']})" 
+                    for suggestion in nav_suggestions
+                ])
+                
+                # If stuck in loop, make navigation more prominent
+                if is_stuck_in_loop:
+                    nav_text = f"🚨 LOOP DETECTED - PRIORITIZE MOVEMENT! 🚨\n{nav_text}\n⚠️  You've been in {current_location_name_from_current_extraction} for {current_location_count} recent turns. Try these exits NOW!"
+                
+                if map_info:
+                    map_info += f"\n{nav_text}"
+                else:
+                    map_info = f"--- Map Information ---\n{nav_text}"
+            
             if map_info:
                 map_context_str = map_info
 
         other_memory_strings = []
+
+        # Add loop detection warning at the top of other memories
+        if is_stuck_in_loop:
+            other_memory_strings.append(
+                f"🔄 CRITICAL LOOP WARNING: You have been in '{current_location_name_from_current_extraction}' for {current_location_count} of your last 5 turns! STOP object interactions and try MOVEMENT commands immediately. Check the Available exits above and use basic directional commands like 'north', 'south', 'east', 'west'."
+            )
 
         # Add combat status information
         if in_combat:
