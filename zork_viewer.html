@@ -829,18 +829,27 @@
                     
                     // Add styling to highlight current room
                     if (mapData.current_room) {
+                        console.log('Current room to highlight:', mapData.current_room);
                         mermaidCode += `\n    classDef currentRoom fill:#ffeb3b,stroke:#f57f17,stroke-width:3px`;
                         
                         // Find the node ID for current room and apply class
                         const lines = mermaidCode.split('\n');
+                        let foundMatch = false;
                         for (let i = 0; i < lines.length; i++) {
+                            console.log('Checking line:', lines[i]);
                             if (lines[i].includes(`"${mapData.current_room}"`)) {
+                                console.log('Found matching line:', lines[i]);
                                 const nodeMatch = lines[i].match(/^\s*(\w+)\[/);
                                 if (nodeMatch) {
+                                    console.log('Applying class to node:', nodeMatch[1]);
                                     mermaidCode += `\n    class ${nodeMatch[1]} currentRoom`;
+                                    foundMatch = true;
                                     break;
                                 }
                             }
+                        }
+                        if (!foundMatch) {
+                            console.warn('Could not find current room in mermaid diagram:', mapData.current_room);
                         }
                     }
                     
