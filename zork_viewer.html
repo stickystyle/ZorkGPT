@@ -456,6 +456,50 @@
             margin-bottom: 20px;
         }
         
+        /* Map Modal styling */
+        .map-modal-content {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            max-width: 90vw;
+            max-height: 90vh;
+            width: 1200px;
+            height: 800px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .map-modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-shrink: 0;
+        }
+        
+        .map-modal-body {
+            flex: 1;
+            overflow: auto;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        #map-diagram-expanded {
+            flex: 1;
+            min-height: 500px;
+            overflow: auto;
+        }
+        
+        #map-stats-expanded {
+            margin-top: 15px;
+            flex-shrink: 0;
+        }
+        
         /* Mobile responsive FAQ modal */
         @media (max-width: 768px) {
             .faq-modal-content {
@@ -483,6 +527,42 @@
                 position: absolute !important;
                 top: 15px !important;
                 right: 15px !important;
+            }
+        }
+
+        /* Mobile responsive map modal */
+        @media (max-width: 768px) {
+            .map-modal-content {
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                transform: none;
+                max-width: none;
+                max-height: none;
+                width: auto;
+                height: auto;
+                border-radius: 0;
+                padding: 20px;
+                margin: 0;
+            }
+            
+            .map-modal-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 10px;
+                margin-bottom: 15px;
+            }
+            
+            .map-modal-header button {
+                position: absolute !important;
+                top: 15px !important;
+                right: 15px !important;
+            }
+            
+            #map-diagram-expanded {
+                min-height: 300px;
             }
         }
     </style>
@@ -540,7 +620,12 @@
         </div>
         
         <div class="map-container">
-            <h3>Game Map</h3>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <h3 style="margin: 0;">Game Map</h3>
+                <button onclick="showExpandedMap()" style="background: #007bff; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 12px;">
+                    🔍 Expand
+                </button>
+            </div>
             <div id="map-diagram" class="loading">Loading map...</div>
             <div id="map-stats" class="map-stats"></div>
         </div>
@@ -621,6 +706,20 @@
                 
                 <h3>Can I interact with the game?</h3>
                 <p>No, this is a read-only viewer. The AI is playing autonomously. You can watch its decision-making process and see how it learns and adapts.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Expanded Map Modal -->
+    <div id="map-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 2000;">
+        <div class="map-modal-content">
+            <div class="map-modal-header">
+                <h2 style="margin: 0; color: #333;">Game Map - Expanded View</h2>
+                <button onclick="hideExpandedMap()" style="background: none; border: none; font-size: 24px; cursor: pointer; color: #666;">&times;</button>
+            </div>
+            <div class="map-modal-body">
+                <div id="map-diagram-expanded" class="loading">Loading map...</div>
+                <div id="map-stats-expanded" class="map-stats"></div>
             </div>
         </div>
     </div>
@@ -815,7 +914,25 @@
                     mapContainer.innerHTML = '<p class="error-message">No map data available</p>';
                     return;
                 }
+
+                await this.renderMapToContainer('map-diagram', 'map-stats');
+            }
+            
+            async renderMapToContainer(diagramElementId, statsElementId) {
+                const mapData = this.currentState.map;
+                const mapContainer = document.getElementById(diagramElementId);
+                const mapStats = document.getElementById(statsElementId);
                 
+                if (!mapContainer) {
+                    console.error('Map container not found:', diagramElementId);
+                    return;
+                }
+                
+                if (!mapData || !mapData.mermaid_diagram) {
+                    mapContainer.innerHTML = '<p class="error-message">No map data available</p>';
+                    return;
+                }
+
                 try {
                     // Create unique ID for this map render
                     this.mapCounter++;
@@ -1104,12 +1221,29 @@
         function hideFAQ() {
             document.getElementById('faq-modal').style.display = 'none';
         }
+
+        // Map Modal Functions
+        function showExpandedMap() {
+            document.getElementById('map-modal').style.display = 'block';
+            // Re-render the map in the expanded view
+            if (window.zorkViewer && window.zorkViewer.currentState) {
+                window.zorkViewer.renderMapToContainer('map-diagram-expanded', 'map-stats-expanded');
+            }
+        }
         
+        function hideExpandedMap() {
+            document.getElementById('map-modal').style.display = 'none';
+        }
+
         // Close modal when clicking outside of it
         document.addEventListener('click', function(event) {
-            const modal = document.getElementById('faq-modal');
-            if (event.target === modal) {
+            const faqModal = document.getElementById('faq-modal');
+            const mapModal = document.getElementById('map-modal');
+            if (event.target === faqModal) {
                 hideFAQ();
+            }
+            if (event.target === mapModal) {
+                hideExpandedMap();
             }
         });
         
@@ -1117,6 +1251,7 @@
         document.addEventListener('keydown', function(event) {
             if (event.key === 'Escape') {
                 hideFAQ();
+                hideExpandedMap();
             }
         });
 
@@ -1155,6 +1290,8 @@
         initializeViewer().then(viewer => {
             if (viewer) {
                 console.log('ZorkGPT Live Viewer initialized successfully');
+                // Store globally so map modal can access it
+                window.zorkViewer = viewer;
             }
         });
     </script>

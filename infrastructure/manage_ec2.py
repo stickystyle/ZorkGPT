@@ -165,6 +165,46 @@ def update_zorkgpt(public_ip: str) -> None:
     print("✅ ZorkGPT updated successfully")
 
 
+def update_viewer_only(public_ip: str) -> None:
+    """Update only the viewer HTML file without restarting ZorkGPT."""
+    print("🌐 Updating viewer HTML file...")
+
+    # Get CloudFront distribution ID for cache invalidation
+    distribution_id = get_stack_output("DistributionId")
+    
+    # Get S3 bucket name for uploads
+    bucket_name = get_stack_output("BucketName")
+    if not bucket_name:
+        print("❌ Could not get S3 bucket name from CloudFormation stack")
+        return
+
+    # Upload the viewer HTML file
+    print("📤 Uploading viewer HTML to S3...")
+    upload_cmd = f'sudo -u zorkgpt bash -c "cd /home/zorkgpt/ZorkGPT && aws s3 cp zork_viewer.html s3://{bucket_name}/zork_viewer.html"'
+    
+    if not run_ssh_command(upload_cmd, public_ip):
+        print("❌ Failed to upload zork_viewer.html to S3")
+        return
+
+    print("✅ Viewer HTML uploaded to S3")
+
+    # Invalidate CloudFront cache for the HTML file
+    if distribution_id:
+        print("🔄 Invalidating CloudFront cache for viewer HTML...")
+        invalidation_cmd = f"aws cloudfront create-invalidation --distribution-id {distribution_id} --paths '/zork_viewer.html' --profile parrishfamily"
+        try:
+            result = subprocess.run(invalidation_cmd, shell=True, check=True, capture_output=True, text=True)
+            print("✅ CloudFront cache invalidation initiated")
+        except subprocess.CalledProcessError as e:
+            print(f"⚠️  CloudFront invalidation failed: {e}")
+            print("   The HTML file was uploaded but cache may take time to refresh")
+    else:
+        print("⚠️  Could not get CloudFront distribution ID for cache invalidation")
+
+    print("🎉 Viewer update completed successfully!")
+    print("💡 Note: ZorkGPT service was not restarted - only the viewer HTML was updated")
+
+
 def download_analysis_files(public_ip: str) -> None:
     """Download analysis files from the EC2 instance."""
     print("📥 Downloading analysis files from EC2 instance...")
@@ -263,6 +303,7 @@ def main():
             "logs",
             "logs-follow",
             "update",
+            "update-viewer",
             "download",
             "ssh",
             "info",
@@ -310,6 +351,8 @@ def main():
         view_logs(public_ip, follow=True)
     elif args.action == "update":
         update_zorkgpt(public_ip)
+    elif args.action == "update-viewer":
+        update_viewer_only(public_ip)
     elif args.action == "download":
         download_analysis_files(public_ip)
     elif args.action == "ssh":
