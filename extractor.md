@@ -31,6 +31,14 @@ Always use consistent, clear naming patterns that create logical spatial relatio
 ### Exit Identification - COMPREHENSIVE DETECTION
 **Primary Goal**: Identify ALL potential points of passage described in the game text, including non-obvious ones.
 
+**CRITICAL: Open Field/Outdoor Location Rule**
+For outdoor locations (fields, clearings, areas around buildings), ALWAYS consider that cardinal directions (north, south, east, west) may be available even if not explicitly mentioned. Zork frequently allows movement in cardinal directions from outdoor areas without describing them in the room text.
+
+**Special Case Examples:**
+- "You are in an open field west of a white house" → May have exits: ["north", "south", "east"] even if not mentioned
+- "You are behind the white house" → Likely has exits: ["north", "south", "east", "west"] around the building
+- "Forest clearing" → Typically connects to multiple directions
+
 **Standard Exits**: Include obvious directional exits like "north", "south", "east", "west", "up", "down", "northeast", etc.
 
 **Non-Standard Exits**: MUST include potential passage points that may require intermediate actions:
@@ -104,7 +112,7 @@ There is a small mailbox here.
 Output:
 {
   "current_location_name": "West Of White House",
-  "exits": [],
+  "exits": ["north", "south", "east"],
   "visible_objects": ["small mailbox", "white house", "boarded front door"],
   "visible_characters": [],
   "important_messages": ["You are in an open field west of a big white house with a boarded front door.", "There is a small mailbox here."],

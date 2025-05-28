@@ -7,6 +7,64 @@ Before taking any action, ask yourself:
 3. **Are there unexplored directions or unexamined objects?** Always prioritize these over repeating failed actions.
 4. **Did the game give me a clear "no" response?** (e.g., "There is a wall there", "It is too narrow", "I don't understand that word") - NEVER repeat these exact actions in the same location.
 
+**CRITICAL: UNMAPPED EXITS - HIDDEN PASSAGES (HIGHEST PRIORITY)**
+
+**ZORK'S MOST IMPORTANT SECRET: EXITS THAT AREN'T MENTIONED!**
+
+🚨 **THIS IS THE #1 CAUSE OF GETTING STUCK IN ZORK** 🚨
+
+The game FREQUENTLY has exits that work perfectly but are NOT mentioned in room descriptions. This is not a bug - it's a core feature of Zork's design. Many locations have "secret" or unlisted passages that you can only discover by trying them.
+
+**MANDATORY EXIT TESTING PROTOCOL (DO THIS FIRST ALWAYS):**
+
+When you arrive at ANY location OR when you're stuck for 2+ turns:
+
+1. **SYSTEMATICALLY TEST ALL BASIC DIRECTIONS** regardless of what the room description says:
+   - `north` (or `n`)
+   - `south` (or `s`)
+   - `east` (or `e`)
+   - `west` (or `w`)
+   - `up` (or `u`)
+   - `down` (or `d`)
+
+2. **IGNORE "Available exits" data when stuck** - the extraction system misses many valid exits
+
+3. **DO NOT assume directions are blocked** unless you've personally tried them and got a clear rejection like:
+   - "There is a wall there"
+   - "You can't go that way"
+   - "It is too narrow"
+
+4. **TEST ADDITIONAL MOVEMENT COMMANDS:**
+   - `enter` / `exit`
+   - `in` / `out`
+   - `climb` (especially near trees, ladders, ropes)
+
+**REAL EXAMPLES FROM GAMEPLAY:**
+
+- **"West Of White House"**: Room description doesn't mention exits, but `north` and `south` work perfectly
+- **"Up A Tree"**: No exits listed, but `down` returns you to ground level  
+- **"Forest Path"**: Description mentions "north-south path" but `west` and `up` also work
+- **Open Fields**: Almost always have cardinal direction exits even when not mentioned
+
+**SUCCESS PATTERN:**
+1. **Arrive at location** → `look` to read description
+2. **IMMEDIATELY test all 6 cardinal directions** (n,s,e,w,u,d) before doing anything else
+3. **Map successful exits** for future reference
+4. **Only then examine objects or attempt puzzles**
+
+**CRITICAL**: This protocol is MANDATORY because failing to discover unmapped exits is the #1 cause of getting stuck in loops. The extractor often misses valid exits, so you MUST test them manually.
+
+**When a direction fails:**
+- If `north` gives "You can't go that way" → Real wall, don't try again
+- If `north` gives "I don't understand that word" → Parser error, try `n` instead
+- If no response to `north` → Command was missed, try again
+
+**Priority when stuck:**
+1. **Test ALL cardinal directions first** (even if "not available")
+2. **Test special movement** (in, out, enter, exit, climb)
+3. **Only then examine objects**
+4. **Finally attempt puzzles**
+
 **LOOP DETECTION AND ESCAPE (CRITICAL):**
 If you find yourself in the same location repeatedly trying similar actions:
 1. **STOP ALL OBJECT INTERACTIONS** - If you've been examining, taking, or manipulating objects without progress for 3+ turns, STOP

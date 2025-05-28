@@ -584,30 +584,53 @@ class MapGraph:
                     f"You arrived from '{previous_room_name}' by going {action_desc}."
                 )
 
-            # Keep the exit processing logic for internal map tracking, but don't include
-            # the "mapped exits are" text in the prompt to avoid confusion with consensus map
-            if room.exits:
-                exit_details = []
-                # Sort exits for consistent output order
-                for exit_dir in sorted(list(room.exits)):
-                    if (
-                        current_room_normalized in self.connections
-                        and exit_dir in self.connections[current_room_normalized]
-                    ):
-                        leads_to_room = self.connections[current_room_normalized][
-                            exit_dir
-                        ]
-                        exit_details.append(f"{exit_dir} (leads to {leads_to_room})")
-                    else:
-                        exit_details.append(f"{exit_dir} (destination unknown)")
+            # Check for mapped exits and provide guidance about unmapped exits
+            has_mapped_exits = (
+                current_room_normalized in self.connections 
+                and self.connections[current_room_normalized]
+            )
+            
+            has_detected_exits = room.exits and len(room.exits) > 0
 
-                # Note: We build exit_details for internal consistency but don't add them to context_parts
-                # This keeps the mapping logic intact while cleaning up the agent prompt
+            if has_mapped_exits:
+                # Show confirmed working exits
+                confirmed_exits = list(self.connections[current_room_normalized].keys())
+                context_parts.append(
+                    f"Confirmed working exits: {', '.join(sorted(confirmed_exits))}"
+                )
+            
+            if has_detected_exits:
+                # Show exits detected by extractor
+                context_parts.append(
+                    f"Detected exits: {', '.join(sorted(room.exits))}"
+                )
+            
+            # Critical warning about unmapped exits
+            if not has_mapped_exits and not has_detected_exits:
+                context_parts.append(
+                    "⚠️  WARNING: No exits detected, but Zork often has hidden exits!"
+                )
+                context_parts.append(
+                    "🔍 MANDATORY: Test all cardinal directions (north, south, east, west, up, down) systematically."
+                )
+            elif not has_mapped_exits:
+                context_parts.append(
+                    "⚠️  NOTE: Exits detected but not yet confirmed by movement."
+                )
+                context_parts.append(
+                    "🔍 RECOMMENDATION: Test detected exits AND try cardinal directions for hidden passages."
+                )
+            elif len(self.connections[current_room_normalized]) < 2:
+                context_parts.append(
+                    "🔍 TIP: Many Zork locations have additional unmapped exits. Try cardinal directions."
+                )
 
-            # No exit information added to context_parts - the consensus map will provide navigation info
         else:  # current_room_name is not in self.rooms
             context_parts.append(
                 f"Map: Location '{display_name}' is new or not yet mapped. No detailed map data available for it yet."
+            )
+            context_parts.append(
+                "🔍 NEW LOCATION PROTOCOL: Systematically test north, south, east, west, up, down to discover all exits."
             )
 
         if not context_parts:  # Should not be reached given the logic above
