@@ -813,81 +813,116 @@ class MapGraph:
 
     def _create_unique_location_id(self, location_name: str, description: str = "", objects: List[str] = None, exits: List[str] = None) -> str:
         """
-        Create a unique identifier for a location that handles cases where multiple 
+        Create a stable unique identifier for a location that handles cases where multiple 
         locations have the same name but different characteristics.
         
-        This prevents map conflicts when games have multiple rooms with identical names
-        but different descriptions, objects, or exit patterns.
+        This version prioritizes exit patterns over descriptions since exits are more stable
+        and less volatile than room descriptions which can change based on objects, lighting, etc.
         
         Args:
             location_name: The base location name (e.g., "Clearing")
-            description: Full location description text
-            objects: List of visible objects in the location
-            exits: List of available exits from the location
+            description: Full location description text (used sparingly)
+            objects: List of visible objects in the location (mostly ignored)
+            exits: List of available exits from the location (primary differentiator)
             
         Returns:
-            Unique location identifier (e.g., "Clearing (pile of leaves)" or "Clearing (forest path)")
+            Stable location identifier based primarily on exit patterns
         """
         if not location_name:
             return ""
             
         base_name = self._normalize_room_name(location_name)
         
-        # If no additional context provided, return the base name
-        if not description and not objects and not exits:
-            return base_name
-            
-        # Look for distinguishing features
-        distinguishing_features = []
-        
-        # Check for distinctive objects
-        if objects:
-            distinctive_objects = []
-            for obj in objects:
-                obj_lower = obj.lower().strip()
-                # Skip generic objects that don't help distinguish locations
-                if obj_lower and obj_lower not in ["path", "ground", "floor", "wall", "ceiling"]:
-                    distinctive_objects.append(obj_lower)
-            
-            if distinctive_objects:
-                # Use the most distinctive object (prefer unique items)
-                if "pile of leaves" in distinctive_objects:
-                    distinguishing_features.append("pile of leaves")
-                elif "forest path" in distinctive_objects:
-                    distinguishing_features.append("forest path")
+        # PRIMARY APPROACH: Use exit patterns as the main differentiator
+        # Exits are much more stable than descriptions or objects
+        if exits:
+            # Normalize exits to canonical directions
+            normalized_exits = set()
+            for exit in exits:
+                if not exit or not exit.strip():
+                    continue
+                norm_exit = normalize_direction(exit)
+                if norm_exit:
+                    normalized_exits.add(norm_exit)
                 else:
-                    # Use the first distinctive object
-                    distinguishing_features.append(distinctive_objects[0])
+                    # Keep non-directional exits (like "window", "trapdoor") as-is
+                    normalized_exits.add(exit.lower().strip())
+            
+            if normalized_exits:
+                # Create distinctive patterns based on exit combinations
+                exit_count = len(normalized_exits)
+                sorted_exits = sorted(list(normalized_exits))
+                
+                # Single exit rooms (dead ends) - highly distinctive
+                if exit_count == 1:
+                    return f"{base_name} ({sorted_exits[0]} only)"
+                
+                # Two-exit rooms (corridors) - very distinctive
+                elif exit_count == 2:
+                    exit_pair = tuple(sorted_exits)
+                    if exit_pair == ("east", "west"):
+                        return f"{base_name} (east-west corridor)"
+                    elif exit_pair == ("north", "south"):
+                        return f"{base_name} (north-south corridor)"
+                    elif exit_pair == ("down", "up"):
+                        return f"{base_name} (vertical passage)"
+                    else:
+                        # Other two-exit combinations
+                        return f"{base_name} ({'-'.join(sorted_exits)})"
+                
+                # Three-exit rooms - moderately distinctive
+                elif exit_count == 3:
+                    # Check for common three-way patterns
+                    if "north" in normalized_exits and "east" in normalized_exits and "south" in normalized_exits:
+                        return f"{base_name} (T-junction east)"
+                    elif "north" in normalized_exits and "west" in normalized_exits and "south" in normalized_exits:
+                        return f"{base_name} (T-junction west)"
+                    elif "east" in normalized_exits and "west" in normalized_exits and "north" in normalized_exits:
+                        return f"{base_name} (T-junction north)"
+                    elif "east" in normalized_exits and "west" in normalized_exits and "south" in normalized_exits:
+                        return f"{base_name} (T-junction south)"
+                    else:
+                        # Other three-exit combinations
+                        return f"{base_name} (3-way: {'-'.join(sorted_exits[:3])})"
+                
+                # Four or more exits - use count-based identifier
+                elif exit_count >= 4:
+                    if exit_count == 4 and {"north", "south", "east", "west"}.issubset(normalized_exits):
+                        return f"{base_name} (4-way intersection)"
+                    else:
+                        return f"{base_name} ({exit_count}-way junction)"
         
-        # Check for distinctive description elements
+        # SECONDARY APPROACH: Only use descriptions for truly permanent, structural features
+        # Avoid volatile content like objects, lighting, or temporary states
         if description:
             desc_lower = description.lower()
-            if "pile of leaves" in desc_lower and "pile of leaves" not in distinguishing_features:
-                distinguishing_features.append("pile of leaves")
-            elif "forest path" in desc_lower and "forest path" not in distinguishing_features:
-                distinguishing_features.append("forest path")
-            elif "well marked" in desc_lower:
-                distinguishing_features.append("well marked")
-            elif "forest surrounding you on all sides" in desc_lower:
-                distinguishing_features.append("surrounded by forest")
+            
+            # Only use highly distinctive, permanent structural features
+            if "well house" in desc_lower:
+                return f"{base_name} (well house)"
+            elif "white house" in desc_lower and "front" in desc_lower:
+                return f"{base_name} (front of house)"
+            elif "white house" in desc_lower and ("back" in desc_lower or "behind" in desc_lower):
+                return f"{base_name} (back of house)"
+            elif "attic" in desc_lower:
+                return f"{base_name} (attic)"
+            elif "basement" in desc_lower or "cellar" in desc_lower:
+                return f"{base_name} (basement)"
+            elif "kitchen" in desc_lower:
+                return f"{base_name} (kitchen)"
+            elif "living room" in desc_lower:
+                return f"{base_name} (living room)"
         
-        # Check for distinctive exit patterns
-        if exits:
-            exit_set = set(exit.lower().strip() for exit in exits)
-            if exit_set == {"east", "west"}:
-                if "forest path" not in distinguishing_features:
-                    distinguishing_features.append("east-west path")
-            elif exit_set == {"south"}:
-                if "pile of leaves" not in distinguishing_features:
-                    distinguishing_features.append("south exit only")
+        # AVOID: Volatile features that change frequently
+        # - Objects that can be picked up/dropped
+        # - Lighting conditions ("dimly lit", "dark")
+        # - Temporary states ("open door", "closed window")
+        # - Minor object detection variations
         
-        # Create the unique identifier
-        if distinguishing_features:
-            # Use the most specific feature
-            feature = distinguishing_features[0]
-            return f"{base_name} ({feature})"
-        else:
-            return base_name
+        # Default: return the base name without modification
+        # This ensures the same room gets the same ID unless there are
+        # truly distinctive permanent features
+        return base_name
 
 
 if __name__ == "__main__":

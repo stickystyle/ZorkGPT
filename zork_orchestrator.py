@@ -732,12 +732,13 @@ class ZorkOrchestrator:
                     action_taken, room_before_action, final_current_room_name
                 )
 
-                # Create unique location identifiers for movement tracking
+                # Create stable location identifiers using exit-based unique ID system
+                # This prioritizes exit patterns over volatile descriptions for stability
                 current_location_id = self.game_map._create_unique_location_id(
                     final_current_room_name,
-                    description=' '.join(extracted_info.important_messages) if extracted_info else '',
-                    objects=extracted_info.visible_objects if extracted_info else [],
-                    exits=extracted_info.exits if extracted_info else []
+                    description=' '.join(llm_extracted_info.important_messages) if llm_extracted_info else '',
+                    objects=llm_extracted_info.visible_objects if llm_extracted_info else [],
+                    exits=llm_extracted_info.exits if llm_extracted_info else []
                 )
                 
                 # Use shared MovementAnalyzer for consistent movement detection
@@ -754,19 +755,14 @@ class ZorkOrchestrator:
                     movement_context
                 )
                 if movement_result.connection_created:
-                    # Create unique location identifiers to handle multiple locations with same name
+                    # Use the improved unique ID system for both locations to ensure consistency
                     from_location_id = self.game_map._create_unique_location_id(
                         movement_result.from_location,
-                        description=getattr(movement_result, 'from_description', ''),
-                        objects=getattr(movement_result, 'from_objects', []),
-                        exits=getattr(movement_result, 'from_exits', [])
+                        description='',  # No description available for previous location
+                        objects=[],
+                        exits=[]  # Exit info not available for previous location
                     )
-                    to_location_id = self.game_map._create_unique_location_id(
-                        movement_result.to_location,
-                        description=' '.join(extracted_info.important_messages) if extracted_info else '',
-                        objects=extracted_info.visible_objects if extracted_info else [],
-                        exits=extracted_info.exits if extracted_info else []
-                    )
+                    to_location_id = current_location_id  # Already computed above
                     
                     # Add connection to map with unique identifiers
                     self.game_map.add_connection(
