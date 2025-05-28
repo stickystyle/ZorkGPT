@@ -178,6 +178,16 @@ def update_viewer_only(public_ip: str) -> None:
         print("❌ Could not get S3 bucket name from CloudFormation stack")
         return
 
+    # Pull latest code to get updated HTML file
+    print("📥 Pulling latest code from git...")
+    pull_cmd = 'sudo -u zorkgpt bash -c "cd /home/zorkgpt/ZorkGPT && git pull"'
+    
+    if not run_ssh_command(pull_cmd, public_ip):
+        print("❌ Failed to pull latest code from git")
+        return
+
+    print("✅ Latest code pulled from git")
+
     # Upload the viewer HTML file
     print("📤 Uploading viewer HTML to S3...")
     upload_cmd = f'sudo -u zorkgpt bash -c "cd /home/zorkgpt/ZorkGPT && aws s3 cp zork_viewer.html s3://{bucket_name}/zork_viewer.html"'
