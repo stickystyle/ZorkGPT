@@ -920,20 +920,53 @@ class ZorkOrchestrator:
             
             # Consolidate fragmented map locations only when new rooms have been added
             if self.game_map.needs_consolidation():
-                consolidations = self.game_map.consolidate_similar_locations()
-                if consolidations > 0:
-                    self.logger.info(
-                        f"Map consolidation: merged {consolidations} fragmented locations",
-                        extra={
-                            "extras": {
-                                "event_type": "map_consolidation",
-                                "episode_id": self.episode_id,
-                                "turn": self.turn_count,
-                                "consolidations_performed": consolidations,
-                                "trigger": "new_rooms_added",
-                            }
-                        },
-                    )
+                try:
+                    # First, perform map consolidation to merge similar locations
+                    consolidations = self.game_map.consolidate_similar_locations()
+                    if consolidations > 0:
+                        self.logger.info(
+                            f"Map consolidation completed: {consolidations} locations merged",
+                            extra={
+                                "extras": {
+                                    "event_type": "map_consolidation",
+                                    "episode_id": self.episode_id,
+                                    "turn": self.turn_count,
+                                    "consolidations_performed": consolidations,
+                                }
+                            },
+                        )
+                
+                    # Enhanced base name consolidation to address main fragmentation source
+                    base_consolidations = self.game_map.consolidate_base_name_variants()
+                    if base_consolidations > 0:
+                        self.logger.info(
+                            f"Enhanced base name consolidation completed: {base_consolidations} locations merged",
+                            extra={
+                                "extras": {
+                                    "event_type": "base_name_consolidation",
+                                    "episode_id": self.episode_id,
+                                    "turn": self.turn_count,
+                                    "base_consolidations_performed": base_consolidations,
+                                }
+                            },
+                        )
+                
+                    # Then, prune fragmented nodes that serve no navigation purpose
+                    pruned_nodes = self.game_map.prune_fragmented_nodes()
+                    if pruned_nodes > 0:
+                        self.logger.info(
+                            f"Map pruning completed: {pruned_nodes} fragmented nodes removed",
+                            extra={
+                                "extras": {
+                                    "event_type": "map_pruning",
+                                    "episode_id": self.episode_id,
+                                    "turn": self.turn_count,
+                                    "nodes_pruned": pruned_nodes,
+                                }
+                            },
+                        )
+                except Exception as e:
+                    self.logger.warning(f"Failed to consolidate map: {e}")
 
             # Export current state after each turn
             self.export_current_state()
@@ -1116,7 +1149,10 @@ class ZorkOrchestrator:
         if not self.adaptive_knowledge_manager:
             return
 
-        # Check if enough turns have passed since last map update
+        # ALWAYS run consolidation every turn to prevent fragmentation buildup
+        self._run_map_consolidation()
+        
+        # Check if enough turns have passed since last full map update (knowledge base sync)
         turns_since_last_map_update = self.turn_count - self.last_map_update_turn
 
         if turns_since_last_map_update >= self.map_update_interval:
@@ -1132,9 +1168,74 @@ class ZorkOrchestrator:
                 },
             )
 
-            # Update map in knowledge base
+            # Update map in knowledge base (but consolidation already ran above)
             self._update_knowledge_base_map()
             self.last_map_update_turn = self.turn_count
+
+    def _run_map_consolidation(self) -> None:
+        """Run map consolidation every turn to prevent fragmentation buildup."""
+        if not self.game_map:
+            return
+            
+        try:
+            # Enhanced base name consolidation to address main fragmentation source
+            base_consolidations = self.game_map.consolidate_base_name_variants()
+            if base_consolidations > 0:
+                self.logger.info(
+                    f"Map consolidation (turn {self.turn_count}): {base_consolidations} locations merged",
+                    extra={
+                        "extras": {
+                            "event_type": "turn_based_consolidation",
+                            "episode_id": self.episode_id,
+                            "turn": self.turn_count,
+                            "base_consolidations_performed": base_consolidations,
+                        }
+                    },
+                )
+            
+            # Also run legacy consolidation for any remaining case variations
+            if self.game_map.needs_consolidation():
+                consolidations = self.game_map.consolidate_similar_locations()
+                if consolidations > 0:
+                    self.logger.info(
+                        f"Legacy consolidation (turn {self.turn_count}): {consolidations} locations merged",
+                        extra={
+                            "extras": {
+                                "event_type": "turn_based_legacy_consolidation",
+                                "episode_id": self.episode_id,
+                                "turn": self.turn_count,
+                                "consolidations_performed": consolidations,
+                            }
+                        },
+                    )
+            
+            # Prune fragmented nodes that serve no navigation purpose
+            pruned_nodes = self.game_map.prune_fragmented_nodes()
+            if pruned_nodes > 0:
+                self.logger.info(
+                    f"Map pruning (turn {self.turn_count}): {pruned_nodes} fragmented nodes removed",
+                    extra={
+                        "extras": {
+                            "event_type": "turn_based_pruning",
+                            "episode_id": self.episode_id,
+                            "turn": self.turn_count,
+                            "nodes_pruned": pruned_nodes,
+                        }
+                    },
+                )
+                
+        except Exception as e:
+            self.logger.warning(
+                f"Failed to run map consolidation on turn {self.turn_count}: {e}",
+                extra={
+                    "extras": {
+                        "event_type": "map_consolidation_failed",
+                        "episode_id": self.episode_id,
+                        "turn": self.turn_count,
+                        "error": str(e),
+                    }
+                },
+            )
 
     def _update_knowledge_base_map(self) -> None:
         """Update the mermaid map in the knowledge base."""
@@ -1142,6 +1243,9 @@ class ZorkOrchestrator:
             return
             
         try:
+            # Note: Consolidation and pruning already ran in _run_map_consolidation()
+            # This method now focuses on syncing the clean map to the knowledge base
+            
             map_updated = self.adaptive_knowledge_manager.update_knowledge_with_map(
                 episode_id=self.episode_id,
                 game_map=self.game_map
@@ -1382,6 +1486,7 @@ class ZorkOrchestrator:
                 # Enhanced map metrics
                 "quality_metrics": self.game_map.get_map_quality_metrics(),
                 "confidence_report": self.game_map.render_confidence_report(),
+                "fragmentation_report": self.game_map.get_fragmentation_report(),
                 # Optional: Include raw data for advanced frontends
                 "raw_data": {
                     "rooms": {
