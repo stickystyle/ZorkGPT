@@ -225,6 +225,19 @@ class ZorkOrchestrator:
             )
             return 0
 
+        # Enable verbose mode to get full room descriptions on every visit
+        verbose_response = zork_interface_instance.send_command("verbose")
+        self.logger.info(
+            f"Enabled verbose mode: {verbose_response}",
+            extra={
+                "extras": {
+                    "event_type": "verbose_mode_enabled",
+                    "episode_id": self.episode_id,
+                    "verbose_response": verbose_response,
+                }
+            },
+        )
+
         # Initialize game state variables
         game_over = False
         current_inventory = []
