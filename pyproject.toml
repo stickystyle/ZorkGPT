@@ -79,7 +79,7 @@ enable_prompt_logging = false
 # Orchestrator Configuration
 max_turns_per_episode = 1000
 knowledge_update_interval = 100
-map_update_interval = 25
+map_update_interval = 10
 enable_state_export = true
 
 [tool.zorkgpt.files]

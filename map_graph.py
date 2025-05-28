@@ -1026,8 +1026,34 @@ class MapGraph:
         return base_name
 
     def needs_consolidation(self) -> bool:
-        """Check if consolidation is needed based on new room additions."""
-        return self.has_new_rooms_since_consolidation
+        """Check if consolidation is needed based on new room additions or fragmentation patterns."""
+        # Original condition: new rooms added
+        if self.has_new_rooms_since_consolidation:
+            return True
+        
+        # Enhanced condition: detect base name fragmentation
+        from collections import defaultdict
+        base_name_groups = defaultdict(list)
+        
+        for location_name in self.rooms.keys():
+            base_name = self._extract_base_name(location_name).lower()
+            base_name_groups[base_name].append(location_name)
+        
+        # Check if any base name has multiple variants
+        for base_name, variants in base_name_groups.items():
+            if len(variants) > 1:
+                return True  # Fragmentation detected
+        
+        # Check for case variations
+        normalized_groups = defaultdict(list)
+        for location_name in self.rooms.keys():
+            normalized_groups[location_name.lower()].append(location_name)
+        
+        for normalized_name, variants in normalized_groups.items():
+            if len(variants) > 1:
+                return True  # Case variations detected
+        
+        return False
 
     def consolidate_similar_locations(self) -> int:
         """
