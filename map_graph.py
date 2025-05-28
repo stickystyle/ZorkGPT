@@ -609,6 +609,7 @@ class MapGraph:
         for room_name in sorted_room_names:
             node_id = f"R{node_counter}"
             room_to_id[room_name] = node_id
+            # Use the full room name (unique ID) for proper matching with current_room
             # Sanitize room name for Mermaid (escape special characters)
             sanitized_name = (
                 room_name.replace('"', '\\"').replace("[", "\\[").replace("]", "\\]")

@@ -10,7 +10,7 @@ structured data that's now available.
 """
 
 import json
-from typing import Optional, List, Any, Dict, Type
+from typing import Optional, List, Any, Dict, Type, Tuple
 from pydantic import BaseModel
 from llm_client import LLMClientWrapper
 import os
@@ -150,195 +150,51 @@ Extract key information from the game text and return it as JSON with these fiel
 - important_messages: List of important messages
 - in_combat: Boolean indicating combat status"""
 
-    def extract_info(
-        self, game_text_from_zork: str, previous_location: Optional[str] = None
-    ) -> Optional[ExtractorResponse]:
+    def extract_info(self, game_text_from_zork: str, previous_location: str = None) -> Optional[ExtractorResponse]:
         """
-        Extract structured information using hybrid approach.
-
+        Extract structured information from Zork game text using hybrid approach.
+        
         Args:
-            game_text_from_zork: The raw text output from the Zork game.
-            previous_location: The previous location name for persistence.
-
+            game_text_from_zork: Raw text from Zork
+            previous_location: Previous location name for context
+            
         Returns:
-            ExtractorResponse containing the extracted information, or None if extraction fails.
+            Extracted information or None if extraction fails
         """
-        if not game_text_from_zork or not game_text_from_zork.strip():
-            return ExtractorResponse(
-                current_location_name=previous_location or "Unknown (Empty Input)",
-                exits=[],
-                visible_objects=[],
-                visible_characters=[],
-                important_messages=["Received empty game text."],
-                in_combat=False,
-            )
-
-        # Step 1: Try structured parsing first
-        structured_result = self.structured_parser.parse_response(game_text_from_zork)
-
-        # Step 2: Determine location using structured parser or fallback
-        current_location_name = None
-        if (
-            structured_result
-            and structured_result.has_structured_header
-            and structured_result.room_name
-        ):
-            # Use structured parser result
-            current_location_name = self.structured_parser.get_canonical_room_name(
-                structured_result.room_name
-            )
-            extraction_source = "Structured Parser"
-
-            # Log successful structured extraction
-            if self.logger:
-                self.logger.info(
-                    f"Location extracted via structured parser: {current_location_name}",
-                    extra={
-                        "extras": {
-                            "event_type": "structured_location_extraction",
-                            "episode_id": self.episode_id,
-                            "location": current_location_name,
-                            "score": structured_result.score,
-                            "moves": structured_result.moves,
-                        }
-                    },
-                )
-        else:
-            # No structured location available, will need LLM or fallback
-            extraction_source = "LLM Fallback"
-
-        # Step 3: Prepare game text for LLM extraction (remove structured header if present)
-        game_text_for_llm = game_text_from_zork
-        if structured_result and structured_result.has_structured_header:
-            # Use the clean game text without the structured header for LLM analysis
-            game_text_for_llm = structured_result.game_text
-
-        # Use LLM extraction for detailed analysis
-        # We still use LLM for exits, objects, characters, and messages
-        # even when we have structured location data
-        llm_extraction = self._extract_with_llm(game_text_for_llm, previous_location)
-
-        if llm_extraction:
-            # If we got location from structured parser, use that; otherwise use LLM result
-            if current_location_name:
-                # Use structured location but LLM details
-                final_response = ExtractorResponse(
-                    current_location_name=current_location_name,
-                    exits=llm_extraction.exits,
-                    visible_objects=llm_extraction.visible_objects,
-                    visible_characters=llm_extraction.visible_characters,
-                    important_messages=llm_extraction.important_messages,
-                    in_combat=llm_extraction.in_combat,
-                )
-            else:
-                # Use LLM result entirely
-                final_response = llm_extraction
-                current_location_name = llm_extraction.current_location_name
-                extraction_source = "LLM Only"
-        else:
-            # LLM extraction failed
-            if current_location_name:
-                # We have structured location but no LLM details
-                final_response = ExtractorResponse(
-                    current_location_name=current_location_name,
-                    exits=[],
-                    visible_objects=[],
-                    visible_characters=[],
-                    important_messages=[structured_result.game_text]
-                    if structured_result.game_text
-                    else [],
-                    in_combat=False,
-                )
-                extraction_source = "Structured Only"
-            else:
-                # Complete extraction failure
-                final_response = ExtractorResponse(
-                    current_location_name=previous_location or "Extraction Failed",
-                    exits=[],
-                    visible_objects=[],
-                    visible_characters=[],
-                    important_messages=["Both structured and LLM extraction failed"],
-                    in_combat=False,
-                )
-                extraction_source = "Fallback"
-
-        # Step 4: Apply location persistence if needed
-        if (
-            final_response.current_location_name.lower() in GENERIC_LOCATION_FALLBACKS
-            and previous_location
-            and previous_location.lower() not in GENERIC_LOCATION_FALLBACKS
-        ):
-            if self.logger:
-                self.logger.info(
-                    f"Location persistence applied: '{final_response.current_location_name}' → '{previous_location}'",
-                    extra={
-                        "extras": {
-                            "event_type": "location_persistence",
-                            "episode_id": self.episode_id,
-                            "original_extraction": final_response.current_location_name,
-                            "persisted_location": previous_location,
-                            "extraction_source": extraction_source,
-                        }
-                    },
-                )
-
-            final_response = ExtractorResponse(
-                current_location_name=previous_location,
-                exits=final_response.exits,
-                visible_objects=final_response.visible_objects,
-                visible_characters=final_response.visible_characters,
-                important_messages=final_response.important_messages,
-                in_combat=final_response.in_combat,
-            )
-
-        # Log final extraction result
-        if self.logger:
-            self.logger.debug(
-                f"Hybrid extraction complete: {final_response.current_location_name} (source: {extraction_source})",
-                extra={
-                    "extras": {
-                        "event_type": "hybrid_extraction_complete",
-                        "episode_id": self.episode_id,
-                        "location": final_response.current_location_name,
-                        "extraction_source": extraction_source,
-                        "has_structured_data": structured_result.has_structured_header
-                        if structured_result
-                        else False,
-                    }
-                },
-            )
-
-        return final_response
-
-    def _extract_with_llm(
-        self, game_text_from_zork: str, previous_location: Optional[str] = None
-    ) -> Optional[ExtractorResponse]:
-        """
-        Extract information using LLM.
-
-        Args:
-            game_text_from_zork: The raw text output from the Zork game.
-            previous_location: The previous location name for context.
-
-        Returns:
-            ExtractorResponse containing the extracted information, or None if extraction fails.
-        """
-        user_prompt_content = (
-            f"Game Text:\n```\n{game_text_from_zork}\n```\n\nJSON Output:\n```json\n"
-        )
-        # Incase using Qwen qwen3-30b-a3b
-        user_prompt_content = r"\no_think " + user_prompt_content
-
-        messages = [
-            {"role": "system", "content": self.system_prompt},
-            {"role": "user", "content": user_prompt_content},
-        ]
-
-        # Log the full prompt for evaluation
-        self._log_prompt_to_file(messages, "extractor")
-
         try:
-            response = self.client.chat.completions.create(
+            # Get clean game text for LLM processing
+            clean_game_text = self.get_clean_game_text(game_text_from_zork)
+            
+            # First, try structured parsing for key information
+            structured_info = self._extract_structured_info(game_text_from_zork)
+            
+            # Enhanced location change detection
+            location_changed = False
+            location_change_reason = "No previous location provided"
+            if previous_location:
+                location_changed, location_change_reason = self._detect_location_change_from_response(
+                    game_text_from_zork, previous_location
+                )
+            
+            # Use LLM for comprehensive extraction with structured info as context
+            extraction_prompt = self._build_extraction_prompt(
+                clean_game_text, 
+                previous_location, 
+                structured_info,
+                location_changed,
+                location_change_reason
+            )
+            
+            # Use proper system/user message structure
+            messages = [
+                {"role": "system", "content": self.system_prompt},
+                {"role": "user", "content": extraction_prompt}
+            ]
+            
+            # Log the full prompt for evaluation if enabled
+            self._log_prompt_to_file(messages, "extractor")
+            
+            llm_response = self.client.chat.completions.create(
                 model=self.model,
                 messages=messages,
                 temperature=self.temperature,
@@ -348,43 +204,250 @@ Extract key information from the game text and return it as JSON with these fiel
                 min_p=self.min_p,
                 response_format=create_json_schema(ExtractorResponse),
             )
+            
+            if not llm_response:
+                self.logger.warning(f"[{self.episode_id}] LLM extraction returned empty response")
+                return self._create_fallback_response(clean_game_text, previous_location)
+            
+            # Extract content from the response
+            response_content = llm_response.content if hasattr(llm_response, 'content') else str(llm_response)
+            
+            # Parse the LLM response
+            parsed_response = self._parse_llm_response(response_content, previous_location, structured_info)
+            
+            if parsed_response:
+                # Enhance with structured data where available
+                parsed_response = self._enhance_with_structured_data(parsed_response, structured_info)
+                
+                # Log successful extraction
+                self.logger.info(
+                    f"[{self.episode_id}] Hybrid extraction successful: {parsed_response.current_location_name}",
+                    extra={
+                        "extras": {
+                            "event_type": "hybrid_extraction_success",
+                            "episode_id": self.episode_id,
+                            "extracted_location": parsed_response.current_location_name,
+                            "location_changed": location_changed,
+                            "location_change_reason": location_change_reason,
+                            "structured_available": bool(structured_info.get("current_location")),
+                        }
+                    }
+                )
+                
+                return parsed_response
+            else:
+                self.logger.warning(f"[{self.episode_id}] Failed to parse LLM extraction response")
+                return self._create_fallback_response(clean_game_text, previous_location)
+        
+        except Exception as e:
+            self.logger.error(f"[{self.episode_id}] Extraction failed: {e}")
+            return self._create_fallback_response(game_text_from_zork, previous_location)
 
-            response_content = response.content
+    def _extract_structured_info(self, game_text_from_zork: str) -> Dict:
+        """Extract structured information from the game text."""
+        structured_result = self.structured_parser.parse_response(game_text_from_zork)
+        return {
+            "current_location_name": self.structured_parser.get_canonical_room_name(structured_result.room_name) if structured_result.has_structured_header else None,
+            "exits": structured_result.exits if structured_result.has_structured_header else [],
+            "visible_objects": structured_result.visible_objects if structured_result.has_structured_header else [],
+            "visible_characters": structured_result.visible_characters if structured_result.has_structured_header else [],
+            "important_messages": [structured_result.game_text] if structured_result.game_text else [],
+            "in_combat": structured_result.in_combat if structured_result.has_structured_header else False,
+            "score": structured_result.score if structured_result.has_structured_header else None,
+            "moves": structured_result.moves if structured_result.has_structured_header else None,
+        }
 
-            try:
-                # Extract JSON from markdown code blocks if present
-                if "```json" in response_content:
-                    start_marker = "```json"
-                    end_marker = "```"
-                    start_idx = response_content.find(start_marker) + len(start_marker)
-                    end_idx = response_content.find(end_marker, start_idx)
-                    if end_idx != -1:
-                        json_content = response_content[start_idx:end_idx].strip()
-                    else:
-                        json_content = response_content[start_idx:].strip()
-                elif "```" in response_content:
-                    start_idx = response_content.find("```") + 3
-                    end_idx = response_content.find("```", start_idx)
-                    if end_idx != -1:
-                        json_content = response_content[start_idx:end_idx].strip()
-                    else:
-                        json_content = response_content[start_idx:].strip()
+    def _detect_location_change_from_response(self, game_response: str, previous_location: str) -> Tuple[bool, str]:
+        """
+        LLM-based location change detection that avoids hardcoded patterns.
+        
+        Args:
+            game_response: The game's response text
+            previous_location: The previous location name
+            
+        Returns:
+            Tuple of (location_changed, new_location_or_reason)
+        """
+        try:
+            # Use LLM to analyze the movement instead of hardcoded patterns
+            analysis_prompt = self._build_movement_analysis_prompt(game_response, previous_location)
+            
+            movement_response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": analysis_prompt}],
+                temperature=0.1,  # Low temperature for consistent analysis
+                max_tokens=200,
+            )
+            
+            if not movement_response:
+                return False, "LLM movement analysis failed"
+            
+            # Extract content from the response
+            response_content = movement_response.choices[0].message.content if movement_response.choices else ""
+            
+            # Parse the LLM response
+            return self._parse_movement_analysis(response_content)
+            
+        except Exception as e:
+            if self.logger:
+                self.logger.warning(f"[{self.episode_id}] Movement analysis failed: {e}")
+            # Fallback: assume no movement on error
+            return False, f"Movement analysis error: {str(e)}"
+
+    def _build_movement_analysis_prompt(self, game_response: str, previous_location: str) -> str:
+        """Build a prompt for LLM-based movement analysis."""
+        return f"""Analyze this text adventure game response to determine if the player's location changed.
+
+Previous Location: {previous_location}
+
+Game Response:
+```
+{game_response}
+```
+
+Please analyze whether the player moved to a new location and respond with JSON:
+{{
+    "location_changed": true/false,
+    "new_location": "name of new location if moved, or null",
+    "reason": "brief explanation of your analysis"
+}}
+
+Look for indicators such as:
+- New room descriptions
+- Movement success messages
+- Location headers
+- Transition descriptions
+- Movement failure messages
+
+Respond only with the JSON, no other text."""
+
+    def _parse_movement_analysis(self, llm_response: str) -> Tuple[bool, str]:
+        """Parse the LLM movement analysis response."""
+        try:
+            # Extract JSON from the response
+            json_content = llm_response.strip()
+            
+            # Handle markdown code blocks if present
+            if "```json" in json_content:
+                start_idx = json_content.find("```json") + 7
+                end_idx = json_content.find("```", start_idx)
+                if end_idx != -1:
+                    json_content = json_content[start_idx:end_idx].strip()
+            elif "```" in json_content:
+                start_idx = json_content.find("```") + 3
+                end_idx = json_content.find("```", start_idx)
+                if end_idx != -1:
+                    json_content = json_content[start_idx:end_idx].strip()
+            
+            # Parse the JSON response
+            analysis = json.loads(json_content)
+            
+            location_changed = analysis.get("location_changed", False)
+            new_location = analysis.get("new_location")
+            reason = analysis.get("reason", "No reason provided")
+            
+            if location_changed and new_location:
+                return True, new_location
+            elif location_changed:
+                return True, f"Location changed: {reason}"
+            else:
+                return False, f"No movement: {reason}"
+                
+        except Exception as e:
+            if self.logger:
+                self.logger.warning(f"[{self.episode_id}] Failed to parse movement analysis: {e}")
+                self.logger.warning(f"LLM response was: {llm_response}")
+            # Fallback: return the raw reason
+            return False, f"Parse error: {llm_response[:100]}..."
+
+    def _build_extraction_prompt(self, game_text: str, previous_location: str, structured_info: Dict, location_changed: bool, location_change_reason: str) -> str:
+        """Build the extraction prompt for the LLM."""
+        prompt_parts = []
+        
+        # Add context information
+        if previous_location:
+            prompt_parts.append(f"Previous Location: {previous_location}")
+        
+        # Add movement analysis context
+        prompt_parts.append(f"Movement Analysis: {location_change_reason}")
+        
+        # Add structured info if available
+        if any(structured_info.values()):
+            prompt_parts.append("Structured Parser Results:")
+            for key, value in structured_info.items():
+                if value:
+                    prompt_parts.append(f"  {key}: {value}")
+        
+        # Add the game text
+        prompt_parts.append(f"Game Text:\n```\n{game_text}\n```")
+        
+        # Simple instruction - let the system prompt handle the details
+        prompt_parts.append("Please extract the key information from this game text and return it as JSON.")
+        
+        return "\n\n".join(prompt_parts)
+
+    def _parse_llm_response(self, llm_response: str, previous_location: str, structured_info: Dict) -> Optional[ExtractorResponse]:
+        """Parse the LLM response and return an ExtractorResponse."""
+        try:
+            # Extract JSON from markdown code blocks if present
+            if "```json" in llm_response:
+                start_marker = "```json"
+                end_marker = "```"
+                start_idx = llm_response.find(start_marker) + len(start_marker)
+                end_idx = llm_response.find(end_marker, start_idx)
+                if end_idx != -1:
+                    json_content = llm_response[start_idx:end_idx].strip()
                 else:
-                    json_content = response_content.strip()
+                    json_content = llm_response[start_idx:].strip()
+            elif "```" in llm_response:
+                start_idx = llm_response.find("```") + 3
+                end_idx = llm_response.find("```", start_idx)
+                if end_idx != -1:
+                    json_content = llm_response[start_idx:end_idx].strip()
+                else:
+                    json_content = llm_response[start_idx:].strip()
+            else:
+                json_content = llm_response.strip()
 
-                parsed_data = json.loads(json_content)
-                return ExtractorResponse(**parsed_data)
-
-            except Exception as e:
-                if self.logger:
-                    self.logger.error(f"Error parsing LLM extractor response: {e}")
-                    self.logger.error(f"Response content: {response_content}")
-                return None
+            parsed_data = json.loads(json_content)
+            return ExtractorResponse(**parsed_data)
 
         except Exception as e:
             if self.logger:
-                self.logger.error(f"Error getting LLM extracted info: {e}")
+                self.logger.error(f"Error parsing LLM extractor response: {e}")
+                self.logger.error(f"Response content: {llm_response}")
             return None
+
+    def _enhance_with_structured_data(self, extracted_response: ExtractorResponse, structured_info: Dict) -> ExtractorResponse:
+        """Enhance the extracted response with structured data where available."""
+        if structured_info.get("current_location"):
+            extracted_response.current_location_name = structured_info["current_location_name"]
+        if structured_info.get("exits"):
+            extracted_response.exits = structured_info["exits"]
+        if structured_info.get("visible_objects"):
+            extracted_response.visible_objects = structured_info["visible_objects"]
+        if structured_info.get("visible_characters"):
+            extracted_response.visible_characters = structured_info["visible_characters"]
+        if structured_info.get("important_messages"):
+            extracted_response.important_messages = structured_info["important_messages"]
+        if structured_info.get("in_combat"):
+            extracted_response.in_combat = structured_info["in_combat"]
+        if structured_info.get("score"):
+            extracted_response.score = structured_info["score"]
+        if structured_info.get("moves"):
+            extracted_response.moves = structured_info["moves"]
+        return extracted_response
+
+    def _create_fallback_response(self, game_text: str, previous_location: str) -> ExtractorResponse:
+        """Create a fallback response when extraction fails."""
+        return ExtractorResponse(
+            current_location_name=previous_location or "Extraction Failed",
+            exits=[],
+            visible_objects=[],
+            visible_characters=[],
+            important_messages=[game_text] if game_text else [],
+            in_combat=False,
+        )
 
     def update_episode_id(self, episode_id: str) -> None:
         """Update the episode ID for logging purposes."""

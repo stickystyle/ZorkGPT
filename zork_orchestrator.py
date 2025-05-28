@@ -1331,6 +1331,23 @@ class ZorkOrchestrator:
 
     def get_current_state(self) -> Dict[str, Any]:
         """Get comprehensive current state for export."""
+        
+        # Ensure current_room matches the actual room key in the map for proper highlighting
+        # The orchestrator may track unique IDs that get consolidated, so we need to find the actual key
+        actual_current_room = self.current_room_name_for_map
+        
+        # If the tracked room name doesn't exist in the map, find the best match
+        if actual_current_room not in self.game_map.rooms:
+            # Try to find a room that contains or is contained in the tracked name
+            for room_key in self.game_map.rooms.keys():
+                # Check if the base names match (e.g., "Kitchen" matches "Kitchen (3-way: east-up-west)")
+                base_tracked = actual_current_room.split('(')[0].strip()
+                base_room = room_key.split('(')[0].strip()
+                
+                if base_tracked.lower() == base_room.lower():
+                    actual_current_room = room_key
+                    break
+        
         return {
             "metadata": {
                 "episode_id": self.episode_id,
@@ -1347,7 +1364,7 @@ class ZorkOrchestrator:
                 },
             },
             "current_state": {
-                "location": self.current_room_name_for_map,
+                "location": actual_current_room,  # Use the matched room key
                 "inventory": self.current_inventory,
                 "in_combat": self._get_combat_status(),
                 "death_count": self.death_count,
@@ -1355,7 +1372,7 @@ class ZorkOrchestrator:
             "recent_log": self.get_recent_log(20),
             "map": {
                 "mermaid_diagram": self.game_map.render_mermaid(),
-                "current_room": self.current_room_name_for_map,
+                "current_room": actual_current_room,  # Use the matched room key for highlighting
                 "total_rooms": len(self.game_map.rooms),
                 "total_connections": sum(
                     len(connections)
