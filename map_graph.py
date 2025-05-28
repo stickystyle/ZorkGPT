@@ -199,15 +199,16 @@ def normalize_direction(action_str: str) -> str | None:
 
 
 class Room:
-    def __init__(self, name: str):
+    def __init__(self, name: str, base_name: str = None):
         self.name: str = name
+        self.base_name: str = base_name or name  # Store the conceptual name without suffixes
         self.exits: Set[str] = set()  # Known exits from this room
 
     def add_exit(self, exit_name: str):
         self.exits.add(exit_name)
 
     def __repr__(self) -> str:
-        return f"Room(name='{self.name}', exits={self.exits})"
+        return f"Room(name='{self.name}', base_name='{self.base_name}', exits={self.exits})"
 
 
 class MapGraph:
@@ -253,11 +254,93 @@ class MapGraph:
         # Use title case for consistency (e.g., "West Of House")
         return " ".join(word.capitalize() for word in room_name.strip().split())
 
-    def add_room(self, room_name: str) -> Room:
+    def _extract_base_name(self, node_id: str) -> str:
+        """
+        Extract the base name from a (potentially suffixed) node_id string.
+        
+        Args:
+            node_id: Node ID that may have suffixes like "(3-way: east-up-west)"
+            
+        Returns:
+            The base name without any suffixes (e.g., "Kitchen Of White House")
+        """
+        if not node_id:
+            return ""
+        
+        # Remove parenthetical suffixes
+        base_name = node_id.split('(')[0].strip()
+        
+        # Apply normalization for consistency
+        return self._normalize_room_name(base_name)
+
+    def get_or_create_node_id(self, base_location_name: str, current_exits: List[str], description: str = "") -> str:
+        """
+        Get or create a node ID for a location, ensuring conceptual locations have stable IDs.
+        
+        This method attempts to find a compatible existing node based on base name matching
+        and exit compatibility. If no compatible node exists, creates a new one.
+        
+        Args:
+            base_location_name: The base name of the location (e.g., "Kitchen Of White House")
+            current_exits: List of exits observed in the current turn
+            description: Room description for generating new IDs if needed
+            
+        Returns:
+            Node ID (either existing compatible one or newly created)
+        """
+        # Normalize the base location name
+        normalized_base_name = self._normalize_room_name(base_location_name)
+        
+        # Normalize current exits into a canonical, sorted set
+        normalized_current_exits = set()
+        for exit_name in current_exits:
+            if not exit_name or not exit_name.strip():
+                continue
+            norm_exit = normalize_direction(exit_name)
+            if norm_exit:
+                normalized_current_exits.add(norm_exit)
+            else:
+                clean_exit = exit_name.strip()
+                if clean_exit:
+                    normalized_current_exits.add(clean_exit.lower())
+        
+        # Attempt to find a compatible existing node
+        for existing_node_id, room_obj in self.rooms.items():
+            # Get the base name for this existing room
+            existing_base_name = room_obj.base_name if hasattr(room_obj, 'base_name') and room_obj.base_name else self._extract_base_name(existing_node_id)
+            
+            # Check if base names match
+            if normalized_base_name == existing_base_name:
+                # Perform compatibility check with exits
+                existing_exits = room_obj.exits
+                
+                # Check if the exits are compatible (either subset relationship or intersection)
+                # This allows for progressive discovery of exits in the same room
+                if (normalized_current_exits == existing_exits or 
+                    existing_exits.issubset(normalized_current_exits) or
+                    normalized_current_exits.issubset(existing_exits) or
+                    (normalized_current_exits and existing_exits and 
+                     len(normalized_current_exits.intersection(existing_exits)) > 0)):
+                    
+                    # Update the room's exits to include all observed exits (union)
+                    union_exits = existing_exits.union(normalized_current_exits)
+                    room_obj.exits = union_exits
+                    
+                    return existing_node_id
+        
+        # No compatible existing node found, generate a new node ID
+        new_node_id = self._create_unique_location_id(base_location_name, description, exits=list(normalized_current_exits))
+        
+        # Create the new room with base_name stored
+        self.add_room(new_node_id, base_name=normalized_base_name)
+        
+        return new_node_id
+
+    def add_room(self, room_name: str, base_name: str = None) -> Room:
         # Use the room name as-is (it should already be a unique ID if needed)
         room_key = room_name
         if room_key not in self.rooms:
-            self.rooms[room_key] = Room(name=room_key)
+            self.rooms[room_key] = Room(name=room_key, base_name=base_name)
             # Flag that we have new rooms since last consolidation
             self.has_new_rooms_since_consolidation = True
         return self.rooms[room_key]
@@ -900,34 +983,19 @@ class MapGraph:
         
         # SECONDARY APPROACH: Only use descriptions for truly permanent, structural features
         # Avoid volatile content like objects, lighting, or temporary states
-        if description:
-            desc_lower = description.lower()
-            
-            # Only use highly distinctive, permanent structural features
-            if "well house" in desc_lower:
-                return f"{base_name} (well house)"
-            elif "white house" in desc_lower and "front" in desc_lower:
-                return f"{base_name} (front of house)"
-            elif "white house" in desc_lower and ("back" in desc_lower or "behind" in desc_lower):
-                return f"{base_name} (back of house)"
-            elif "attic" in desc_lower:
-                return f"{base_name} (attic)"
-            elif "basement" in desc_lower or "cellar" in desc_lower:
-                return f"{base_name} (basement)"
-            elif "kitchen" in desc_lower:
-                return f"{base_name} (kitchen)"
-            elif "living room" in desc_lower:
-                return f"{base_name} (living room)"
+        # REMOVED: All hardcoded location-specific strings to maintain LLM-First Design
+        # The LLM extractor should handle location identification, not hardcoded rules
         
         # AVOID: Volatile features that change frequently
         # - Objects that can be picked up/dropped
         # - Lighting conditions ("dimly lit", "dark")
         # - Temporary states ("open door", "closed window")
         # - Minor object detection variations
+        # - Hardcoded location names that won't help with unseen areas
         
         # Default: return the base name without modification
         # This ensures the same room gets the same ID unless there are
-        # truly distinctive permanent features
+        # truly distinctive permanent features discovered through exit patterns
         return base_name
 
     def needs_consolidation(self) -> bool:
@@ -951,10 +1019,13 @@ class MapGraph:
         location_groups = defaultdict(list)
         
         for location_name in self.rooms.keys():
-            # Extract base name by removing parenthetical suffixes like "(north only)"
-            base_name = location_name.split('(')[0].strip()
-            # Normalize case and spacing
-            base_name = ' '.join(word.capitalize() for word in base_name.split())
+            room_obj = self.rooms[location_name]
+            # Use the stored base_name if available, otherwise extract from node_id
+            if hasattr(room_obj, 'base_name') and room_obj.base_name:
+                base_name = room_obj.base_name
+            else:
+                # Fallback to extracting base name from location_name (old behavior)
+                base_name = self._extract_base_name(location_name)
             location_groups[base_name].append(location_name)
         
         consolidations_performed = 0
@@ -1015,7 +1086,7 @@ class MapGraph:
                 self.rooms[target_location].exits = all_exits
             else:
                 # Create the target location if it doesn't exist
-                self.add_room(target_location)
+                self.add_room(target_location, base_name=base_name)
                 self.rooms[target_location].exits = all_exits
         
         if consolidations_performed > 0:
