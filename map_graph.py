@@ -1183,6 +1183,309 @@ class MapGraph:
         
         return consolidations
 
+    def consolidate_base_name_variants(self) -> int:
+        """
+        Enhanced consolidation that groups rooms by base name and merges variants.
+        
+        This addresses the main source of fragmentation: rooms with the same base location
+        but different suffixes (e.g., "Forest Path" vs "Forest Path (3-way: north-south-tree)").
+        
+        Returns:
+            Number of consolidations performed
+        """
+        from collections import defaultdict
+        
+        print("🔧 Enhanced base name consolidation...")
+        
+        # Group locations by their base name
+        base_name_groups = defaultdict(list)
+        
+        for location_name in self.rooms.keys():
+            base_name = self._extract_base_name(location_name).lower()
+            base_name_groups[base_name].append(location_name)
+        
+        consolidations_performed = 0
+        
+        # Process each base name group with multiple variants
+        for base_name, variants in base_name_groups.items():
+            if len(variants) <= 1:
+                continue  # No variants to consolidate
+            
+            print(f"🔄 Consolidating base name variants: {base_name}")
+            print(f"   Variants found: {variants}")
+            
+            # Choose the best variant as the consolidation target
+            target_location = self._choose_best_base_name_variant(variants)
+            
+            # Collect all exits from all variants
+            all_exits = set()
+            for variant in variants:
+                if variant in self.rooms:
+                    all_exits.update(self.rooms[variant].exits)
+            
+            print(f"   Target location: {target_location}")
+            print(f"   Combined exits: {sorted(list(all_exits))}")
+            
+            # Merge all connections from variants into the target
+            for variant in variants:
+                if variant == target_location:
+                    continue  # Skip the target itself
+                    
+                # Move outgoing connections from variant to target
+                if variant in self.connections:
+                    for exit_action, destination in self.connections[variant].items():
+                        print(f"   Moving connection: {variant} --[{exit_action}]--> {destination}")
+                        self.add_connection(target_location, exit_action, destination)
+                    
+                    # Remove the old connections
+                    del self.connections[variant]
+                
+                # Update incoming connections that point to this variant
+                for from_location, exits in self.connections.items():
+                    for exit_action, destination in list(exits.items()):
+                        if destination == variant:
+                            print(f"   Redirecting connection: {from_location} --[{exit_action}]--> {variant} => {target_location}")
+                            exits[exit_action] = target_location
+                
+                # Remove the variant room if it's not the target
+                if variant in self.rooms:
+                    print(f"   Removing variant: {variant}")
+                    del self.rooms[variant]
+                    
+                consolidations_performed += 1
+            
+            # Update the target location with all collected exits
+            if target_location in self.rooms:
+                self.rooms[target_location].exits = all_exits
+                # Ensure the target has the correct base_name
+                room_obj = self.rooms[target_location]
+                if not hasattr(room_obj, 'base_name') or not room_obj.base_name:
+                    room_obj.base_name = self._extract_base_name(target_location)
+            else:
+                # Create the target location if it doesn't exist
+                extracted_base_name = self._extract_base_name(target_location)
+                self.add_room(target_location, base_name=extracted_base_name)
+                self.rooms[target_location].exits = all_exits
+        
+        if consolidations_performed > 0:
+            print(f"✅ Base name consolidation complete: {consolidations_performed} locations merged")
+        else:
+            print("✅ No base name variants found to consolidate")
+        
+        return consolidations_performed
+
+    def _choose_best_base_name_variant(self, variants: List[str]) -> str:
+        """
+        Choose the best variant for base name consolidation.
+        
+        Prioritizes:
+        1. Base names without suffixes (simplest form)
+        2. Well-formed suffixes that provide navigation info
+        3. Shorter, cleaner names
+        """
+        if len(variants) == 1:
+            return variants[0]
+        
+        def score_base_name_variant(variant):
+            score = 0
+            
+            # Strongly prefer variants without parentheses (pure base names)
+            if '(' not in variant:
+                score += 2000
+            
+            # Prefer consistent Title Case in base name
+            base_name = variant.split('(')[0].strip()
+            words = base_name.split()
+            if all(word[0].isupper() and word[1:].islower() for word in words if word):
+                score += 500
+            
+            # Evaluate suffix quality if present
+            if '(' in variant:
+                suffix = variant[variant.find('('):]
+                
+                # Prefer suffixes that describe navigation topology
+                navigation_keywords = ['junction', 'corridor', 'intersection', 'way', 'passage']
+                if any(keyword in suffix.lower() for keyword in navigation_keywords):
+                    score += 200
+                
+                # Prefer suffixes with direction information
+                direction_keywords = ['north', 'south', 'east', 'west', 'up', 'down']
+                direction_count = sum(1 for keyword in direction_keywords if keyword in suffix.lower())
+                score += direction_count * 50
+                
+                # Prefer lowercase in suffixes (our standard)
+                suffix_words = suffix.replace('(', '').replace(')', '').replace('-', ' ').replace(':', ' ').split()
+                lowercase_count = sum(1 for word in suffix_words if word.islower())
+                score += lowercase_count * 10
+            
+            # Prefer shorter variants (less verbose)
+            score -= len(variant) * 2
+            
+            return score
+        
+        # Choose the variant with the highest score
+        best_variant = max(variants, key=score_base_name_variant)
+        print(f"   Selected '{best_variant}' from variants: {variants}")
+        return best_variant
+
+    def prune_fragmented_nodes(self) -> int:
+        """
+        Identify and remove fragmented nodes that serve no navigation purpose.
+        
+        Removes:
+        1. Nodes with no exits and no incoming connections (isolated dead ends)
+        2. Nodes that have only outgoing connections to "Unknown Destination" but no real connections
+        
+        Preserves:
+        1. Nodes that have real incoming connections (they serve as destinations)
+        2. Nodes that have real outgoing connections (they provide navigation options)
+        3. Unknown destination placeholders (they represent future exploration potential)
+        
+        Returns:
+            Number of nodes pruned
+        """
+        pruned_count = 0
+        
+        # Find all nodes that have incoming connections (are destinations)
+        nodes_with_incoming = set()
+        for from_room, exits in self.connections.items():
+            for exit_action, destination in exits.items():
+                if not destination.startswith("Unknown Destination"):
+                    nodes_with_incoming.add(destination)
+        
+        # Identify candidates for pruning
+        candidates_for_pruning = []
+        
+        for room_name in list(self.rooms.keys()):
+            room = self.rooms[room_name]
+            
+            # Skip if this is an "Unknown Destination" placeholder - we want to keep these
+            if room_name.startswith("Unknown Destination"):
+                continue
+            
+            # Case 1: Node has no exits at all
+            if not room.exits or len(room.exits) == 0:
+                # Only prune if it also has no incoming connections
+                if room_name not in nodes_with_incoming:
+                    candidates_for_pruning.append((room_name, "no exits, no incoming connections"))
+                    continue
+            
+            # Case 2: Node has exits but all outgoing connections go to unknown destinations
+            if room_name in self.connections:
+                outgoing_connections = self.connections[room_name]
+                real_connections = [dest for dest in outgoing_connections.values() 
+                                 if not dest.startswith("Unknown Destination")]
+                
+                if len(real_connections) == 0 and room_name not in nodes_with_incoming:
+                    # All connections go to unknown destinations and no one connects TO this room
+                    candidates_for_pruning.append((room_name, "only unknown destinations, no incoming"))
+        
+        # Perform the pruning
+        for room_name, reason in candidates_for_pruning:
+            print(f"🗑️  Pruning fragmented node: {room_name} ({reason})")
+            
+            # Remove from rooms
+            if room_name in self.rooms:
+                del self.rooms[room_name]
+            
+            # Remove from connections
+            if room_name in self.connections:
+                del self.connections[room_name]
+            
+            # Remove any remaining incoming connections (shouldn't be any based on our logic)
+            for from_room, exits in self.connections.items():
+                exits_to_remove = [exit_action for exit_action, destination in exits.items() 
+                                 if destination == room_name]
+                for exit_action in exits_to_remove:
+                    print(f"   Removing stale connection: {from_room} --[{exit_action}]--> {room_name}")
+                    del exits[exit_action]
+            
+            pruned_count += 1
+        
+        if pruned_count > 0:
+            print(f"✅ Pruning complete: {pruned_count} fragmented nodes removed")
+        else:
+            print("✅ No fragmented nodes found to prune")
+        
+        return pruned_count
+
+    def get_fragmentation_report(self) -> str:
+        """
+        Generate a report on map fragmentation issues.
+        
+        Returns:
+            Human-readable report of fragmentation status
+        """
+        report_lines = ["🔍 MAP FRAGMENTATION REPORT", "=" * 40]
+        
+        # Count nodes with no exits
+        empty_exit_nodes = [name for name, room in self.rooms.items() 
+                          if not room.exits or len(room.exits) == 0]
+        
+        # Count nodes with incoming connections
+        nodes_with_incoming = set()
+        for from_room, exits in self.connections.items():
+            for exit_action, destination in exits.items():
+                if not destination.startswith("Unknown Destination"):
+                    nodes_with_incoming.add(destination)
+        
+        # Count isolated nodes (no exits, no incoming)
+        isolated_nodes = [name for name in empty_exit_nodes 
+                         if name not in nodes_with_incoming]
+        
+        # Count unknown destination placeholders
+        unknown_destinations = sum(1 for exits in self.connections.values() 
+                                 for dest in exits.values() 
+                                 if dest.startswith("Unknown Destination"))
+        
+        # Count base name variations
+        from collections import defaultdict
+        base_name_groups = defaultdict(list)
+        for room_name in self.rooms.keys():
+            base_name = self._extract_base_name(room_name)
+            base_name_groups[base_name].append(room_name)
+        
+        fragmented_base_names = {base: variants for base, variants in base_name_groups.items() 
+                               if len(variants) > 1}
+        
+        # Add statistics to report
+        report_lines.extend([
+            f"Total Rooms: {len(self.rooms)}",
+            f"Total Connections: {len(self.connections)}",
+            f"Empty Exit Nodes: {len(empty_exit_nodes)}",
+            f"Isolated Nodes: {len(isolated_nodes)}",
+            f"Unknown Destinations: {unknown_destinations}",
+            f"Fragmented Base Names: {len(fragmented_base_names)}",
+            ""
+        ])
+        
+        # Detail isolated nodes
+        if isolated_nodes:
+            report_lines.extend(["🗑️  ISOLATED NODES (candidates for pruning):"])
+            for node in isolated_nodes:
+                report_lines.append(f"   - {node}")
+            report_lines.append("")
+        
+        # Detail fragmented base names
+        if fragmented_base_names:
+            report_lines.extend(["🔄 FRAGMENTED BASE NAMES (candidates for consolidation):"])
+            for base_name, variants in fragmented_base_names.items():
+                if len(variants) > 1:
+                    report_lines.append(f"   {base_name}:")
+                    for variant in variants:
+                        report_lines.append(f"     - {variant}")
+            report_lines.append("")
+        
+        # Detail empty exit nodes that are NOT isolated
+        connected_empty_nodes = [name for name in empty_exit_nodes if name in nodes_with_incoming]
+        if connected_empty_nodes:
+            report_lines.extend(["⚠️  EMPTY EXIT NODES (have incoming connections):"])
+            for node in connected_empty_nodes:
+                report_lines.append(f"   - {node}")
+            report_lines.append("")
+        
+        return "\n".join(report_lines)
+
 
 if __name__ == "__main__":
     # Example Usage
