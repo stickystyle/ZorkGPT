@@ -15,6 +15,7 @@ from datetime import datetime
 import os
 import json
 import time
+import re
 
 from zork_api import ZorkInterface
 from llm_client import LLMClientWrapper
@@ -1465,9 +1466,18 @@ class ZorkOrchestrator:
             with open("knowledgebase.md", "r") as f:
                 content = f.read()
 
-            # Split content and exclude the map section
-            sections = content.split("## CURRENT WORLD MAP")
-            knowledge_only = sections[0] if sections else content
+            # Remove the mermaid diagram section more precisely
+            # Look for the pattern: ## CURRENT WORLD MAP followed by ```mermaid...```
+            
+            # Pattern to match the map section with mermaid diagram
+            # This matches from "## CURRENT WORLD MAP" through the closing ```
+            pattern = r'## CURRENT WORLD MAP\s*\n\s*```mermaid\s*\n.*?\n```'
+            
+            # Remove the mermaid diagram section while preserving other content
+            knowledge_only = re.sub(pattern, '', content, flags=re.DOTALL)
+            
+            # Clean up any extra whitespace that might be left
+            knowledge_only = re.sub(r'\n\s*\n\s*\n', '\n\n', knowledge_only)
 
             return {
                 "content": knowledge_only.strip(),
