@@ -30,22 +30,27 @@ def get_stack_output(output_key: str) -> Optional[str]:
         return None
 
 
-def run_ssh_command(command: str, public_ip: str) -> bool:
+def run_ssh_command(command: str, public_ip: str, capture_output: bool = True) -> bool:
     """Run a command on the EC2 instance via SSH."""
     ssh_cmd = f"ssh -i ~/.ssh/parrishfamily.pem -o StrictHostKeyChecking=no ec2-user@{public_ip} '{command}'"
     
     try:
-        result = subprocess.run(ssh_cmd, shell=True, check=True, capture_output=True, text=True)
-        if result.stdout:
-            print(result.stdout)
-        if result.stderr:
-            print(f"⚠️ stderr: {result.stderr}")
-        return result.returncode == 0
+        if capture_output:
+            result = subprocess.run(ssh_cmd, shell=True, check=True, capture_output=True, text=True)
+            if result.stdout:
+                print(result.stdout)
+            if result.stderr:
+                print(f"⚠️ stderr: {result.stderr}")
+            return result.returncode == 0
+        else:
+            # For interactive commands like logs-follow, don't capture output
+            result = subprocess.run(ssh_cmd, shell=True)
+            return result.returncode == 0
     except subprocess.CalledProcessError as e:
         print(f"❌ SSH command failed: {e}")
-        if hasattr(e, 'stdout') and e.stdout:
+        if capture_output and hasattr(e, 'stdout') and e.stdout:
             print(f"stdout: {e.stdout}")
-        if hasattr(e, 'stderr') and e.stderr:
+        if capture_output and hasattr(e, 'stderr') and e.stderr:
             print(f"stderr: {e.stderr}")
         return False
 
@@ -101,7 +106,8 @@ def view_logs(public_ip: str, follow: bool = False) -> None:
     if follow:
         print("Press Ctrl+C to stop following logs")
 
-    run_ssh_command(f"sudo journalctl -u zorkgpt {follow_flag} --no-pager", public_ip)
+    # When following logs, don't capture output to allow real-time streaming
+    run_ssh_command(f"sudo journalctl -u zorkgpt {follow_flag} --no-pager", public_ip, capture_output=not follow)
 
 
 def update_zorkgpt(public_ip: str) -> None:
