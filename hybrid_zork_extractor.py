@@ -42,6 +42,8 @@ class ExtractorResponse(BaseModel):
     visible_characters: List[str]
     important_messages: List[str]
     in_combat: bool
+    score: Optional[int] = None
+    moves: Optional[int] = None
 
 
 class HybridZorkExtractor:
@@ -283,7 +285,7 @@ Extract key information from the game text and return it as JSON with these fiel
                 return False, "LLM movement analysis failed"
             
             # Extract content from the response
-            response_content = movement_response.choices[0].message.content if movement_response.choices else ""
+            response_content = movement_response.content if hasattr(movement_response, 'content') else str(movement_response)
             
             # Parse the LLM response
             return self._parse_movement_analysis(response_content)
