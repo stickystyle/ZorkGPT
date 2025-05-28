@@ -56,6 +56,14 @@ max_tokens = 300
 # top_k = null     # Optional - leave commented for default
 # min_p = null     # Optional - leave commented for default
 
+[tool.zorkgpt.analysis_sampling]
+# Analysis Model LLM Sampling Parameters (for knowledge generation)
+temperature = 0.3
+# top_p = null     # Optional - leave commented for default
+# top_k = null     # Optional - leave commented for default
+# min_p = null     # Optional - leave commented for default
+# max_tokens = null  # Optional - leave commented to use default
+
 [tool.zorkgpt.gameplay]
 # Gameplay Configuration
 turn_delay_seconds = 10.0

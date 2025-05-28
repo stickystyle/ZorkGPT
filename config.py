@@ -49,6 +49,15 @@ class ExtractorSamplingConfig(BaseModel):
     max_tokens: int = 300
 
 
+class AnalysisSamplingConfig(BaseModel):
+    """Sampling parameters for the analysis model used in knowledge generation."""
+    temperature: float = 0.3
+    top_p: Optional[float] = None
+    top_k: Optional[int] = None
+    min_p: Optional[float] = None
+    max_tokens: Optional[int] = None
+
+
 class GameplayConfig(BaseModel):
     """Gameplay configuration settings."""
     turn_delay_seconds: float = 0.0
@@ -89,6 +98,7 @@ class ZorkGPTConfig(BaseModel):
     agent_sampling: AgentSamplingConfig = AgentSamplingConfig()
     critic_sampling: CriticSamplingConfig = CriticSamplingConfig()
     extractor_sampling: ExtractorSamplingConfig = ExtractorSamplingConfig()
+    analysis_sampling: AnalysisSamplingConfig = AnalysisSamplingConfig()
     gameplay: GameplayConfig = GameplayConfig()
     logging: LoggingConfig = LoggingConfig()
     orchestrator: OrchestratorConfig = OrchestratorConfig()

@@ -14,6 +14,8 @@ from movement_analyzer import MovementAnalyzer, create_movement_context
 from llm_client import LLMClientWrapper
 from config import get_config, get_client_api_key
 import re
+from pathlib import Path
+
 
 
 class AdaptiveKnowledgeManager:
@@ -44,6 +46,9 @@ class AdaptiveKnowledgeManager:
 
         # Model for analysis
         self.analysis_model = config.llm.analysis_model
+
+        # Load analysis sampling parameters from configuration
+        self.analysis_sampling = config.analysis_sampling
 
         # Turn-based configuration
         self.turn_window_size = config.gameplay.turn_window_size
@@ -493,8 +498,11 @@ REASON: [brief explanation]"""
             response = self.client.chat.completions.create(
                 model=self.analysis_model,
                 messages=messages,
-                temperature=0.3,
-                max_tokens=500,
+                temperature=self.analysis_sampling.temperature,
+                top_p=self.analysis_sampling.top_p,
+                top_k=self.analysis_sampling.top_k,
+                min_p=self.analysis_sampling.min_p,
+                max_tokens=self.analysis_sampling.max_tokens or 500,
             )
 
             content = response.content.strip()
@@ -541,18 +549,27 @@ TURN DATA SUMMARY:
 - Actions: {len(turn_data["actions_and_responses"])}
 - Score changes: {len(turn_data["score_changes"])}
 - Location changes: {len(turn_data["location_changes"])}
+- Death events: {len(turn_data.get("death_events", []))}
 
-Choose the most appropriate strategy:
+Choose the most appropriate strategy based on what will generate the most valuable game world knowledge:
 
-1. FULL_UPDATE: Comprehensive analysis of all aspects (exploration, combat, puzzles, items)
-2. SELECTIVE_UPDATE: Focus on specific aspects that show promise in this data
-3. CONSOLIDATION_ONLY: Don't analyze new data, just consolidate existing knowledge
-4. ESCAPE_ANALYSIS: Focus on identifying and solving stuck/loop situations
+1. FULL_UPDATE: Comprehensive analysis focusing on items, puzzles, dangers, and strategic discoveries
+2. SELECTIVE_UPDATE: Focus on specific game world aspects (items, deaths, new areas, puzzle clues)
+3. CONSOLIDATION_ONLY: Reorganize existing knowledge without adding new information
+4. ESCAPE_ANALYSIS: Focus on navigation and movement strategies for stuck situations
+
+**PRIORITIZE GAME WORLD CONTENT**: Focus on strategies that will extract:
+- Specific item locations, uses, and combinations
+- Puzzle mechanics and solution patterns  
+- Danger identification and avoidance strategies
+- Room-specific secrets and interactive elements
+- Combat/interaction strategies with NPCs or creatures
 
 Consider:
-- What type of gameplay situation this represents
-- Whether the data shows progress or stagnation
-- How it relates to existing knowledge
+- What specific game world discoveries could be documented?
+- Are there deaths that reveal important danger patterns?
+- Do score changes indicate successful puzzle solving or item acquisition?
+- Are there new areas with unique properties to document?
 
 Respond with just the strategy name: FULL_UPDATE, SELECTIVE_UPDATE, CONSOLIDATION_ONLY, or ESCAPE_ANALYSIS"""
 
@@ -563,7 +580,7 @@ Respond with just the strategy name: FULL_UPDATE, SELECTIVE_UPDATE, CONSOLIDATIO
             messages = [
                 {
                     "role": "system",
-                    "content": "You are an expert at determining optimal knowledge extraction strategies for interactive fiction gameplay.",
+                    "content": "You are an expert at determining optimal knowledge extraction strategies for interactive fiction gameplay. Focus on strategies that will generate valuable game world knowledge about items, puzzles, dangers, and strategic discoveries rather than just navigation patterns.",
                 },
                 {"role": "user", "content": prompt},
             ]
@@ -574,8 +591,11 @@ Respond with just the strategy name: FULL_UPDATE, SELECTIVE_UPDATE, CONSOLIDATIO
             response = self.client.chat.completions.create(
                 model=self.analysis_model,
                 messages=messages,
-                temperature=0.2,
-                max_tokens=100,
+                temperature=self.analysis_sampling.temperature,
+                top_p=self.analysis_sampling.top_p,
+                top_k=self.analysis_sampling.top_k,
+                min_p=self.analysis_sampling.min_p,
+                max_tokens=self.analysis_sampling.max_tokens or 100,
             )
 
             strategy = response.content.strip().upper()
@@ -660,7 +680,7 @@ Focus your analysis on DISCOVERED KNOWLEDGE that goes BEYOND these basics:
 
 DO NOT repeat basic information already covered in the agent instructions."""
 
-        prompt = f"""Analyze this Zork gameplay data and extract the most valuable strategic insights.{agent_context}
+        prompt = f"""Analyze this Zork gameplay data and extract the most valuable strategic insights about the game world.{agent_context}
 
 TURN RANGE: {turn_data["start_turn"]}-{turn_data["end_turn"]}
 SCORE CHANGES: {turn_data["score_changes"]}
@@ -670,28 +690,53 @@ DEATH EVENTS: {len(turn_data.get("death_events", []))} death(s) occurred
 ACTION SEQUENCE:
 {actions_text}{death_analysis}
 
-Focus on extracting insights that are:
-1. Actionable and specific
-2. Non-obvious or newly discovered
-3. Likely to improve future performance
-4. Beyond basic gameplay mechanics (which are already covered)
+**FOCUS ON GAME WORLD CONTENT**: Extract insights that reveal specific information about:
 
-Provide insights in these categories only if they contain valuable information:
-- **Navigation Discoveries**: New paths, connections, or movement strategies
-- **Item Insights**: Useful items found, usage patterns, or combinations
-- **Puzzle Solutions**: Successful problem-solving approaches
-- **Danger Avoidance**: Threats identified and how to handle them (ESPECIALLY IMPORTANT if deaths occurred)
-- **Efficiency Improvements**: Better action sequences or time-saving approaches
-- **Death Analysis**: If deaths occurred, analyze the exact cause and prevention strategies
+1. **Items and Objects**: 
+   - Specific items found and their exact locations
+   - How items can be used or combined
+   - Which items are essential vs. optional
+   - Item interaction patterns and effects
 
-**SPECIAL FOCUS**: If death events occurred, prioritize analyzing:
-- What specific action or condition led to death
-- What warning signs were present
-- How to recognize and avoid this danger in the future
-- What alternative actions could have been taken
+2. **Puzzles and Mechanisms**:
+   - Puzzle solutions or partial solutions discovered
+   - Interactive elements in rooms (doors, switches, containers)
+   - Sequence requirements for complex actions
+   - Clues found about how to solve problems
 
-Skip categories that don't have meaningful insights from this data.
-Be specific about locations, items, and sequences when relevant."""
+3. **Dangers and Death Prevention**:
+   - Specific threats and how they manifest
+   - Warning signs that precede danger
+   - Exact conditions that lead to death
+   - Safe vs. dangerous actions in specific locations
+
+4. **Location-Specific Knowledge**:
+   - Unique properties of rooms or areas
+   - Special interactions available in certain locations
+   - Hidden or non-obvious features of places
+   - Room-specific commands that work
+
+5. **Character/Creature Interactions**:
+   - NPCs encountered and how to interact with them
+   - Combat or negotiation strategies
+   - Behavior patterns of game entities
+
+6. **Strategic Discoveries**:
+   - Successful action sequences for achieving goals
+   - Time-sensitive events or conditions
+   - Resource management insights (light, health, etc.)
+
+**PRIORITIZE SPECIFIC, ACTIONABLE DISCOVERIES**: Focus on concrete information that would help an AI agent make better decisions about:
+- Which specific items to prioritize taking
+- How to solve particular puzzles step-by-step
+- Which locations or actions to avoid and why
+- Optimal sequences for achieving objectives
+
+Skip basic navigation advice (which is already covered) unless it reveals something specific about the game world (like secret passages or special movement requirements).
+
+{death_analysis if turn_data.get("death_events") else ""}
+
+Be specific about locations, items, commands, and sequences. Provide insights that go beyond general gameplay mechanics."""
 
         # Incase using Qwen qwen3-30b-a3b
         prompt = r"\no_think " + prompt
@@ -702,12 +747,15 @@ Be specific about locations, items, and sequences when relevant."""
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are an expert at extracting actionable strategic insights from interactive fiction gameplay. Focus on quality over quantity.",
+                        "content": "You are an expert at extracting specific, actionable game world knowledge from interactive fiction gameplay. Focus on concrete discoveries about items, puzzles, dangers, and strategic elements rather than general navigation or basic gameplay mechanics.",
                     },
                     {"role": "user", "content": prompt},
                 ],
-                temperature=0.3,
-                max_tokens=1500,
+                temperature=self.analysis_sampling.temperature,
+                top_p=self.analysis_sampling.top_p,
+                top_k=self.analysis_sampling.top_k,
+                min_p=self.analysis_sampling.min_p,
+                max_tokens=self.analysis_sampling.max_tokens or 1500,
             )
 
             return response.content.strip()
@@ -786,8 +834,11 @@ Provide specific, actionable guidance that an AI agent can follow algorithmicall
                     },
                     {"role": "user", "content": prompt},
                 ],
-                temperature=0.4,
-                max_tokens=1000,
+                temperature=self.analysis_sampling.temperature,
+                top_p=self.analysis_sampling.top_p,
+                top_k=self.analysis_sampling.top_k,
+                min_p=self.analysis_sampling.min_p,
+                max_tokens=self.analysis_sampling.max_tokens or 1000,
             )
 
             return response.content.strip()
@@ -864,8 +915,11 @@ Focus on actionable insights that would help improve future gameplay. Be specifi
                     },
                     {"role": "user", "content": prompt},
                 ],
-                temperature=0.3,
-                max_tokens=2000,
+                temperature=self.analysis_sampling.temperature,
+                top_p=self.analysis_sampling.top_p,
+                top_k=self.analysis_sampling.top_k,
+                min_p=self.analysis_sampling.min_p,
+                max_tokens=self.analysis_sampling.max_tokens or 2000,
             )
 
             return response.content.strip()
@@ -920,8 +974,11 @@ Do not add new information - only reorganize and clarify existing knowledge for 
                     },
                     {"role": "user", "content": prompt},
                 ],
-                temperature=0.2,
-                max_tokens=3000,
+                temperature=self.analysis_sampling.temperature,
+                top_p=self.analysis_sampling.top_p,
+                top_k=self.analysis_sampling.top_k,
+                min_p=self.analysis_sampling.min_p,
+                max_tokens=self.analysis_sampling.max_tokens or 3000,
             )
 
             return response.content.strip()
@@ -1014,8 +1071,11 @@ Maintain the existing structure but enhance it with the new insights."""
                     },
                     {"role": "user", "content": prompt},
                 ],
-                temperature=0.2,
-                max_tokens=4000,
+                temperature=self.analysis_sampling.temperature,
+                top_p=self.analysis_sampling.top_p,
+                top_k=self.analysis_sampling.top_k,
+                min_p=self.analysis_sampling.min_p,
+                max_tokens=self.analysis_sampling.max_tokens or 4000,
             )
 
             return response.content.strip()
@@ -1073,8 +1133,11 @@ Create a comprehensive strategy guide that incorporates these insights while fol
                     },
                     {"role": "user", "content": prompt},
                 ],
-                temperature=0.2,
-                max_tokens=3000,
+                temperature=self.analysis_sampling.temperature,
+                top_p=self.analysis_sampling.top_p,
+                top_k=self.analysis_sampling.top_k,
+                min_p=self.analysis_sampling.min_p,
+                max_tokens=self.analysis_sampling.max_tokens or 3000,
             )
 
             return response.content.strip()
