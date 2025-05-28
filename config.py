@@ -90,6 +90,14 @@ class AWSConfig(BaseModel):
     """AWS configuration settings."""
     s3_bucket: Optional[str] = None
     s3_key_prefix: str = "zorkgpt/"
+    
+    def __init__(self, **data):
+        """Initialize with environment variable for s3_bucket."""
+        # Override s3_bucket with environment variable if available
+        env_s3_bucket = os.environ.get("ZORK_S3_BUCKET")
+        if env_s3_bucket:
+            data["s3_bucket"] = env_s3_bucket
+        super().__init__(**data)
 
 
 class ZorkGPTConfig(BaseModel):
