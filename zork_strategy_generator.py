@@ -1234,10 +1234,6 @@ If you find yourself in the same location for 3+ consecutive turns:
 ### **Map-Based Navigation Strategy**
 The CURRENT WORLD MAP shows connections between locations. Use this strategically:
 
-- **Forest** connects to: Clearing (north/south), Forest Path (east/west)
-- **Clearing** is a central hub connecting to: Canyon View (southeast), Forest (east/north/west), Forest Path (south), Up A Tree (climb tree)
-- **Forest Path** connects to: Clearing (north), Forest (east/west), North Of House (south), Up A Tree (climb tree/up)
-
 ### **UNDERSTANDING THE MERMAID DIAGRAM (CRITICAL)**
 
 The `## CURRENT WORLD MAP` section contains a mermaid diagram that shows ALL possible connections between rooms. Here's how to read it:
