@@ -419,7 +419,7 @@ class AdaptiveKnowledgeManager:
         num_game_over_events = len(turn_data.get("game_over_events", []))
 
         # Sample some actions for context (limit to avoid token overflow)
-        sample_actions = turn_data["actions_and_responses"][:10]
+        sample_actions = turn_data["actions_and_responses"][:50]
         actions_summary = "\n".join(
             [
                 f"Turn {action['turn']}: {action['action']} -> {action['response'][:100]}..."
@@ -637,7 +637,7 @@ Respond with just the strategy name: FULL_UPDATE, SELECTIVE_UPDATE, CONSOLIDATIO
         # Prepare action sequence
         actions_text = ""
         for action in turn_data["actions_and_responses"][
-            :20
+            :50
         ]:  # Limit to avoid token overflow
             actions_text += f"Turn {action['turn']}: {action['action']} -> {action['response'][:150]}...\n"
 
@@ -769,7 +769,7 @@ Be specific about locations, items, commands, and sequences. Provide insights th
         """Analyze data to identify escape strategies from stuck situations."""
 
         # Focus on recent actions and any changes
-        recent_actions = turn_data["actions_and_responses"][-10:]
+        recent_actions = turn_data["actions_and_responses"][-30:]
         actions_text = "\n".join(
             [
                 f"Turn {action['turn']}: {action['action']} -> {action['response'][:100]}..."
@@ -853,7 +853,7 @@ Provide specific, actionable guidance that an AI agent can follow algorithmicall
 
         # This is similar to the original episode analysis but for turn ranges
         actions_text = ""
-        for action in turn_data["actions_and_responses"][:30]:
+        for action in turn_data["actions_and_responses"][:60]:
             actions_text += f"Turn {action['turn']}: {action['action']} -> {action['response'][:150]}...\n"
 
         # Prepare death event analysis
