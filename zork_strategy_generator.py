@@ -737,7 +737,7 @@ Skip basic navigation advice (which is already covered) unless it reveals someth
 
 {death_analysis if turn_data.get("death_events") else ""}
 
-Be specific about locations, items, commands, and sequences. Provide insights that go beyond general gameplay mechanics."""
+Be specific about locations, items, commands, and sequences. Provide insights that go beyond general gameplay mechanics. **Aim for conciseness in these new discoveries, presenting them clearly and avoiding redundancy if similar points arise from this specific turn window's data.**"""
 
         # Incase using Qwen qwen3-30b-a3b
         prompt = r"\no_think " + prompt
@@ -823,7 +823,7 @@ Provide comprehensive escape strategies focusing on:
    - Use exact commands from diagram arrows, not variations
    - Don't assume directions have failed without clear recent evidence
 
-Provide specific, actionable guidance that an AI agent can follow algorithmically. Focus on using the mermaid diagram as the primary navigation tool for escape strategies."""
+Provide specific, actionable guidance that an AI agent can follow algorithmically. Focus on using the mermaid diagram as the primary navigation tool for escape strategies. **Concentrate on any *newly learned lessons* or *effective escape actions confirmed by this specific situation*. Summarize these novel points concisely, assuming general loop-breaking and map-usage protocols are already established in the knowledge base. Avoid lengthy restatements of standard procedures unless critical for this specific context.**"""
     
         try:
             response = self.client.chat.completions.create(
@@ -901,7 +901,7 @@ Provide insights in these categories:
 - Alternative actions that could have been taken
 - How to recognize similar dangerous situations in the future
 
-Focus on actionable insights that would help improve future gameplay. Be specific about locations, items, and sequences when relevant."""
+Focus on actionable insights that would help improve future gameplay. Be specific about locations, items, and sequences when relevant. **Prioritize novel strategies and observations from this specific turn window that are unlikely to be covered in general Zork advice. Aim for conciseness and avoid repeating information that would already be known to an experienced player or present in a general strategy guide.**"""
 
         # Incase using Qwen qwen3-30b-a3b
         prompt = r"\no_think " + prompt
