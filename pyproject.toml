@@ -72,7 +72,7 @@ max_tokens = 5000  # Optional - leave commented to use default
 
 [tool.zorkgpt.gameplay]
 # Gameplay Configuration
-turn_delay_seconds = 10.0
+turn_delay_seconds = 30.0
 turn_window_size = 100
 min_knowledge_quality = 6.0
 critic_rejection_threshold = -0.05
@@ -83,9 +83,9 @@ enable_prompt_logging = false
 
 [tool.zorkgpt.orchestrator]
 # Orchestrator Configuration
-max_turns_per_episode = 20
-knowledge_update_interval = 10
-map_update_interval = 5
+max_turns_per_episode = 1000
+knowledge_update_interval = 100
+map_update_interval = 10
 enable_state_export = true
 
 [tool.zorkgpt.files]
