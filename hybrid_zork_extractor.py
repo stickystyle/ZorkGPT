@@ -209,7 +209,7 @@ Extract key information from the game text and return it as JSON with these fiel
             
             if not llm_response:
                 self.logger.warning(f"[{self.episode_id}] LLM extraction returned empty response")
-                return self._create_fallback_response(clean_game_text, previous_location)
+                return self._create_fallback_response(clean_game_text, previous_location, structured_info)
             
             # Extract content from the response
             response_content = llm_response.content if hasattr(llm_response, 'content') else str(llm_response)
@@ -231,7 +231,7 @@ Extract key information from the game text and return it as JSON with these fiel
                             "extracted_location": parsed_response.current_location_name,
                             "location_changed": location_changed,
                             "location_change_reason": location_change_reason,
-                            "structured_available": bool(structured_info.get("current_location")),
+                            "structured_available": bool(structured_info.get("current_location_name")),
                         }
                     }
                 )
@@ -239,11 +239,13 @@ Extract key information from the game text and return it as JSON with these fiel
                 return parsed_response
             else:
                 self.logger.warning(f"[{self.episode_id}] Failed to parse LLM extraction response")
-                return self._create_fallback_response(clean_game_text, previous_location)
+                return self._create_fallback_response(clean_game_text, previous_location, structured_info)
         
         except Exception as e:
             self.logger.error(f"[{self.episode_id}] Extraction failed: {e}")
-            return self._create_fallback_response(game_text_from_zork, previous_location)
+            # Pass structured_info to fallback even on exception
+            structured_info = self._extract_structured_info(game_text_from_zork)
+            return self._create_fallback_response(game_text_from_zork, previous_location, structured_info)
 
     def _extract_structured_info(self, game_text_from_zork: str) -> Dict:
         """Extract structured information from the game text."""
@@ -440,15 +442,25 @@ Respond only with the JSON, no other text."""
             extracted_response.moves = structured_info["moves"]
         return extracted_response
 
-    def _create_fallback_response(self, game_text: str, previous_location: str) -> ExtractorResponse:
+    def _create_fallback_response(self, game_text: str, previous_location: str, structured_info: Dict) -> ExtractorResponse:
         """Create a fallback response when extraction fails."""
+        # Use structured location if available, otherwise fall back to previous location
+        fallback_location = (
+            structured_info.get("current_location_name") or 
+            previous_location or 
+            "Extraction Failed"
+        )
+        
+        # Create response with best available information
         return ExtractorResponse(
-            current_location_name=previous_location or "Extraction Failed",
+            current_location_name=fallback_location,
             exits=[],
             visible_objects=[],
             visible_characters=[],
-            important_messages=[game_text] if game_text else [],
-            in_combat=False,
+            important_messages=structured_info.get("important_messages", [game_text] if game_text else []),
+            in_combat=structured_info.get("in_combat", False),
+            score=structured_info.get("score"),
+            moves=structured_info.get("moves"),
         )
 
     def update_episode_id(self, episode_id: str) -> None:
