@@ -88,6 +88,7 @@ If the game responds with "I don't know the word" or "I don't understand that":
     *   `wait` (or `z`): Pass a turn. Sometimes necessary for events to occur or states to change.
     *   `inventory` (or `i`): List the objects in your possession.
     *   `diagnose`: Reports on your injuries, if any.
+    *   `move [object]`: Move an object from its current position.
 
 4.  **Character Interaction:**
     *   **NPC Commands:** Talk to characters using: `[name], [command]` format
