@@ -75,16 +75,21 @@ class ActionRejectionSystem:
     ) -> Tuple[bool, str]:
         """Determine if a critic rejection should be overridden."""
 
-        # Override if agent is stuck and needs to explore
-        if context.get("turns_since_movement", 0) >= 5:
+        # Override if agent is stuck and needs to explore (increased threshold)
+        if context.get("turns_since_movement", 0) >= 8:  # Increased from 5
             return True, "exploration_stuck"
 
-        # Override for completely novel actions in this location
+        # Override for novel actions (MUCH more restrictive)
         if action.lower() not in failed_actions:
+            # NEW: Only override if critic confidence is low (if available)
+            critic_confidence = context.get("critic_confidence", 0.5)  # Default to low confidence
+            if critic_confidence >= 0.8:  # Don't override confident rejections
+                return False, None
+                
             # But only if it's a reasonable action type
             reasonable_actions = [
                 "north",
-                "south",
+                "south", 
                 "east",
                 "west",
                 "up",
@@ -104,8 +109,8 @@ class ActionRejectionSystem:
         if len(recent_scores) >= 3 and sum(recent_scores[-3:]) / 3 < -0.3:
             return True, "emergency_exploration"
 
-        # Override if all recent action attempts have been rejected
-        if len(self.rejected_actions_this_turn) >= 2:
+        # Override if all recent action attempts have been rejected (increased threshold)
+        if len(self.rejected_actions_this_turn) >= 3:  # Increased from 2
             return True, "consensus_override"
 
         return False, None

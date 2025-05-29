@@ -448,6 +448,7 @@ class ZorkOrchestrator:
                             "turns_since_movement": getattr(
                                 self, "turns_since_movement", 0
                             ),
+                            "critic_confidence": critic_confidence,
                         },
                     )
                 )
