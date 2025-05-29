@@ -77,6 +77,9 @@ class OrchestratorConfig(BaseModel):
     knowledge_update_interval: int = 100
     map_update_interval: int = 25
     enable_state_export: bool = True
+    # Context management settings - adjusted for 40K token models
+    max_context_tokens: int = 40000
+    context_overflow_threshold: float = 0.6
 
 
 class FilesConfig(BaseModel):

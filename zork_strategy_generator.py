@@ -1318,3 +1318,108 @@ This knowledge base contains discovered information about the Zork game world, i
         except Exception as e:
             print(f"  ⚠️ Failed to build map from logs: {e}")
             return None
+
+    def update_knowledge_section(self, section_id: str, content: str, quality_score: float = None) -> bool:
+        """
+        Update a specific section of the knowledge base without affecting other sections.
+        
+        This enables granular updates similar to the Pokemon agent's sectioned approach,
+        while maintaining ZorkGPT's quality assessment principles.
+        
+        Args:
+            section_id: The section to update (e.g., "items", "locations", "dangers")
+            content: The new content for this section
+            quality_score: Optional quality score for immediate updates
+            
+        Returns:
+            True if the section was updated, False otherwise
+        """
+        if not os.path.exists(self.output_file):
+            # If no knowledge base exists, create with this section
+            self._create_sectioned_knowledge_base(section_id, content)
+            return True
+            
+        try:
+            with open(self.output_file, "r", encoding="utf-8") as f:
+                existing_content = f.read()
+                
+            # Parse existing sections
+            sections = self._parse_knowledge_sections(existing_content)
+            
+            # Update the specific section
+            sections[section_id] = content
+            
+            # Reassemble knowledge base
+            updated_knowledge = self._reassemble_knowledge_sections(sections)
+            
+            # Preserve map section if it exists
+            if "## CURRENT WORLD MAP" in existing_content:
+                updated_knowledge = self._preserve_map_section(existing_content, updated_knowledge)
+            
+            # Write updated knowledge base
+            with open(self.output_file, "w", encoding="utf-8") as f:
+                f.write(updated_knowledge)
+                
+            print(f"  ✅ Updated knowledge section: {section_id}")
+            return True
+            
+        except Exception as e:
+            print(f"  ⚠️ Failed to update knowledge section {section_id}: {e}")
+            return False
+
+    def _parse_knowledge_sections(self, content: str) -> Dict[str, str]:
+        """Parse existing knowledge base into sections."""
+        sections = {}
+        
+        # Define section patterns
+        section_patterns = {
+            "strategies": r"## 1\. \*\*Key Successful Strategies\*\*(.*?)(?=## \d+\.|\n## CURRENT WORLD MAP|$)",
+            "mistakes": r"## 2\. \*\*Critical Mistakes\*\*(.*?)(?=## \d+\.|\n## CURRENT WORLD MAP|$)",
+            "navigation": r"## 3\. \*\*Navigation Insights\*\*(.*?)(?=## \d+\.|\n## CURRENT WORLD MAP|$)",
+            "items": r"## 4\. \*\*Item Management\*\*(.*?)(?=## \d+\.|\n## CURRENT WORLD MAP|$)",
+            "combat": r"## 5\. \*\*Combat/Danger Handling\*\*(.*?)(?=## \d+\.|\n## CURRENT WORLD MAP|$)",
+            "death_prevention": r"## 6\. \*\*Death Prevention\*\*(.*?)(?=## \d+\.|\n## CURRENT WORLD MAP|$)",
+            "learning": r"## 7\. \*\*Learning Opportunities\*\*(.*?)(?=## \d+\.|\n## CURRENT WORLD MAP|$)",
+        }
+        
+        for section_id, pattern in section_patterns.items():
+            match = re.search(pattern, content, re.DOTALL)
+            if match:
+                sections[section_id] = match.group(1).strip()
+                
+        return sections
+
+    def _reassemble_knowledge_sections(self, sections: Dict[str, str]) -> str:
+        """Reassemble sections into a complete knowledge base."""
+        header = """# **Zork Game World Knowledge Base (Merged and Enhanced)**
+
+This knowledge base contains discovered information about the Zork game world, including specific items, puzzles, dangers, and strategic insights learned through gameplay. The guide is structured to reflect algorithmic decision-making patterns, precise command syntax, and computational approaches for optimal performance.
+
+---
+
+"""
+        
+        section_templates = {
+            "strategies": "## 1. **Key Successful Strategies**\n\n{content}\n\n---\n\n",
+            "mistakes": "## 2. **Critical Mistakes**\n\n{content}\n\n---\n\n",
+            "navigation": "## 3. **Navigation Insights**\n\n{content}\n\n---\n\n",
+            "items": "## 4. **Item Management**\n\n{content}\n\n---\n\n",
+            "combat": "## 5. **Combat/Danger Handling**\n\n{content}\n\n---\n\n",
+            "death_prevention": "## 6. **Death Prevention**\n\n{content}\n\n---\n\n",
+            "learning": "## 7. **Learning Opportunities**\n\n{content}\n\n---\n\n",
+        }
+        
+        assembled = header
+        for section_id, template in section_templates.items():
+            if section_id in sections:
+                assembled += template.format(content=sections[section_id])
+                
+        return assembled
+
+    def _create_sectioned_knowledge_base(self, initial_section: str, content: str) -> None:
+        """Create a new knowledge base with sectioned structure."""
+        sections = {initial_section: content}
+        knowledge_base = self._reassemble_knowledge_sections(sections)
+        
+        with open(self.output_file, "w", encoding="utf-8") as f:
+            f.write(knowledge_base)

@@ -94,6 +94,11 @@ class ZorkOrchestrator:
         self.map_update_interval = map_update_interval if map_update_interval is not None else config.orchestrator.map_update_interval
         self.last_map_update_turn = 0
 
+        # Context management configuration
+        self.max_context_tokens = config.orchestrator.max_context_tokens if hasattr(config.orchestrator, 'max_context_tokens') else 150000
+        self.context_overflow_threshold = config.orchestrator.context_overflow_threshold if hasattr(config.orchestrator, 'context_overflow_threshold') else 0.8
+        self.last_summarization_turn = 0
+
         # Initialize logger
         self.logger = setup_logging(self.episode_log_file, self.json_log_file)
 
@@ -919,6 +924,9 @@ class ZorkOrchestrator:
             # Check for map update (more frequent than full knowledge updates)
             self._check_map_update()
             
+            # Check for context overflow and trigger summarization if needed
+            self._check_context_overflow()
+            
             # Consolidate fragmented map locations only when new rooms have been added
             if self.game_map.needs_consolidation():
                 try:
@@ -1740,6 +1748,243 @@ class ZorkOrchestrator:
         except Exception as e:
             if self.logger:
                 self.logger.warning(f"Failed to upload state to S3: {e}")
+
+    def _check_context_overflow(self) -> bool:
+        """
+        Monitor context size and trigger summarization if needed.
+        
+        Inspired by the Pokemon agent's context management approach.
+        
+        Returns:
+            True if summarization was triggered, False otherwise
+        """
+        # Estimate total context tokens
+        estimated_tokens = self._estimate_context_tokens()
+        
+        if estimated_tokens > (self.max_context_tokens * self.context_overflow_threshold):
+            turns_since_last = self.turn_count - self.last_summarization_turn
+            
+            # Only summarize if we have meaningful content since last summarization
+            if turns_since_last >= 20:  # Minimum turns before summarization
+                print(f"🧠 Context overflow detected ({estimated_tokens} tokens), triggering summarization...")
+                self._trigger_context_summarization()
+                return True
+                
+        return False
+
+    def _estimate_context_tokens(self) -> int:
+        """
+        Estimate total context tokens based on memory log history.
+        
+        Uses a rough approximation: 4 characters per token.
+        """
+        total_chars = 0
+        
+        # Count memory log history
+        for memory in self.memory_log_history:
+            total_chars += len(str(memory))
+            
+        # Count action reasoning history
+        for reasoning in self.action_reasoning_history:
+            total_chars += len(str(reasoning))
+            
+        # Count knowledge base
+        try:
+            with open("knowledgebase.md", "r") as f:
+                total_chars += len(f.read())
+        except FileNotFoundError:
+            pass
+            
+        # Rough approximation: 4 characters per token
+        return total_chars // 4
+
+    def _trigger_context_summarization(self) -> None:
+        """
+        Generate a summary of recent gameplay and reset context.
+        
+        Similar to the Pokemon agent's summarization approach but tailored for Zork.
+        """
+        try:
+            # Generate summary of recent progress
+            summary = self._generate_gameplay_summary()
+            
+            # Create condensed memory log from summary
+            condensed_memory = {
+                "turn": self.turn_count,
+                "type": "context_summary",
+                "summary": summary,
+                "turns_summarized": self.turn_count - self.last_summarization_turn,
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            # Clear detailed memory but preserve recent critical information
+            recent_critical_memories = self._extract_critical_memories(last_n_turns=10)
+            
+            # Reset memory log to summary + critical recent memories
+            self.memory_log_history = [condensed_memory] + recent_critical_memories
+            
+            # Reset action reasoning history but preserve recent critic scores
+            recent_reasoning = self.action_reasoning_history[-10:] if len(self.action_reasoning_history) > 10 else self.action_reasoning_history
+            self.action_reasoning_history = recent_reasoning
+            
+            self.last_summarization_turn = self.turn_count
+            
+            print(f"  ✅ Context summarized, preserved {len(recent_critical_memories)} critical memories")
+            
+        except Exception as e:
+            print(f"  ⚠️ Failed to perform context summarization: {e}")
+
+    def _generate_gameplay_summary(self) -> str:
+        """Generate a comprehensive summary of recent gameplay progress."""
+        if not hasattr(self, 'client'):
+            return "Summary generation unavailable (no LLM client)"
+            
+        # Prepare summary prompt
+        recent_turns = self.memory_log_history[-50:] if len(self.memory_log_history) > 50 else self.memory_log_history
+        
+        summary_prompt = f"""Analyze the following Zork gameplay session and provide a comprehensive summary:
+
+EPISODE ID: {self.episode_id}
+TURNS COVERED: {self.last_summarization_turn + 1} to {self.turn_count}
+CURRENT SCORE: {self.previous_zork_score}
+DEATH COUNT: {self.death_count}
+
+RECENT GAMEPLAY DATA:
+{json.dumps(recent_turns, indent=2)}
+
+CURRENT MAP STATE:
+{self.game_map.generate_mermaid_diagram()}
+
+Please provide a summary that includes:
+1. Major discoveries and progress made
+2. Key items obtained and used
+3. Important locations visited and mapped
+4. Puzzles solved or attempted
+5. Deaths and what caused them
+6. Strategic insights learned
+7. Current objectives and next steps
+
+Format as a clear, structured summary that preserves essential information for continued gameplay."""
+
+        try:
+            messages = [{"role": "user", "content": summary_prompt}]
+            
+            response = self.client.call_llm(
+                model=self.adaptive_knowledge_manager.analysis_model,
+                messages=messages,
+                **self.adaptive_knowledge_manager.analysis_sampling.model_dump(exclude_unset=True)
+            )
+            
+            return response.strip()
+            
+        except Exception as e:
+            print(f"  ⚠️ Failed to generate LLM summary, using fallback: {e}")
+            return self._generate_fallback_summary()
+
+    def _extract_critical_memories(self, last_n_turns: int = 10) -> List[Dict]:
+        """Extract the most critical memories from recent turns."""
+        if len(self.memory_log_history) <= last_n_turns:
+            return self.memory_log_history
+            
+        recent_memories = self.memory_log_history[-last_n_turns:]
+        critical_memories = []
+        
+        for memory in recent_memories:
+            # Preserve memories with important events
+            if self._is_critical_memory(memory):
+                critical_memories.append(memory)
+                
+        return critical_memories
+
+    def _is_critical_memory(self, memory: Dict) -> bool:
+        """Determine if a memory contains critical information that should be preserved."""
+        memory_str = str(memory).lower()
+        
+        critical_indicators = [
+            "death", "died", "killed", "grue",
+            "new item", "took", "picked up",
+            "opened", "unlocked", "solved",
+            "score increased", "points",
+            "new location", "room", "area",
+            "combat", "fight", "attack",
+            "puzzle", "riddle", "problem"
+        ]
+        
+        return any(indicator in memory_str for indicator in critical_indicators)
+
+    def _generate_fallback_summary(self) -> str:
+        """Generate a basic summary without LLM assistance."""
+        recent_actions = [memory.get("action", "") for memory in self.memory_log_history[-20:]]
+        recent_locations = list(set([memory.get("location", "") for memory in self.memory_log_history[-20:] if memory.get("location")]))
+        
+        return f"""Gameplay Summary (Turns {self.last_summarization_turn + 1}-{self.turn_count}):
+- Score: {self.previous_zork_score}
+- Deaths: {self.death_count}
+- Recent actions: {', '.join(recent_actions[-10:])}
+- Locations visited: {', '.join(recent_locations)}
+- Total turns: {self.turn_count}
+"""
+
+    def _immediate_knowledge_update(self, section_id: str, content: str, trigger_reason: str) -> None:
+        """
+        Perform immediate knowledge update for critical discoveries.
+        
+        Inspired by the Pokemon agent's runtime knowledge updates.
+        Used for high-priority information that shouldn't wait for the next scheduled update.
+        
+        Args:
+            section_id: Knowledge section to update (e.g., "dangers", "items")
+            content: The critical information to add
+            trigger_reason: Why this immediate update was triggered
+        """
+        try:
+            success = self.adaptive_knowledge_manager.update_knowledge_section(
+                section_id=section_id,
+                content=content,
+                quality_score=8.0  # High quality for immediate updates
+            )
+            
+            if success:
+                self.logger.info(
+                    f"Immediate knowledge update triggered: {trigger_reason}",
+                    extra={
+                        "extras": {
+                            "event_type": "immediate_knowledge_update",
+                            "episode_id": self.episode_id,
+                            "section_id": section_id,
+                            "trigger_reason": trigger_reason,
+                            "turn": self.turn_count,
+                        }
+                    },
+                )
+                
+                # Reload agent knowledge immediately for current session benefit
+                self._reload_agent_knowledge()
+            else:
+                self.logger.warning(
+                    f"Failed immediate knowledge update for {trigger_reason}",
+                    extra={
+                        "extras": {
+                            "event_type": "immediate_knowledge_update_failed",
+                            "episode_id": self.episode_id,
+                            "section_id": section_id,
+                            "trigger_reason": trigger_reason,
+                        }
+                    },
+                )
+                
+        except Exception as e:
+            self.logger.error(
+                f"Error during immediate knowledge update: {e}",
+                extra={
+                    "extras": {
+                        "event_type": "immediate_knowledge_update_error",
+                        "episode_id": self.episode_id,
+                        "error": str(e),
+                        "trigger_reason": trigger_reason,
+                    }
+                },
+            )
 
 
 if __name__ == "__main__":
