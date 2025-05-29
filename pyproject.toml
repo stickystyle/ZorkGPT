@@ -27,10 +27,16 @@ dev = [
 [tool.zorkgpt.llm]
 # LLM Configuration
 client_base_url = "https://openrouter.ai/api/v1"
-agent_model = "qwen/qwen3-30b-a3b"
+agent_model = "qwen/qwen3-30b-a3b:free"
 info_ext_model = "google/gemma-3-12b-it"
 critic_model = "google/gemma-3-12b-it"
-analysis_model = "qwen/qwen3-30b-a3b"
+analysis_model = "qwen/qwen3-30b-a3b:free"
+
+# client_base_url = "http://192.168.10.109:1234/v1"
+# agent_model = "qwen/qwen3-30b-a3b:free"
+# info_ext_model = "gemma-3-12b-it-qat"
+# critic_model = "gemma-3-12b-it-qat"
+# analysis_model = "qwen/qwen3-30b-a3b:free"
 
 [tool.zorkgpt.agent_sampling]
 # Agent LLM Sampling Parameters
@@ -59,10 +65,10 @@ max_tokens = 300
 [tool.zorkgpt.analysis_sampling]
 # Analysis Model LLM Sampling Parameters (for knowledge generation)
 temperature = 0.3
-# top_p = null     # Optional - leave commented for default
-# top_k = null     # Optional - leave commented for default
-# min_p = null     # Optional - leave commented for default
-# max_tokens = null  # Optional - leave commented to use default
+top_p = 0.8     # Optional - leave commented for default
+top_k = 20     # Optional - leave commented for default
+min_p = 0.0     # Optional - leave commented for default
+max_tokens = 5000  # Optional - leave commented to use default
 
 [tool.zorkgpt.gameplay]
 # Gameplay Configuration
@@ -77,9 +83,9 @@ enable_prompt_logging = false
 
 [tool.zorkgpt.orchestrator]
 # Orchestrator Configuration
-max_turns_per_episode = 1000
-knowledge_update_interval = 100
-map_update_interval = 10
+max_turns_per_episode = 20
+knowledge_update_interval = 10
+map_update_interval = 5
 enable_state_export = true
 
 [tool.zorkgpt.files]
