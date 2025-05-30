@@ -39,7 +39,21 @@ Your primary goal is to assess the quality of the agent's proposed action in the
     *   Is the agent exploring new possibilities after exhausting interactions with certain objects?
     *   **REWARD HEAVILY:** Actions that try unexplored directions or examine previously unexamined objects when the agent appears stuck
 
-7.  **Risk Assessment (Zork can be unforgiving):**
+7.  **Spatial Awareness (CRITICAL FOR MOVEMENT COMMANDS):**
+    *   **ESSENTIAL CHECK:** If the proposed action is a movement command (north, south, east, west, up, down, etc.), FIRST check if that direction is listed in the "Available exits from current location" section.
+    *   **IF DIRECTION IS AVAILABLE (in the exits list):**
+        - The direction is VALID and can be attempted
+        - Be much more lenient about repetition - only penalize if the agent has tried this EXACT direction 5+ times from this EXACT location with no progress
+        - Even if the agent tried this direction before, it might lead somewhere new or useful now
+        - Score based on exploration potential rather than repetition concerns
+    *   **IF DIRECTION IS NOT AVAILABLE (not in the exits list):**
+        - The direction is INVALID and will likely fail
+        - Penalize heavily (-0.6 to -1.0) as this wastes a turn
+        - This is a clear case where the agent should try a different approach
+    *   **SPATIAL PRIORITY RULE:** Valid directions (those in the exits list) should generally score better than invalid directions, regardless of repetition history
+    *   **EXPLORATION ENCOURAGEMENT:** If all available exits have been tried recently, consider suggesting examination of objects or alternative actions before penalizing movement
+
+8.  **Risk Assessment (Zork can be unforgiving):**
     *   Does the action seem unnecessarily risky or likely to lead to a negative outcome (e.g., death, loss of crucial items) without a clear, high-potential reward?
     *   Conversely, does it smartly avoid an obvious danger?
 

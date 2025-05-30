@@ -221,6 +221,7 @@ class ZorkCritic:
         self,
         game_state_text: str,
         proposed_action: str,
+        available_exits: Optional[List[str]] = None,
         action_counts: Optional[Counter] = None,
         previous_actions_and_responses: Optional[List[Tuple[str, str]]] = None,
     ) -> CriticResponse:
@@ -230,6 +231,7 @@ class ZorkCritic:
         Args:
             game_state_text: Current game state text
             proposed_action: The action to evaluate
+            available_exits: List of valid exits from current location for spatial awareness
             action_counts: Counter of action frequencies
             previous_actions_and_responses: Recent action history
 
@@ -248,8 +250,13 @@ class ZorkCritic:
             for act, resp in previous_actions_and_responses[-3:]:
                 recent_context += f"Command: {act}\nResult: {resp.strip()}\n"
 
+        # Add spatial context if available
+        spatial_context = ""
+        if available_exits:
+            spatial_context = f"\nAvailable exits from current location: {', '.join(available_exits)}"
+
         user_prompt = f"""Current Game State:
-{game_state_text}
+{game_state_text}{spatial_context}
 
 Proposed Agent Action:
 {proposed_action}{repetition_context}{recent_context}
@@ -335,6 +342,7 @@ Evaluate this action based on your criteria. Respond with ONLY a JSON object in 
         self,
         game_state_text: str,
         proposed_action: str,
+        available_exits: Optional[List[str]] = None,
         action_counts: Optional[Counter] = None,
         previous_actions_and_responses: Optional[List[Tuple[str, str]]] = None,
         max_attempts: int = 3,
@@ -345,6 +353,7 @@ Evaluate this action based on your criteria. Respond with ONLY a JSON object in 
         Args:
             game_state_text: Current game state text
             proposed_action: The action to evaluate
+            available_exits: List of valid exits from current location for spatial awareness
             action_counts: Counter of action frequencies
             previous_actions_and_responses: Recent action history
             max_attempts: Maximum number of evaluation attempts for consensus
@@ -358,6 +367,7 @@ Evaluate this action based on your criteria. Respond with ONLY a JSON object in 
             evaluation = self.evaluate_action(
                 game_state_text,
                 proposed_action,
+                available_exits,
                 action_counts,
                 previous_actions_and_responses,
             )

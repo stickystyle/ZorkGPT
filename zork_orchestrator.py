@@ -416,9 +416,16 @@ class ZorkOrchestrator:
             agent_reasoning = agent_response["reasoning"]
 
             # Get critic evaluation
+            # Get available exits from most recent extraction for spatial awareness
+            current_exits = []
+            if self.memory_log_history:
+                last_extraction = self.memory_log_history[-1]
+                current_exits = getattr(last_extraction, "exits", [])
+            
             critic_response = self.critic.get_robust_evaluation(
                 game_state_text=current_game_state,
                 proposed_action=agent_action,
+                available_exits=current_exits,
                 action_counts=self.action_counts,
                 previous_actions_and_responses=self.action_history[
                     -3:
@@ -520,6 +527,7 @@ class ZorkOrchestrator:
                     critic_response = self.critic.get_robust_evaluation(
                         game_state_text=current_game_state,
                         proposed_action=agent_action,
+                        available_exits=current_exits,
                         action_counts=self.action_counts,
                         previous_actions_and_responses=self.action_history[-3:],
                     )
