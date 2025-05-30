@@ -121,6 +121,7 @@ class ZorkOrchestrator:
         self.client = LLMClientWrapper(
             base_url=client_base_url or config.llm.client_base_url,
             api_key=client_api_key or get_client_api_key(),
+            logger=self.logger,
         )
 
         # Initialize core components

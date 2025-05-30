@@ -41,17 +41,35 @@ Your primary goal is to assess the quality of the agent's proposed action in the
 
 7.  **Spatial Awareness (CRITICAL FOR MOVEMENT COMMANDS):**
     *   **ESSENTIAL CHECK:** If the proposed action is a movement command (north, south, east, west, up, down, etc.), FIRST check if that direction is listed in the "Available exits from current location" section.
-    *   **IF DIRECTION IS AVAILABLE (in the exits list):**
-        - The direction is VALID and can be attempted
+    
+    *   **TIER 1 - CONFIRMED VALID EXITS (in the exits list):**
+        - The direction is CONFIRMED VALID and can be attempted
+        - **Score: +0.2 to +0.8** depending on context and exploration value
         - Be much more lenient about repetition - only penalize if the agent has tried this EXACT direction 5+ times from this EXACT location with no progress
         - Even if the agent tried this direction before, it might lead somewhere new or useful now
         - Score based on exploration potential rather than repetition concerns
-    *   **IF DIRECTION IS NOT AVAILABLE (not in the exits list):**
-        - The direction is INVALID and will likely fail
-        - Penalize heavily (-0.6 to -1.0) as this wastes a turn
+        - **Example**: If available exits = ["north", "south", "west"] and action = "north" → Score around +0.5 to +0.7
+    
+    *   **TIER 2 - STANDARD EXPLORATION DIRECTIONS (not in exits list but reasonable):**
+        - Check if this is a STANDARD DIRECTION: north, south, east, west, up, down, northeast, northwest, southeast, southwest, enter, exit
+        - **For STANDARD DIRECTIONS**: These might be hidden exits that Zork didn't explicitly mention
+        - **Score: -0.2 to +0.3** depending on context (neutral to mildly positive for exploration)
+        - **IMPORTANT**: Do NOT heavily penalize these! They are legitimate exploration attempts.
+        - Consider location context: outdoor areas (fields, clearings, around buildings) more likely to have hidden standard exits
+        - Indoor areas (rooms, corridors) should be scored more cautiously but still within the -0.2 to +0.3 range
+        - **Rationale**: Zork frequently has unlisted exits, especially in outdoor areas. Systematic exploration of standard directions is a valid strategy.
+        - **Example**: If available exits = ["north", "south", "west"] and action = "northeast" → Score around -0.1 to +0.2 (NOT -0.7!)
+    
+    *   **TIER 3 - NON-STANDARD/INVALID DIRECTIONS:**
+        - For clearly non-directional commands or nonsensical directions
+        - Examples: "purple", "banana", "flibbergibbet", "seventeen", etc.
+        - **Score: -0.6 to -1.0** as these waste turns and show poor understanding
         - This is a clear case where the agent should try a different approach
-    *   **SPATIAL PRIORITY RULE:** Valid directions (those in the exits list) should generally score better than invalid directions, regardless of repetition history
-    *   **EXPLORATION ENCOURAGEMENT:** If all available exits have been tried recently, consider suggesting examination of objects or alternative actions before penalizing movement
+        - **Example**: If action = "purple" → Score around -0.8 to -1.0
+    
+    *   **SPATIAL PRIORITY RULE:** Confirmed exits (Tier 1) > Standard exploration (Tier 2) > Invalid directions (Tier 3)
+    *   **CRITICAL**: Ensure your scores follow this hierarchy! A standard direction like "northeast" should ALWAYS score better than gibberish like "purple"
+    *   **EXPLORATION ENCOURAGEMENT:** If all available exits have been tried recently, encourage examination of objects or alternative actions, but don't heavily penalize standard directional exploration attempts.
 
 8.  **Risk Assessment (Zork can be unforgiving):**
     *   Does the action seem unnecessarily risky or likely to lead to a negative outcome (e.g., death, loss of crucial items) without a clear, high-potential reward?

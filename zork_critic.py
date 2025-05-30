@@ -75,31 +75,45 @@ class ActionRejectionSystem:
     ) -> Tuple[bool, str]:
         """Determine if a critic rejection should be overridden."""
 
-        # Override if agent is stuck and needs to explore (increased threshold)
-        if context.get("turns_since_movement", 0) >= 8:  # Increased from 5
-            return True, "exploration_stuck"
+        # NEVER override if this action already failed at this location
+        if action.lower() in failed_actions:
+            return False, None
 
-        # Override for novel actions (MUCH more restrictive)
+        # NEW: Override for systematic exploration of standard directions - RESTRICTIVE BUT TARGETED
+        standard_directions = {
+            "north", "south", "east", "west", "up", "down", 
+            "northeast", "northwest", "southeast", "southwest", 
+            "enter", "exit"
+        }
+        
+        # Check if this is systematic exploration of a standard direction
+        if action.lower() in standard_directions:
+            critic_confidence = context.get("critic_confidence", 0.5)
+            turns_without_progress = context.get("turns_since_movement", 0)
+            
+            # Override if critic is NOT confident about the rejection AND agent is somewhat stuck
+            if critic_confidence < 0.7 and turns_without_progress >= 3:
+                return True, "systematic_exploration"
+
+        # Override if agent is very stuck and needs to explore non-movement actions
+        if context.get("turns_since_movement", 0) >= 8:
+            # But only for reasonable non-movement actions, not invalid directions or failed actions
+            reasonable_actions = [
+                "climb", "examine", "take", "open", "close", "look", "search", "enter", "exit"
+            ]
+            if any(keyword in action.lower() for keyword in reasonable_actions):
+                return True, "exploration_stuck"
+
+        # Override for novel non-movement actions (MUCH more restrictive)
         if action.lower() not in failed_actions:
             # NEW: Only override if critic confidence is low (if available)
             critic_confidence = context.get("critic_confidence", 0.5)  # Default to low confidence
             if critic_confidence >= 0.8:  # Don't override confident rejections
                 return False, None
                 
-            # But only if it's a reasonable action type
+            # But only if it's a reasonable action type (non-directional actions)
             reasonable_actions = [
-                "north",
-                "south", 
-                "east",
-                "west",
-                "up",
-                "down",
-                "enter",
-                "exit",
-                "climb",
-                "examine",
-                "take",
-                "open",
+                "climb", "examine", "take", "open", "close", "look", "search"
             ]
             if any(keyword in action.lower() for keyword in reasonable_actions):
                 return True, "novel_action"
