@@ -1964,13 +1964,13 @@ Format as a clear, structured summary that preserves essential information for c
         try:
             messages = [{"role": "user", "content": summary_prompt}]
             
-            response = self.client.call_llm(
+            response = self.client.chat.completions.create(
                 model=self.adaptive_knowledge_manager.analysis_model,
                 messages=messages,
                 **self.adaptive_knowledge_manager.analysis_sampling.model_dump(exclude_unset=True)
             )
             
-            return response.strip()
+            return response.content.strip()
             
         except Exception as e:
             print(f"  ⚠️ Failed to generate LLM summary, using fallback: {e}")
@@ -2149,7 +2149,7 @@ Focus on objectives the agent has actually discovered through gameplay patterns,
             if hasattr(self, 'client') and self.client:
                 messages = [{"role": "user", "content": prompt}]
                 
-                response = self.client.call_llm(
+                response = self.client.chat.completions.create(
                     model=self.adaptive_knowledge_manager.analysis_model if self.adaptive_knowledge_manager else "gpt-4",
                     messages=messages,
                     temperature=0.3,  # Lower temperature for consistent objective tracking
@@ -2157,7 +2157,7 @@ Focus on objectives the agent has actually discovered through gameplay patterns,
                 )
                 
                 # Parse objectives from response
-                updated_objectives = self._parse_objectives_from_response(response)
+                updated_objectives = self._parse_objectives_from_response(response.content)
                 
                 if updated_objectives:
                     self.discovered_objectives = updated_objectives
@@ -2352,7 +2352,7 @@ Only mark objectives as completed if you're confident they were achieved."""
             if hasattr(self, 'client') and self.client:
                 messages = [{"role": "user", "content": prompt}]
                 
-                response = self.client.call_llm(
+                response = self.client.chat.completions.create(
                     model=self.adaptive_knowledge_manager.analysis_model if self.adaptive_knowledge_manager else "gpt-4",
                     messages=messages,
                     temperature=0.2,  # Low temperature for consistency
@@ -2360,7 +2360,7 @@ Only mark objectives as completed if you're confident they were achieved."""
                 )
                 
                 # Parse completed objectives
-                completed_objectives = self._parse_completed_objectives(response)
+                completed_objectives = self._parse_completed_objectives(response.content)
                 
                 if completed_objectives:
                     self._mark_objectives_complete(completed_objectives, action_taken, completion_signals)
