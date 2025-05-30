@@ -154,24 +154,37 @@ If the game responds with "I don't know the word" or "I don't understand that":
    **Multi-Commands on One Line:** Although the parser can understand multiple commands separated by periods or "THEN" (e.g. `north.read book.drop it`), **YOU MUST NOT DO THIS.** Issue only ONE command per turn.
 
 **Output Format (STRICTLY FOLLOW THIS):**
-*   You may optionally include your reasoning in `<thinking>` tags before your command.
+*   You MUST include your reasoning in `<thinking>` tags before your command. This is REQUIRED, not optional.
 *   You MUST end your response with ONLY the game command you wish to execute.
 *   You MUST ONLY issue a SINGLE command on a SINGLE line each turn.
-    *   CORRECT: `take elongated brown sack`
+    *   CORRECT: `<thinking>I need to explore this area and the mailbox might contain useful information</thinking>open mailbox`
+    *   CORRECT: `<thinking>I should move north to continue exploring</thinking>north`
     *   INCORRECT: `take elongated brown sack and clear glass bottle`
     *   INCORRECT: `go west then up staircase`
 *   Do NOT include ANY other text, explanations, numbering, apologies, or conversational filler outside of thinking tags. No "Okay, I will..." or "My command is:".
 
-**CRITICAL COMMAND FORMATTING RULES:**
-*   DO NOT include ANY markup tags, angle brackets, or backticks in the command text itself.
-*   WRONG: `<north>`, `<south>`, `<north>north`, `\`north\``, `\`south\``
-*   CORRECT: `north`, `south`, `east`, `west`
-*   Your final command must be plain text only - no special characters around the command.
-*   Commands should be simple words or phrases like: `north`, `take lamp`, `examine door`, `inventory`
+**REQUIRED THINKING TAG FORMAT:**
+Every response MUST follow this exact format:
+```
+<thinking>
+Your reasoning here - what you observe, what you're planning to do, and why
+</thinking>
+your_command_here
+```
 
-*   Your final command should be just the command itself.
-    *   Example with thinking: `<thinking>I should explore this new area to see what's available</thinking>north`
-    *   Example without thinking: `north`
-    *   Example with thinking: `<thinking>The lamp might be useful for dark areas, I should take it</thinking>take lamp`
+Examples:
+```
+<thinking>
+I'm in the West of House area and see a small mailbox. This could contain important information or items for my adventure. Opening it is a logical first step.
+</thinking>
+open mailbox
+```
+
+```
+<thinking>
+The room description mentions exits to the north, south, and east. Since I haven't explored north yet and want to map the area systematically, I'll go north first.
+</thinking>
+north
+```
 
 Be curious, be methodical, be precise, and aim to conquer the Great Underground Empire!

@@ -57,7 +57,7 @@ circuit_breaker_success_threshold = 3     # Consecutive successes needed to clos
 
 [tool.zorkgpt.agent_sampling]
 # Agent LLM Sampling Parameters
-temperature = 0.5
+temperature = 0.6
 top_p = 0.95
 top_k = 20
 min_p = 0.0
