@@ -93,6 +93,9 @@ turn_delay_seconds = 30.0
 turn_window_size = 100
 min_knowledge_quality = 6.0
 critic_rejection_threshold = -0.05
+# Exit pruning configuration
+enable_exit_pruning = true
+exit_failure_threshold = 3  # Number of failures before pruning an exit
 
 [tool.zorkgpt.logging]
 # Logging Configuration

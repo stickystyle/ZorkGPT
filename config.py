@@ -64,6 +64,9 @@ class GameplayConfig(BaseModel):
     turn_window_size: int = 100
     min_knowledge_quality: float = 6.0
     critic_rejection_threshold: float = -0.05
+    # Exit pruning configuration
+    enable_exit_pruning: bool = True
+    exit_failure_threshold: int = 3
 
 
 class LoggingConfig(BaseModel):

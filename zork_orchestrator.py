@@ -1478,6 +1478,8 @@ class ZorkOrchestrator:
         self, action: str, from_room: str, to_room: str
     ) -> None:
         """Update movement tracking and failed actions."""
+        config = get_config()
+        
         # Track failed actions by location
         if from_room and from_room == to_room:
             # Action didn't result in movement, might be a failed action
@@ -1499,6 +1501,32 @@ class ZorkOrchestrator:
             ]
             if any(keyword in action.lower() for keyword in movement_keywords):
                 self.failed_actions_by_location[from_room].add(action)
+                
+                # NEW: Track the failed exit in the map for potential pruning
+                if config.gameplay.enable_exit_pruning and self.game_map:
+                    failure_count = self.game_map.track_exit_failure(from_room, action)
+                    
+                    # Check if this exit should be pruned
+                    if failure_count >= config.gameplay.exit_failure_threshold:
+                        pruned_count = self.game_map.prune_invalid_exits(
+                            from_room, config.gameplay.exit_failure_threshold
+                        )
+                        
+                        if pruned_count > 0:
+                            self.logger.info(
+                                f"Exit pruning triggered for {from_room}: {pruned_count} invalid exits removed",
+                                extra={
+                                    "extras": {
+                                        "event_type": "exit_pruning",
+                                        "episode_id": self.episode_id,
+                                        "turn": self.turn_count,
+                                        "room": from_room,
+                                        "failed_action": action,
+                                        "failure_count": failure_count,
+                                        "exits_pruned": pruned_count,
+                                    }
+                                },
+                            )
 
         # Update room context for next turn
         self.prev_room_for_prompt_context = from_room
@@ -1560,6 +1588,9 @@ class ZorkOrchestrator:
                 "quality_metrics": self.game_map.get_map_quality_metrics(),
                 "confidence_report": self.game_map.render_confidence_report(),
                 "fragmentation_report": self.game_map.get_fragmentation_report(),
+                # Exit failure tracking
+                "exit_failure_stats": self.game_map.get_exit_failure_stats(),
+                "exit_failure_report": self.game_map.render_exit_failure_report(),
                 # Optional: Include raw data for advanced frontends
                 "raw_data": {
                     "rooms": {

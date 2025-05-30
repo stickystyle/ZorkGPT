@@ -224,6 +224,10 @@ class MapGraph:
         self.connection_conflicts: List[Dict] = []
         # Track whether new rooms have been added since last consolidation
         self.has_new_rooms_since_consolidation: bool = False
+        # Track failed exit attempts: (room_name, exit) -> failure_count
+        self.exit_failure_counts: Dict[Tuple[str, str], int] = {}
+        # Track exits that have been permanently pruned to avoid re-adding them
+        self.pruned_exits: Dict[str, Set[str]] = {}
 
     def _get_opposite_direction(self, direction: str) -> str:
         opposites = {
@@ -371,8 +375,39 @@ class MapGraph:
                 if clean_exit:
                     normalized_new_exits.add(clean_exit.lower())
 
+        # Filter out exits that have been permanently pruned
+        pruned_exits_for_room = self.pruned_exits.get(room_key, set())
+        
         for exit_name in normalized_new_exits:
-            self.rooms[room_key].add_exit(exit_name)
+            # Don't re-add exits that have been pruned as invalid
+            if exit_name not in pruned_exits_for_room:
+                self.rooms[room_key].add_exit(exit_name)
+            else:
+                print(f"🚫 Skipping re-addition of pruned exit: {room_name} -> {exit_name}")
+
+    def track_exit_failure(self, room_name: str, exit_name: str) -> int:
+        """
+        Track a failed exit attempt and return the current failure count.
+        
+        Args:
+            room_name: The room where the exit was attempted
+            exit_name: The exit that failed (will be normalized)
+            
+        Returns:
+            The current failure count for this exit
+        """
+        # Use same normalization as other methods
+        room_key = room_name
+        normalized_action = normalize_direction(exit_name)
+        processed_exit = normalized_action if normalized_action else exit_name.lower().strip()
+        
+        failure_key = (room_key, processed_exit)
+        self.exit_failure_counts[failure_key] = self.exit_failure_counts.get(failure_key, 0) + 1
+        
+        failure_count = self.exit_failure_counts[failure_key]
+        print(f"🚫 Exit failure tracked: {room_name} -> {processed_exit} (attempt #{failure_count})")
+        
+        return failure_count
 
     def add_connection(
         self,
@@ -1512,6 +1547,153 @@ class MapGraph:
         
         return "\n".join(report_lines)
 
+    def prune_invalid_exits(self, room_name: str, min_failure_count: int = 3) -> int:
+        """
+        Remove exits that have been tried multiple times and consistently failed.
+        
+        Args:
+            room_name: The room to prune exits from
+            min_failure_count: Minimum number of failures before pruning an exit
+            
+        Returns:
+            Number of exits pruned
+        """
+        room_key = room_name
+        if room_key not in self.rooms:
+            return 0
+        
+        room = self.rooms[room_key]
+        exits_to_remove = []
+        pruned_count = 0
+        
+        # Check each exit in the room against failure counts
+        for exit_name in list(room.exits):  # Use list() to avoid modification during iteration
+            failure_key = (room_key, exit_name)
+            failure_count = self.exit_failure_counts.get(failure_key, 0)
+            
+            if failure_count >= min_failure_count:
+                exits_to_remove.append(exit_name)
+        
+        # Remove the failed exits
+        for exit_name in exits_to_remove:
+            room.exits.discard(exit_name)
+            
+            # Track that this exit has been pruned to avoid re-adding it
+            if room_key not in self.pruned_exits:
+                self.pruned_exits[room_key] = set()
+            self.pruned_exits[room_key].add(exit_name)
+            
+            print(f"🗑️ Pruned invalid exit: {room_name} -> {exit_name} (failed {self.exit_failure_counts.get((room_key, exit_name), 0)} times)")
+            pruned_count += 1
+        
+        if pruned_count > 0:
+            print(f"✅ Exit pruning complete for {room_name}: {pruned_count} invalid exits removed")
+        
+        return pruned_count
+
+    def get_exit_failure_stats(self, room_name: str = None) -> Dict:
+        """
+        Get statistics about exit failures, either for a specific room or globally.
+        
+        Args:
+            room_name: If provided, return stats only for this room. If None, return global stats.
+            
+        Returns:
+            Dictionary containing failure statistics
+        """
+        if room_name:
+            # Stats for specific room
+            room_key = room_name
+            room_failures = {k: v for k, v in self.exit_failure_counts.items() if k[0] == room_key}
+            pruned_exits = self.pruned_exits.get(room_key, set())
+            
+            return {
+                "room": room_name,
+                "total_failed_attempts": sum(room_failures.values()),
+                "unique_failed_exits": len(room_failures),
+                "pruned_exits": list(pruned_exits),
+                "failure_details": {f"{k[1]}": v for k, v in room_failures.items()},
+                "highest_failure_count": max(room_failures.values()) if room_failures else 0,
+            }
+        else:
+            # Global stats
+            total_failures = sum(self.exit_failure_counts.values())
+            total_pruned = sum(len(exits) for exits in self.pruned_exits.values())
+            
+            return {
+                "total_failed_attempts": total_failures,
+                "unique_failed_exits": len(self.exit_failure_counts),
+                "total_pruned_exits": total_pruned,
+                "rooms_with_failures": len(set(k[0] for k in self.exit_failure_counts.keys())),
+                "rooms_with_pruned_exits": len(self.pruned_exits),
+                "highest_failure_count": max(self.exit_failure_counts.values()) if self.exit_failure_counts else 0,
+            }
+
+    def render_exit_failure_report(self) -> str:
+        """
+        Generate a detailed report on exit failures and pruning.
+        
+        Returns:
+            Human-readable report of exit failure status
+        """
+        if not self.exit_failure_counts and not self.pruned_exits:
+            return "🔍 EXIT FAILURE REPORT\n" + "=" * 30 + "\nNo exit failures recorded."
+        
+        report_lines = ["🔍 EXIT FAILURE REPORT", "=" * 30]
+        
+        # Overall statistics
+        total_failures = sum(self.exit_failure_counts.values())
+        total_pruned = sum(len(exits) for exits in self.pruned_exits.values())
+        
+        report_lines.extend([
+            f"Total Failed Attempts: {total_failures}",
+            f"Unique Failed Exits: {len(self.exit_failure_counts)}",
+            f"Total Pruned Exits: {total_pruned}",
+            f"Rooms with Failures: {len(set(k[0] for k in self.exit_failure_counts.keys()))}",
+            f"Rooms with Pruned Exits: {len(self.pruned_exits)}",
+            ""
+        ])
+        
+        # Active failures (not yet pruned)
+        active_failures = []
+        for (room, exit), count in self.exit_failure_counts.items():
+            pruned_exits_for_room = self.pruned_exits.get(room, set())
+            if exit not in pruned_exits_for_room:
+                active_failures.append((room, exit, count))
+        
+        if active_failures:
+            report_lines.extend(["⚠️  ACTIVE FAILURES (not yet pruned):"])
+            # Sort by failure count (highest first)
+            active_failures.sort(key=lambda x: x[2], reverse=True)
+            for room, exit, count in active_failures[:10]:  # Show top 10
+                report_lines.append(f"  {room} -> {exit} ({count} failures)")
+            if len(active_failures) > 10:
+                report_lines.append(f"  ... and {len(active_failures) - 10} more")
+            report_lines.append("")
+        
+        # Pruned exits by room
+        if self.pruned_exits:
+            report_lines.extend(["🗑️  PRUNED EXITS BY ROOM:"])
+            for room, exits in self.pruned_exits.items():
+                if exits:
+                    report_lines.append(f"  {room}: {', '.join(sorted(exits))}")
+            report_lines.append("")
+        
+        # Rooms with highest failure counts
+        room_failure_totals = {}
+        for (room, exit), count in self.exit_failure_counts.items():
+            room_failure_totals[room] = room_failure_totals.get(room, 0) + count
+        
+        if room_failure_totals:
+            sorted_rooms = sorted(room_failure_totals.items(), key=lambda x: x[1], reverse=True)
+            report_lines.extend(["📊 ROOMS WITH MOST FAILURES:"])
+            for room, total_count in sorted_rooms[:5]:  # Show top 5
+                room_pruned_count = len(self.pruned_exits.get(room, set()))
+                report_lines.append(f"  {room}: {total_count} total failures, {room_pruned_count} exits pruned")
+            report_lines.append("")
+        
+        return "\n".join(report_lines)
+
 
 if __name__ == "__main__":
     # Example Usage
@@ -1614,3 +1796,6 @@ if __name__ == "__main__":
 
     print("\n--- Mermaid Diagram ---")
     print(g.render_mermaid())
+
+    print("\n--- Exit Failure Report ---")
+    print(g.render_exit_failure_report())
