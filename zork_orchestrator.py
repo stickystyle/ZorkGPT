@@ -178,6 +178,11 @@ class ZorkOrchestrator:
         # Agent reasoning tracking for state export
         self.action_reasoning_history = []
 
+        # Discovered objectives tracking - maintains goals discovered through gameplay
+        self.discovered_objectives = []
+        self.completed_objectives = []  # Track completed objectives for learning
+        self.objective_update_turn = 0  # Track when objectives were last updated
+
         # Reset adaptive knowledge tracking for new episode
         self.last_knowledge_update_turn = 0
         self.last_map_update_turn = 0
@@ -403,6 +408,20 @@ class ZorkOrchestrator:
                 in_combat=in_combat,
                 failed_actions_by_location=self.failed_actions_by_location,
             )
+
+            # Add discovered objectives to the context if any exist
+            if self.discovered_objectives:
+                objectives_text = "\n--- Current Discovered Objectives ---\n"
+                objectives_text += "🎯 Based on your recent gameplay patterns, you have discovered these objectives:\n"
+                for i, obj in enumerate(self.discovered_objectives, 1):
+                    objectives_text += f"  {i}. {obj}\n"
+                objectives_text += "\n⚠️ FOCUS ON THESE OBJECTIVES when choosing your next action. Prioritize actions that advance these discovered goals rather than aimless exploration.\n"
+                
+                # Append to relevant memories
+                if relevant_memories:
+                    relevant_memories += objectives_text
+                else:
+                    relevant_memories = objectives_text.strip()
 
             # Get agent action with reasoning
             agent_response = self.agent.get_action_with_reasoning(
@@ -933,6 +952,12 @@ class ZorkOrchestrator:
             # Check for map update (more frequent than full knowledge updates)
             self._check_map_update()
             
+            # Check for discovered objectives update every 20 turns
+            self._check_objective_update()
+            
+            # Check for objective completion after each turn
+            self._check_objective_completion(action_taken, next_game_state, extracted_info)
+            
             # Check for context overflow and trigger summarization if needed
             self._check_context_overflow()
             
@@ -1068,10 +1093,37 @@ class ZorkOrchestrator:
             },
         )
 
-        # Episode cleanup
-
         # Perform final adaptive knowledge update if there's been significant progress
         self._perform_final_knowledge_update()
+
+        # Check for periodic adaptive knowledge updates
+        # Every 100 turns during gameplay (not just at episode end)
+        if (
+            self.turn_count - self.last_knowledge_update_turn
+            >= self.knowledge_update_interval
+        ):
+            # Update knowledge during gameplay
+            update_success = (
+                self.adaptive_knowledge_manager.update_knowledge_from_turns(
+                    episode_id=self.episode_id,
+                    start_turn=self.last_knowledge_update_turn + 1,
+                    end_turn=self.turn_count,
+                    is_final_update=False,
+                )
+            )
+            
+            if update_success:
+                self.last_knowledge_update_turn = self.turn_count
+
+        # Check for discovered objectives update every 20 turns
+        if (
+            self.turn_count > 0 
+            and self.turn_count % 20 == 0 
+            and self.turn_count != self.objective_update_turn
+        ):
+            self._update_discovered_objectives()
+
+        # Check for map updates every 25 turns
 
         return self.previous_zork_score
 
@@ -1491,6 +1543,9 @@ class ZorkOrchestrator:
                 "inventory": self.current_inventory,
                 "in_combat": self._get_combat_status(),
                 "death_count": self.death_count,
+                "discovered_objectives": self.discovered_objectives,
+                "completed_objectives": self.completed_objectives,
+                "objective_update_turn": self.objective_update_turn,
             },
             "recent_log": self.get_recent_log(20),
             "map": {
@@ -1994,6 +2049,356 @@ Format as a clear, structured summary that preserves essential information for c
                     }
                 },
             )
+
+    def _check_objective_update(self) -> None:
+        """Check if it's time for an objective update and perform it if needed."""
+        # Check for discovered objectives update every 20 turns
+        if (
+            self.turn_count > 0 
+            and self.turn_count % 20 == 0 
+            and self.turn_count != self.objective_update_turn
+        ):
+            self._update_discovered_objectives()
+
+    def _update_discovered_objectives(self) -> None:
+        """
+        Use LLM to analyze recent gameplay and discover/update objectives.
+        
+        This maintains discovered objectives between turns while staying LLM-first.
+        """
+        try:
+            print(f"🎯 Updating discovered objectives (turn {self.turn_count})...")
+            
+            # Get recent gameplay context for analysis
+            recent_memory = self.memory_log_history[-20:] if len(self.memory_log_history) > 20 else self.memory_log_history
+            recent_actions = self.action_history[-10:] if len(self.action_history) > 10 else self.action_history
+            
+            # Prepare context for LLM analysis
+            gameplay_context = self._prepare_objective_analysis_context(recent_memory, recent_actions)
+            
+            # Create prompt for objective discovery/updating
+            prompt = f"""Analyze the recent Zork gameplay to discover and maintain the agent's objectives.
+
+CURRENT DISCOVERED OBJECTIVES:
+{self.discovered_objectives if self.discovered_objectives else "None discovered yet"}
+
+RECENTLY COMPLETED OBJECTIVES:
+{[comp["objective"] for comp in self.completed_objectives[-5:]] if self.completed_objectives else "None completed yet"}
+
+RECENT GAMEPLAY CONTEXT:
+{gameplay_context}
+
+CURRENT SCORE: {self.previous_zork_score}
+CURRENT LOCATION: {self.current_room_name_for_map}
+CURRENT INVENTORY: {self.current_inventory}
+
+Based on this gameplay, identify the agent's discovered objectives. Look for:
+1. **Score-increasing activities** (these reveal important objectives)
+2. **Recurring patterns** in the agent's behavior that suggest goals
+3. **Environmental clues** about what the agent should be doing
+4. **Obstacles** that suggest significant rewards lie beyond them
+5. **Items or locations** that appear strategically important
+
+Update the objective list by:
+- **Adding new objectives** discovered through recent gameplay patterns
+- **Updating existing objectives** with new information or progress
+- **Removing objectives** that have been completed or proven incorrect
+- **Prioritizing objectives** based on evidence of importance
+- **Avoiding re-adding** objectives that were recently completed (listed above)
+
+Format your response as:
+OBJECTIVES:
+- [objective 1]
+- [objective 2]
+- [etc.]
+
+Focus on objectives the agent has actually discovered through gameplay patterns, not general Zork knowledge."""
+
+            # Get LLM response
+            if hasattr(self, 'client') and self.client:
+                messages = [{"role": "user", "content": prompt}]
+                
+                response = self.client.call_llm(
+                    model=self.adaptive_knowledge_manager.analysis_model if self.adaptive_knowledge_manager else "gpt-4",
+                    messages=messages,
+                    temperature=0.3,  # Lower temperature for consistent objective tracking
+                    max_tokens=500
+                )
+                
+                # Parse objectives from response
+                updated_objectives = self._parse_objectives_from_response(response)
+                
+                if updated_objectives:
+                    self.discovered_objectives = updated_objectives
+                    self.objective_update_turn = self.turn_count
+                    
+                    print(f"  ✅ Objectives updated: {len(updated_objectives)} objectives discovered")
+                    for i, obj in enumerate(updated_objectives[:3], 1):  # Show first 3
+                        print(f"    {i}. {obj}")
+                    
+                    # Log the update
+                    self.logger.info(
+                        "Discovered objectives updated",
+                        extra={
+                            "extras": {
+                                "event_type": "objectives_updated",
+                                "episode_id": self.episode_id,
+                                "turn": self.turn_count,
+                                "objective_count": len(updated_objectives),
+                                "objectives": updated_objectives,
+                            }
+                        },
+                    )
+                else:
+                    print("  ⚠️ No objectives parsed from LLM response")
+            else:
+                print("  ⚠️ No LLM client available for objective analysis")
+                
+        except Exception as e:
+            print(f"  ⚠️ Failed to update objectives: {e}")
+            self.logger.warning(f"Objective update failed: {e}")
+
+    def _prepare_objective_analysis_context(self, recent_memory, recent_actions) -> str:
+        """Prepare gameplay context for objective analysis."""
+        context_parts = []
+        
+        # Add recent actions and responses
+        if recent_actions:
+            context_parts.append("RECENT ACTIONS:")
+            for action, response in recent_actions[-5:]:  # Last 5 actions
+                context_parts.append(f"  Action: {action}")
+                context_parts.append(f"  Result: {response[:200]}...")  # Truncate long responses
+                context_parts.append("")
+        
+        # Add notable events from memory
+        if recent_memory:
+            notable_events = []
+            for memory in recent_memory:
+                if hasattr(memory, 'important_messages') and memory.important_messages:
+                    for msg in memory.important_messages:
+                        if any(keyword in msg.lower() for keyword in ['score', 'points', 'treasure', 'lamp', 'door', 'open', 'take']):
+                            notable_events.append(msg)
+            
+            if notable_events:
+                context_parts.append("NOTABLE EVENTS:")
+                for event in notable_events[-10:]:  # Last 10 notable events
+                    context_parts.append(f"  - {event}")
+                context_parts.append("")
+        
+        # Add score changes
+        score_changes = []
+        for memory in recent_memory:
+            # Check if this memory entry indicates a score change
+            if hasattr(memory, 'important_messages'):
+                for msg in memory.important_messages:
+                    if 'score' in msg.lower() or 'points' in msg.lower():
+                        score_changes.append(msg)
+        
+        if score_changes:
+            context_parts.append("SCORE CHANGES:")
+            for change in score_changes:
+                context_parts.append(f"  - {change}")
+            context_parts.append("")
+        
+        return "\n".join(context_parts)
+
+    def _parse_objectives_from_response(self, response: str) -> List[str]:
+        """Parse objectives from the LLM response."""
+        try:
+            objectives = []
+            lines = response.strip().split('\n')
+            
+            # Look for the OBJECTIVES: section
+            in_objectives_section = False
+            for line in lines:
+                line = line.strip()
+                
+                if line.upper().startswith('OBJECTIVES:'):
+                    in_objectives_section = True
+                    continue
+                
+                if in_objectives_section:
+                    # Stop if we hit another section header
+                    if line.endswith(':') and len(line.split()) <= 3:
+                        break
+                    
+                    # Look for bullet points
+                    if line.startswith('- ') or line.startswith('* '):
+                        objective = line[2:].strip()
+                        if objective and len(objective) > 5:  # Filter out very short entries
+                            objectives.append(objective)
+            
+            return objectives
+            
+        except Exception as e:
+            self.logger.warning(f"Failed to parse objectives from response: {e}")
+            return []
+
+    def _check_objective_completion(self, action_taken: str, game_response: str, extracted_info) -> None:
+        """Check if any discovered objectives have been completed this turn."""
+        if not self.discovered_objectives:
+            return
+            
+        try:
+            # Look for completion signals in the game response and context
+            score_change = self.previous_zork_score - getattr(self, '_last_score_for_completion_check', self.previous_zork_score)
+            self._last_score_for_completion_check = self.previous_zork_score
+            
+            completion_signals = []
+            
+            # Score increase is a strong completion signal
+            if score_change > 0:
+                completion_signals.append(f"Score increased by {score_change} points")
+            
+            # Check for completion keywords in game response
+            completion_keywords = [
+                "well done", "congratulations", "you have", "successfully", 
+                "completed", "solved", "unlocked", "opened", "found", 
+                "treasure", "victory", "accomplished"
+            ]
+            
+            response_lower = game_response.lower()
+            for keyword in completion_keywords:
+                if keyword in response_lower:
+                    completion_signals.append(f"Response contains completion keyword: '{keyword}'")
+            
+            # Check for location/inventory changes that might indicate completion
+            if extracted_info:
+                # New location reached
+                if (hasattr(extracted_info, 'current_location_name') and 
+                    extracted_info.current_location_name != self.current_room_name_for_map):
+                    completion_signals.append(f"Reached new location: {extracted_info.current_location_name}")
+                
+                # New items acquired  
+                if hasattr(extracted_info, 'inventory'):
+                    new_items = set(extracted_info.inventory) - set(self.current_inventory)
+                    if new_items:
+                        completion_signals.append(f"Acquired new items: {', '.join(new_items)}")
+            
+            # If we have completion signals, check objectives against them
+            if completion_signals:
+                self._evaluate_objective_completion(action_taken, completion_signals)
+                
+        except Exception as e:
+            self.logger.warning(f"Failed to check objective completion: {e}")
+
+    def _evaluate_objective_completion(self, action_taken: str, completion_signals: List[str]) -> None:
+        """Use LLM to evaluate if any objectives were completed based on completion signals."""
+        try:
+            context = f"""
+ACTION TAKEN: {action_taken}
+
+COMPLETION SIGNALS:
+{chr(10).join(f"- {signal}" for signal in completion_signals)}
+
+CURRENT OBJECTIVES:
+{chr(10).join(f"- {obj}" for obj in self.discovered_objectives)}
+
+RECENT CONTEXT:
+- Current Location: {self.current_room_name_for_map}
+- Current Score: {self.previous_zork_score}
+- Turn: {self.turn_count}
+"""
+
+            prompt = f"""Analyze if any of the current objectives were completed this turn.
+
+{context}
+
+Based on the action taken and completion signals, determine if any objectives were achieved. Be conservative - only mark objectives as completed if there's clear evidence of completion.
+
+Look for:
+- Direct achievement of stated objectives
+- Score increases that correspond to objective completion
+- Game responses that indicate success
+- Location/item changes that fulfill objectives
+
+Respond with:
+COMPLETED: [list any completed objectives exactly as stated, or "None" if no clear completions]
+REASONING: [brief explanation of why each objective was marked complete]
+
+Only mark objectives as completed if you're confident they were achieved."""
+
+            if hasattr(self, 'client') and self.client:
+                messages = [{"role": "user", "content": prompt}]
+                
+                response = self.client.call_llm(
+                    model=self.adaptive_knowledge_manager.analysis_model if self.adaptive_knowledge_manager else "gpt-4",
+                    messages=messages,
+                    temperature=0.2,  # Low temperature for consistency
+                    max_tokens=300
+                )
+                
+                # Parse completed objectives
+                completed_objectives = self._parse_completed_objectives(response)
+                
+                if completed_objectives:
+                    self._mark_objectives_complete(completed_objectives, action_taken, completion_signals)
+                    
+        except Exception as e:
+            self.logger.warning(f"Failed to evaluate objective completion: {e}")
+
+    def _parse_completed_objectives(self, response: str) -> List[str]:
+        """Parse completed objectives from LLM response."""
+        try:
+            completed = []
+            lines = response.strip().split('\n')
+            
+            for line in lines:
+                line = line.strip()
+                if line.upper().startswith('COMPLETED:'):
+                    completed_text = line.split(':', 1)[1].strip()
+                    if completed_text.lower() != "none":
+                        # Split by commas and clean up
+                        objectives = [obj.strip() for obj in completed_text.split(',')]
+                        for obj in objectives:
+                            if obj and obj in self.discovered_objectives:
+                                completed.append(obj)
+                    break
+            
+            return completed
+            
+        except Exception as e:
+            self.logger.warning(f"Failed to parse completed objectives: {e}")
+            return []
+
+    def _mark_objectives_complete(self, completed_objectives: List[str], action_taken: str, completion_signals: List[str]) -> None:
+        """Mark objectives as completed and move them to completed list."""
+        try:
+            for objective in completed_objectives:
+                if objective in self.discovered_objectives:
+                    # Remove from active objectives
+                    self.discovered_objectives.remove(objective)
+                    
+                    # Add to completed objectives with context
+                    completion_record = {
+                        "objective": objective,
+                        "completed_turn": self.turn_count,
+                        "completion_action": action_taken,
+                        "completion_signals": completion_signals,
+                        "completion_score": self.previous_zork_score
+                    }
+                    self.completed_objectives.append(completion_record)
+                    
+                    print(f"  ✅ Objective completed: {objective}")
+                    
+                    # Log the completion
+                    self.logger.info(
+                        f"Objective completed: {objective}",
+                        extra={
+                            "extras": {
+                                "event_type": "objective_completed",
+                                "episode_id": self.episode_id,
+                                "turn": self.turn_count,
+                                "objective": objective,
+                                "completion_action": action_taken,
+                                "completion_signals": completion_signals,
+                                "completion_score": self.previous_zork_score,
+                            }
+                        },
+                    )
+                    
+        except Exception as e:
+            self.logger.warning(f"Failed to mark objectives complete: {e}")
 
 
 if __name__ == "__main__":

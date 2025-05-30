@@ -692,53 +692,26 @@ DEATH EVENTS: {len(turn_data.get("death_events", []))} death(s) occurred
 ACTION SEQUENCE:
 {actions_text}{death_analysis}
 
-**FOCUS ON GAME WORLD CONTENT**: Extract insights that reveal specific information about:
+**IMPORTANT - COORDINATE WITH DISCOVERED OBJECTIVES SYSTEM**: 
+The agent has a separate real-time objective tracking system that maintains current goals every 20 turns. Your knowledge base should COMPLEMENT this system by focusing on LONG-TERM strategic insights rather than current objectives.
 
-1. **Items and Objects**: 
-   - Specific items found and their exact locations
-   - How items can be used or combined
-   - Which items are essential vs. optional
-   - Item interaction patterns and effects
+Provide insights in these categories focused on strategic patterns and game world knowledge:
 
-2. **Puzzles and Mechanisms**:
-   - Puzzle solutions or partial solutions discovered
-   - Interactive elements in rooms (doors, switches, containers)
-   - Sequence requirements for complex actions
-   - Clues found about how to solve problems
+1. **Game World Mechanics**: What specific game rules, item behaviors, or location properties were discovered?
+2. **Strategic Patterns**: What types of actions consistently lead to progress vs. setbacks across different situations?
+3. **Environmental Knowledge**: How do different locations behave? What objects are consistently significant?
+4. **Danger Recognition**: What specific threats, traps, or failure patterns should be avoided based on experience?
+5. **Efficiency Insights**: What meta-strategies help approach different types of situations more effectively?
+6. **Problem-Solving Patterns**: What general approaches work well for different categories of challenges?
+7. **Learning from Experience**: What insights about the game world emerged from this gameplay session?
 
-3. **Dangers and Death Prevention**:
-   - Specific threats and how they manifest
-   - Warning signs that precede danger
-   - Exact conditions that lead to death
-   - Safe vs. dangerous actions in specific locations
+**AVOID (Handled by Objectives System)**:
+- Specific current objectives or immediate tactical goals
+- Real-time action prioritization advice
+- "What should I do next" guidance
+- Current situation analysis
 
-4. **Location-Specific Knowledge**:
-   - Unique properties of rooms or areas
-   - Special interactions available in certain locations
-   - Hidden or non-obvious features of places
-   - Room-specific commands that work
-
-5. **Character/Creature Interactions**:
-   - NPCs encountered and how to interact with them
-   - Combat or negotiation strategies
-   - Behavior patterns of game entities
-
-6. **Strategic Discoveries**:
-   - Successful action sequences for achieving goals
-   - Time-sensitive events or conditions
-   - Resource management insights (light, health, etc.)
-
-**PRIORITIZE SPECIFIC, ACTIONABLE DISCOVERIES**: Focus on concrete information that would help an AI agent make better decisions about:
-- Which specific items to prioritize taking
-- How to solve particular puzzles step-by-step
-- Which locations or actions to avoid and why
-- Optimal sequences for achieving objectives
-
-Skip basic navigation advice (which is already covered) unless it reveals something specific about the game world (like secret passages or special movement requirements).
-
-{death_analysis if turn_data.get("death_events") else ""}
-
-Be specific about locations, items, commands, and sequences. Provide insights that go beyond general gameplay mechanics. **Aim for conciseness in these new discoveries, presenting them clearly and avoiding redundancy if similar points arise from this specific turn window's data.**"""
+Focus on actionable insights that help the agent become better at recognizing opportunities, avoiding dangers, and understanding the game world. Be specific about locations, items, commands, and game mechanics discovered through actual gameplay experience."""
 
         # Incase using Qwen qwen3-30b-a3b
         prompt = r"\no_think " + prompt
@@ -873,22 +846,26 @@ DEATH EVENTS: {len(turn_data.get("death_events", []))} death(s) occurred
 ACTION SEQUENCE:
 {actions_text}{death_analysis}
 
-Provide insights in these categories:
-1. **Key Successful Strategies**: What actions or patterns led to progress?
-2. **Critical Mistakes**: What actions hindered progress or caused setbacks?
-3. **Navigation Insights**: How effectively was the world navigated?
-4. **Item Management**: Were items collected and used effectively?
-5. **Combat/Danger Handling**: How well were threats managed?
-6. **Death Prevention**: If deaths occurred, what specific strategies would prevent them?
-7. **Learning Opportunities**: What should be done differently?
+**IMPORTANT - COORDINATE WITH DISCOVERED OBJECTIVES SYSTEM**: 
+The agent has a separate real-time objective tracking system that maintains current goals every 20 turns. Your knowledge base should COMPLEMENT this system by focusing on LONG-TERM strategic insights rather than current objectives.
 
-**DEATH ANALYSIS PRIORITY**: If deaths occurred, prioritize understanding:
-- The exact sequence of events leading to death
-- Warning signs that should have been recognized
-- Alternative actions that could have been taken
-- How to recognize similar dangerous situations in the future
+Provide insights in these categories focused on strategic patterns and game world knowledge:
 
-Focus on actionable insights that would help improve future gameplay. Be specific about locations, items, and sequences when relevant. **Prioritize novel strategies and observations from this specific turn window that are unlikely to be covered in general Zork advice. Aim for conciseness and avoid repeating information that would already be known to an experienced player or present in a general strategy guide.**"""
+1. **Game World Mechanics**: What specific game rules, item behaviors, or location properties were discovered?
+2. **Strategic Patterns**: What types of actions consistently lead to progress vs. setbacks across different situations?
+3. **Environmental Knowledge**: How do different locations behave? What objects are consistently significant?
+4. **Danger Recognition**: What specific threats, traps, or failure patterns should be avoided based on experience?
+5. **Efficiency Insights**: What meta-strategies help approach different types of situations more effectively?
+6. **Problem-Solving Patterns**: What general approaches work well for different categories of challenges?
+7. **Learning from Experience**: What insights about the game world emerged from this gameplay session?
+
+**AVOID (Handled by Objectives System)**:
+- Specific current objectives or immediate tactical goals
+- Real-time action prioritization advice
+- "What should I do next" guidance
+- Current situation analysis
+
+Focus on actionable insights that help the agent become better at recognizing opportunities, avoiding dangers, and understanding the game world. Be specific about locations, items, commands, and game mechanics discovered through actual gameplay experience."""
 
         # Incase using Qwen qwen3-30b-a3b
         prompt = r"\no_think " + prompt
@@ -1084,21 +1061,29 @@ Maintain the existing structure but enhance it with the new insights."""
 - Use precise command syntax and logical conditions
 - Provide algorithmic approaches to problem-solving
 
-**FOCUS ON DISCOVERED GAME WORLD CONTENT**: The agent already has comprehensive movement and loop detection instructions. This knowledge base should focus exclusively on discoveries about the game world itself:
+**FOCUS ON STRATEGIC DISCOVERY FRAMEWORKS**: The agent already has comprehensive movement and loop detection instructions. This knowledge base should focus on strategic frameworks to help the agent discover and maintain objectives through gameplay:
 
-- **Items and Objects**: Specific item locations, uses, combinations, and properties
-- **Puzzles and Mechanisms**: Puzzle solutions, interactive elements, sequence requirements
-- **Dangers and Threats**: Specific dangers, warning signs, death prevention strategies  
-- **Location Properties**: Unique room features, special interactions, hidden elements
-- **NPC/Creature Interactions**: Character behaviors, combat strategies, interaction patterns
-- **Strategic Discoveries**: Successful action sequences, resource management, timing insights
+**PRIMARY STRATEGIC FRAMEWORKS**:
+- **OBJECTIVE DISCOVERY**: How to recognize meaningful goals through gameplay patterns and responses
+- **PROGRESS RECOGNITION**: How to identify when actions lead to advancement vs. unproductive exploration  
+- **STRATEGIC PRIORITIZATION**: How to choose between multiple possible actions based on demonstrated value
+- **GOAL MAINTENANCE**: How to stay focused on discovered objectives rather than getting distracted
+- **LEARNING PATTERNS**: How to build strategic knowledge from gameplay experience
+
+**STRATEGIC CONTENT AREAS TO EMPHASIZE**:
+- **Discovery-Driven Navigation**: Movement strategies that maximize meaningful discoveries
+- **Value Recognition**: How to identify important elements through game responses and patterns
+- **Strategic Assessment**: Methods for evaluating the importance of discoveries and obstacles
+- **Objective Development**: How to evolve from exploration to focused goal pursuit
+- **Progress Measurement**: How to recognize meaningful advancement through gameplay feedback
+- **Efficiency Patterns**: Decision-making frameworks that promote goal-directed behavior
 
 **AVOID BASIC NAVIGATION CONTENT**: Do not include general movement instructions, loop detection patterns, or basic directional commands - these are handled elsewhere.
 
 INSIGHTS TO ANALYZE:
 {insights}
 
-Create a focused strategy guide about discovered game world content that incorporates these insights. Emphasize specific, actionable knowledge about items, puzzles, dangers, and locations discovered through gameplay."""
+Create a strategy guide that prioritizes strategic discovery frameworks, objective development through gameplay, and pattern recognition for meaningful progress. Focus on strategic insights that help the agent develop its own goals through play rather than pursue predetermined objectives. Emphasize actionable guidance for "How can I recognize and develop meaningful objectives through gameplay?" rather than "What specific things should I do in this game?"""""
         # Incase using Qwen qwen3-30b-a3b
         prompt = r"\no_think " + prompt
         try:

@@ -340,6 +340,21 @@ The following strategic guide has been compiled from analyzing previous episodes
             response = self.client.chat.completions.create(**client_args)
             raw_response = response.content.strip()
 
+            # DEBUG: Log the raw response to understand what the model is actually returning
+            if self.logger:
+                self.logger.info(
+                    f"[DEBUG] Raw agent response:",
+                    extra={
+                        "extras": {
+                            "event_type": "agent_raw_response_debug",
+                            "episode_id": self.episode_id,
+                            "model": self.model,
+                            "raw_response": raw_response,
+                            "raw_response_length": len(raw_response),
+                        }
+                    }
+                )
+
             # Extract reasoning from thinking tags
             reasoning_parts = []
 
@@ -361,10 +376,81 @@ The following strategic guide has been compiled from analyzing previous episodes
             )
             reasoning_parts.extend(reflection_matches)
 
+            # DEBUG: Log what reasoning parts were extracted
+            if self.logger:
+                self.logger.info(
+                    f"[DEBUG] Reasoning extraction results:",
+                    extra={
+                        "extras": {
+                            "event_type": "reasoning_extraction_debug",
+                            "episode_id": self.episode_id,
+                            "think_matches_count": len(think_matches),
+                            "thinking_matches_count": len(thinking_matches),
+                            "reflection_matches_count": len(reflection_matches),
+                            "total_reasoning_parts": len(reasoning_parts),
+                            "think_matches": think_matches,
+                            "thinking_matches": thinking_matches,
+                            "reflection_matches": reflection_matches,
+                        }
+                    }
+                )
+
+            # Fallback: if no reasoning found in tags, try to extract reasoning from the response
+            if not reasoning_parts:
+                # Look for reasoning patterns that might not be in tags
+                lines = raw_response.split('\n')
+                potential_reasoning = []
+                
+                for line in lines:
+                    line = line.strip()
+                    # Skip if it looks like a command
+                    if len(line.split()) <= 3 and any(word.lower() in line.lower() for word in 
+                        ['north', 'south', 'east', 'west', 'up', 'down', 'look', 'examine', 'take', 'open', 'close', 'enter', 'exit', 'climb', 'go']):
+                        continue
+                    # Skip empty lines
+                    if not line:
+                        continue
+                    # If it's a longer explanatory line, consider it reasoning
+                    if len(line) > 20 or any(reasoning_word in line.lower() for reasoning_word in 
+                        ['should', 'need', 'want', 'will', 'can', 'might', 'could', 'seems', 'appears', 'because', 'since', 'to explore', 'to find']):
+                        potential_reasoning.append(line)
+                
+                if potential_reasoning:
+                    reasoning_parts.extend(potential_reasoning)
+                    
+                # DEBUG: Log fallback reasoning extraction
+                if self.logger:
+                    self.logger.info(
+                        f"[DEBUG] Fallback reasoning extraction:",
+                        extra={
+                            "extras": {
+                                "event_type": "fallback_reasoning_debug",
+                                "episode_id": self.episode_id,
+                                "potential_reasoning_lines": potential_reasoning,
+                                "fallback_reasoning_count": len(potential_reasoning),
+                            }
+                        }
+                    )
+
             # Combine all reasoning
             reasoning = "\n\n".join(
                 part.strip() for part in reasoning_parts if part.strip()
             )
+
+            # DEBUG: Log final reasoning result
+            if self.logger:
+                self.logger.info(
+                    f"[DEBUG] Final reasoning result:",
+                    extra={
+                        "extras": {
+                            "event_type": "final_reasoning_debug",
+                            "episode_id": self.episode_id,
+                            "final_reasoning": reasoning,
+                            "final_reasoning_length": len(reasoning),
+                            "reasoning_is_none": reasoning is None or reasoning == "",
+                        }
+                    }
+                )
 
             # Clean up the action: remove any thinking
             action = re.sub(r"<think>.*?</think>\s*", "", raw_response, flags=re.DOTALL)
