@@ -103,9 +103,28 @@ class AWSConfig(BaseModel):
         super().__init__(**data)
 
 
+class RetryConfig(BaseModel):
+    """Retry and exponential backoff configuration settings."""
+    max_retries: int = 5
+    initial_delay: float = 1.0  # Initial retry delay in seconds
+    max_delay: float = 60.0     # Maximum retry delay in seconds
+    exponential_base: float = 2.0  # Multiplier for exponential backoff
+    jitter_factor: float = 0.1  # Random jitter to prevent thundering herd (0.0 to 1.0)
+    retry_on_timeout: bool = True
+    retry_on_rate_limit: bool = True
+    retry_on_server_error: bool = True  # 5xx errors
+    timeout_seconds: float = 120.0
+    # Circuit breaker settings
+    circuit_breaker_enabled: bool = True
+    circuit_breaker_failure_threshold: int = 10  # Number of failures before opening circuit
+    circuit_breaker_recovery_timeout: float = 300.0  # Seconds before trying to close circuit
+    circuit_breaker_success_threshold: int = 3  # Consecutive successes needed to close circuit
+
+
 class ZorkGPTConfig(BaseModel):
     """Complete ZorkGPT configuration."""
     llm: LLMConfig = LLMConfig()
+    retry: RetryConfig = RetryConfig()
     agent_sampling: AgentSamplingConfig = AgentSamplingConfig()
     critic_sampling: CriticSamplingConfig = CriticSamplingConfig()
     extractor_sampling: ExtractorSamplingConfig = ExtractorSamplingConfig()

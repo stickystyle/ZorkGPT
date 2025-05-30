@@ -38,6 +38,23 @@ analysis_model = "qwen/qwen3-30b-a3b:free"
 # critic_model = "gemma-3-12b-it-qat"
 # analysis_model = "qwen/qwen3-30b-a3b:free"
 
+[tool.zorkgpt.retry]
+# Retry and Exponential Backoff Configuration
+max_retries = 5
+initial_delay = 1.0           # Initial retry delay in seconds
+max_delay = 60.0              # Maximum retry delay in seconds
+exponential_base = 2.0        # Multiplier for exponential backoff
+jitter_factor = 0.1           # Random jitter to prevent thundering herd (0.0 to 1.0)
+retry_on_timeout = true
+retry_on_rate_limit = true
+retry_on_server_error = true  # 5xx errors
+timeout_seconds = 120.0
+# Circuit breaker settings
+circuit_breaker_enabled = true
+circuit_breaker_failure_threshold = 10    # Number of failures before opening circuit
+circuit_breaker_recovery_timeout = 300.0  # Seconds before trying to close circuit
+circuit_breaker_success_threshold = 3     # Consecutive successes needed to close circuit
+
 [tool.zorkgpt.agent_sampling]
 # Agent LLM Sampling Parameters
 temperature = 0.5
