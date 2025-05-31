@@ -134,7 +134,7 @@ def update_zorkgpt(public_ip: str) -> None:
         print(f"✅ Save request signal sent ({save_signal_filepath_on_ec2})")
         
         # Wait for ZorkGPT to process the save signal
-        save_request_timeout = 30  # Seconds to wait for save processing
+        save_request_timeout = 90  # Seconds to wait for save processing
         print(f"⏳ Waiting up to {save_request_timeout}s for ZorkGPT to process save signal...")
         
         time.sleep(save_request_timeout)

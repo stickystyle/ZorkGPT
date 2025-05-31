@@ -76,7 +76,7 @@ max_tokens = 100
 [tool.zorkgpt.extractor_sampling]
 # Information Extractor LLM Sampling Parameters
 temperature = 0.1
-max_tokens = 300
+max_tokens = 400
 # top_p = null     # Optional - leave commented for default
 # top_k = null     # Optional - leave commented for default
 # min_p = null     # Optional - leave commented for default
