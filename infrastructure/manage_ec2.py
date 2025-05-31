@@ -154,15 +154,25 @@ def update_zorkgpt():
         print("⚠️ Timeout waiting for save signal processing - proceeding anyway")
     
     # Verify save files exist
-    save_verification = run_ssh_command(
-        'sudo -u zorkgpt bash -c "ls -la /home/zorkgpt/ZorkGPT/game_files/*.qzl /home/zorkgpt/ZorkGPT/current_state.json 2>/dev/null && echo Save files found || echo No save files found"',
+    print("🔍 Checking save file status...")
+    
+    # Check if game_files directory exists and list contents
+    run_ssh_command(
+        'sudo -u zorkgpt bash -c "echo Game files directory: && ls -la /home/zorkgpt/ZorkGPT/game_files/ 2>/dev/null || echo game_files directory not found"',
         public_ip
     )
     
-    if save_verification:
-        print(f"✅ Save files verified")
-    else:
-        print("⚠️ Warning: Could not verify save files")
+    # Check for current_state.json
+    run_ssh_command(
+        'sudo -u zorkgpt bash -c "test -f /home/zorkgpt/ZorkGPT/current_state.json && echo current_state.json exists || echo current_state.json missing"',
+        public_ip
+    )
+    
+    # Check for any .qzl files
+    run_ssh_command(
+        'sudo -u zorkgpt bash -c "find /home/zorkgpt/ZorkGPT -name \"*.qzl\" -ls 2>/dev/null || echo No .qzl files found"',
+        public_ip
+    )
     
     print("\n🔄 Stopping ZorkGPT service...")
     stop_result = run_ssh_command("sudo systemctl stop zorkgpt", public_ip)
@@ -173,7 +183,7 @@ def update_zorkgpt():
     
     print("📥 Updating ZorkGPT code...")
     update_result = run_ssh_command(
-        "cd /home/zorkgpt/ZorkGPT && sudo -u zorkgpt git pull", public_ip
+        "sudo -u zorkgpt bash -c 'cd /home/zorkgpt/ZorkGPT && git pull'", public_ip
     )
     if update_result:
         print("✅ ZorkGPT code updated")
