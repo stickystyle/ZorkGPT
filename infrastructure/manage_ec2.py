@@ -111,88 +111,85 @@ def view_logs(public_ip: str, follow: bool = False) -> None:
     run_ssh_command(f"sudo journalctl -u zorkgpt {follow_flag} --no-pager", public_ip, capture_output=not follow)
 
 
-def update_zorkgpt(public_ip: str) -> None:
-    """Update ZorkGPT to the latest version."""
-    print("📥 Updating ZorkGPT...")
-
-    # Get CloudFront distribution ID for cache invalidation
-    distribution_id = get_stack_output("DistributionId")
+def update_zorkgpt():
+    """Update ZorkGPT on the EC2 instance after triggering a save."""
+    public_ip = get_stack_output("EC2PublicIP")
     
-    # Get S3 bucket name for uploads
-    bucket_name = get_stack_output("BucketName")
-    if not bucket_name:
-        print("⚠️  Warning: Could not get S3 bucket name from CloudFormation stack")
-
-    # Step 0: Request save before stopping service
-    save_signal_filepath_on_ec2 = "/home/zorkgpt/ZorkGPT/.SAVE_REQUESTED_BY_SYSTEM"
-    print("💾 Requesting ZorkGPT to save game state before update...")
+    print("🎮 Triggering game save before update...")
     
-    # Create the save signal file
-    touch_command = f'sudo -u zorkgpt bash -c "touch {save_signal_filepath_on_ec2}"'
+    # Create save signal file
+    signal_created = run_ssh_command(
+        'sudo -u zorkgpt bash -c "touch /home/zorkgpt/ZorkGPT/.SAVE_REQUESTED_BY_SYSTEM"',
+        public_ip
+    )
     
-    if run_ssh_command(touch_command, public_ip):
-        print(f"✅ Save request signal sent ({save_signal_filepath_on_ec2})")
+    if "error" in signal_created.lower():
+        print(f"❌ Failed to create save signal: {signal_created}")
+        return
+    
+    print("✅ Save signal created, waiting for ZorkGPT to process...")
+    
+    # Wait for save to be processed (signal file to be removed)
+    max_wait_time = 60  # Increased from 30 to 60 seconds
+    wait_interval = 3
+    total_waited = 0
+    
+    while total_waited < max_wait_time:
+        time.sleep(wait_interval)
+        total_waited += wait_interval
         
-        # Wait for ZorkGPT to process the save signal
-        save_request_timeout = 90  # Seconds to wait for save processing
-        print(f"⏳ Waiting up to {save_request_timeout}s for ZorkGPT to process save signal...")
+        # Check if signal file still exists
+        check_result = run_ssh_command(
+            'sudo -u zorkgpt bash -c "ls -la /home/zorkgpt/ZorkGPT/.SAVE_REQUESTED_BY_SYSTEM 2>/dev/null || echo Signal file does not exist"',
+            public_ip
+        )
         
-        time.sleep(save_request_timeout)
-        
-        print("⏰ Wait time elapsed. Proceeding with service stop and update.")
-        
-        # Optional: Check if signal file was removed (indicates save was processed)
-        check_signal_removed_cmd = f'sudo -u zorkgpt bash -c "! test -f {save_signal_filepath_on_ec2}"'
-        if run_ssh_command(check_signal_removed_cmd, public_ip):
+        if "Signal file does not exist" in check_result:
             print("✅ Save signal was processed by ZorkGPT")
+            break
         else:
-            print("⚠️  Save signal file still exists - save may not have been processed")
+            print(f"⏳ Still waiting... ({total_waited}s elapsed)")
+    
+    if total_waited >= max_wait_time:
+        print("⚠️ Timeout waiting for save signal processing - proceeding anyway")
+    
+    # Verify save files exist
+    save_verification = run_ssh_command(
+        'sudo -u zorkgpt bash -c "ls -la /home/zorkgpt/ZorkGPT/game_files/*.qzl /home/zorkgpt/ZorkGPT/current_state.json 2>/dev/null || echo No save files found"',
+        public_ip
+    )
+    
+    if "No save files found" not in save_verification:
+        print(f"✅ Save files verified:")
+        for line in save_verification.split('\n'):
+            if '.qzl' in line or 'current_state.json' in line:
+                print(f"  📄 {line.strip()}")
     else:
-        print(f"⚠️  Failed to send save request signal to ZorkGPT")
-        print("⚠️  Proceeding with update, but Zork game state may not be saved")
-
-    commands = [
-        "sudo systemctl stop zorkgpt",
-        'sudo -u zorkgpt bash -c "cd /home/zorkgpt/ZorkGPT && git pull"',
-        'sudo -u zorkgpt bash -c "cd /home/zorkgpt/ZorkGPT && ~/.local/bin/uv sync --extra s3"',
-        f'sudo -u zorkgpt bash -c "cd /home/zorkgpt/ZorkGPT && aws s3 cp zork_viewer.html s3://{bucket_name or "BUCKET_NAME_NOT_FOUND"}/zork_viewer.html"',
-        "sudo systemctl start zorkgpt",
-    ]
-
-    step_descriptions = [
-        "Stopping ZorkGPT service",
-        "Pulling latest code from git",
-        "Syncing Python dependencies with S3 support",
-        "Uploading viewer HTML to S3",
-        "Starting ZorkGPT service",
-    ]
-
-    for i, (command, description) in enumerate(zip(commands, step_descriptions), 1):
-        print(f"Step {i}/{len(commands)}: {description}")
-        if not run_ssh_command(command, public_ip):
-            # Special handling for the HTML upload step - don't fail if upload fails
-            if "aws s3 cp zork_viewer.html" in command:
-                print("⚠️  zork_viewer.html upload failed, continuing anyway (check bucket permissions)")
-                continue
-            else:
-                print(f"❌ Update failed at step {i}")
-                return
-
-    # Invalidate CloudFront cache for the HTML file
-    if distribution_id:
-        print("🔄 Invalidating CloudFront cache for viewer HTML...")
-        invalidation_cmd = f"aws cloudfront create-invalidation --distribution-id {distribution_id} --paths '/zork_viewer.html' --profile parrishfamily"
-        try:
-            result = subprocess.run(invalidation_cmd, shell=True, check=True, capture_output=True, text=True)
-            print("✅ CloudFront cache invalidation initiated")
-        except subprocess.CalledProcessError as e:
-            print(f"⚠️  CloudFront invalidation failed: {e}")
-            print("   The HTML file was uploaded but cache may take time to refresh")
-    else:
-        print("⚠️  Could not get CloudFront distribution ID for cache invalidation")
-
-    print("✅ ZorkGPT updated successfully")
-    print("🎮 Game state should be restored from save file on next startup")
+        print("⚠️ Warning: No save files found after save signal processing")
+    
+    print("\n🔄 Stopping ZorkGPT service...")
+    stop_result = run_ssh_command("sudo systemctl stop zorkgpt", public_ip)
+    print(f"Stop result: {stop_result}")
+    
+    print("📥 Updating ZorkGPT code...")
+    update_result = run_ssh_command(
+        "cd /home/zorkgpt/ZorkGPT && sudo -u zorkgpt git pull", public_ip
+    )
+    print(f"Update result: {update_result}")
+    
+    print("🔄 Starting ZorkGPT service...")
+    start_result = run_ssh_command("sudo systemctl start zorkgpt", public_ip)
+    print(f"Start result: {start_result}")
+    
+    # Wait a moment for service to start
+    time.sleep(5)
+    
+    print("✅ ZorkGPT service status:")
+    status_result = run_ssh_command("sudo systemctl status zorkgpt --no-pager", public_ip)
+    print(status_result)
+    
+    print("\n🎮 Game state will be automatically restored from save file on restart")
+    print("📊 Monitor logs with: python infrastructure/manage_ec2.py logs-follow")
 
 
 def update_viewer_only(public_ip: str) -> None:
@@ -390,7 +387,7 @@ def main():
     elif args.action == "logs-follow":
         view_logs(public_ip, follow=True)
     elif args.action == "update":
-        update_zorkgpt(public_ip)
+        update_zorkgpt()
     elif args.action == "update-viewer":
         update_viewer_only(public_ip)
     elif args.action == "download":

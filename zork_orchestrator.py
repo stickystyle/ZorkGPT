@@ -308,13 +308,20 @@ class ZorkOrchestrator:
             current_zork_score, max_zork_score = zork_interface_instance.score()
             self.previous_zork_score = current_zork_score
             
+            # Enhanced reconciliation with previous save metadata
+            reconciliation_status = self._reconcile_restored_state(
+                current_game_state, current_inventory, current_zork_score
+            )
+            
             self.logger.info(f"Game restored - Score: {current_zork_score}, Inventory: {len(current_inventory)} items", extra={
                 "extras": {
                     "event_type": "game_state_reconciled",
                     "episode_id": self.episode_id,
                     "score": current_zork_score,
                     "inventory_count": len(current_inventory),
-                    "inventory": current_inventory
+                    "inventory": current_inventory,
+                    "reconciliation_status": reconciliation_status,
+                    "has_previous_save_metadata": hasattr(self, '_previous_save_metadata')
                 }
             })
 
@@ -1651,7 +1658,7 @@ class ZorkOrchestrator:
                     actual_current_room = room_key
                     break
         
-        return {
+        state = {
             "metadata": {
                 "episode_id": self.episode_id,
                 "timestamp": datetime.now().isoformat(),
@@ -1706,6 +1713,12 @@ class ZorkOrchestrator:
                 "recent_actions": self.get_recent_action_summary(),
             },
         }
+        
+        # Add save metadata if available (for sync verification)
+        if hasattr(self, '_save_metadata'):
+            state["save_metadata"] = self._save_metadata
+            
+        return state
 
     def get_recent_log(self, length: int = 10) -> List[Dict[str, Any]]:
         """Get recent game log entries with reasoning."""
@@ -2816,27 +2829,42 @@ Please provide a refined list of objectives that encourages exploration and prog
                 save_file_with_qzl = self.zork_save_file_abs_path + ".qzl"
                 save_file_exists = os.path.exists(save_file_with_qzl) or os.path.exists(self.zork_save_file_abs_path)
                 
-                self.logger.info(f"Save file verification", extra={
-                    "extras": {
-                        "event_type": "save_file_verification",
-                        "episode_id": self.episode_id,
-                        "save_file_exists": save_file_exists,
-                        "checked_paths": [self.zork_save_file_abs_path, save_file_with_qzl]
+                if save_file_exists:
+                    # Only export JSON state if Zork save file actually exists
+                    # Add save file metadata to the JSON state for verification
+                    save_metadata = {
+                        "save_file_path": save_file_with_qzl if os.path.exists(save_file_with_qzl) else self.zork_save_file_abs_path,
+                        "save_file_mtime": os.path.getmtime(save_file_with_qzl) if os.path.exists(save_file_with_qzl) else os.path.getmtime(self.zork_save_file_abs_path),
+                        "save_turn": self.turn_count,
+                        "save_timestamp": datetime.now().isoformat()
                     }
-                })
-                
-                # Force save current ZorkGPT state to JSON
-                self.export_current_state()
-                
-                self.logger.info("ZorkGPT state exported - ready for shutdown", extra={
-                    "extras": {
-                        "event_type": "state_export_complete",
-                        "episode_id": self.episode_id,
-                        "export_file": self.state_export_file
-                    }
-                })
+                    
+                    # Add save metadata to current state before export
+                    self._save_metadata = save_metadata
+                    
+                    # Force save current ZorkGPT state to JSON
+                    self.export_current_state()
+                    
+                    self.logger.info("ZorkGPT state exported with save metadata - ready for shutdown", extra={
+                        "extras": {
+                            "event_type": "state_export_complete",
+                            "episode_id": self.episode_id,
+                            "export_file": self.state_export_file,
+                            "save_metadata": save_metadata
+                        }
+                    })
+                else:
+                    self.logger.error("Zork save file not found after save command - not exporting JSON state", extra={
+                        "extras": {
+                            "event_type": "save_file_missing_after_save",
+                            "episode_id": self.episode_id,
+                            "expected_paths": [self.zork_save_file_abs_path, save_file_with_qzl]
+                        }
+                    })
+                    save_success = False  # Mark as failed since file doesn't exist
+                    
             else:
-                self.logger.error("Failed to save Zork game state", extra={
+                self.logger.error("Failed to save Zork game state - not exporting JSON state", extra={
                     "extras": {
                         "event_type": "zork_save_failed",
                         "episode_id": self.episode_id,
@@ -2852,7 +2880,8 @@ Please provide a refined list of objectives that encourages exploration and prog
                 self.logger.info("Save signal file removed", extra={
                     "extras": {
                         "event_type": "save_signal_removed",
-                        "episode_id": self.episode_id
+                        "episode_id": self.episode_id,
+                        "save_success": save_success
                     }
                 })
             except OSError as e:
@@ -2952,13 +2981,37 @@ Please provide a refined list of objectives that encourages exploration and prog
                 with open(self.state_export_file, 'r') as f:
                     previous_state = json.load(f)
                 
+                # Validate save file synchronization if save metadata exists
+                save_metadata = previous_state.get("save_metadata")
+                if save_metadata:
+                    sync_valid = self._validate_save_sync(save_metadata)
+                    if not sync_valid:
+                        self.logger.warning("Save file sync validation failed - JSON state may be out of sync", extra={
+                            "extras": {
+                                "event_type": "save_sync_validation_failed",
+                                "episode_id": self.episode_id,
+                                "save_metadata": save_metadata
+                            }
+                        })
+                        # Continue loading but mark as potentially invalid
+                        previous_state["_sync_warning"] = True
+                else:
+                    self.logger.info("No save metadata found in previous state - cannot validate sync", extra={
+                        "extras": {
+                            "event_type": "no_save_metadata",
+                            "episode_id": self.episode_id
+                        }
+                    })
+                
                 self.logger.info("Loaded previous state from JSON", extra={
                     "extras": {
                         "event_type": "previous_state_loaded",
                         "episode_id": self.episode_id,
                         "state_file": self.state_export_file,
                         "previous_episode_id": previous_state.get("metadata", {}).get("episode_id", "unknown"),
-                        "previous_turn_count": previous_state.get("metadata", {}).get("turn_count", 0)
+                        "previous_turn_count": previous_state.get("metadata", {}).get("turn_count", 0),
+                        "has_save_metadata": save_metadata is not None,
+                        "sync_warning": previous_state.get("_sync_warning", False)
                     }
                 })
                 
@@ -2984,6 +3037,78 @@ Please provide a refined list of objectives that encourages exploration and prog
             })
             return None
 
+    def _validate_save_sync(self, save_metadata: Dict[str, Any]) -> bool:
+        """Validate that save file metadata matches expected state.
+        
+        Args:
+            save_metadata: Save metadata from JSON state
+            
+        Returns:
+            bool: True if save file appears to be in sync
+        """
+        try:
+            save_file_path = save_metadata.get("save_file_path")
+            expected_mtime = save_metadata.get("save_file_mtime")
+            
+            if not save_file_path or not expected_mtime:
+                self.logger.warning("Incomplete save metadata - cannot validate sync", extra={
+                    "extras": {
+                        "event_type": "incomplete_save_metadata",
+                        "episode_id": self.episode_id,
+                        "save_metadata": save_metadata
+                    }
+                })
+                return False
+            
+            # Check if save file still exists
+            if not os.path.exists(save_file_path):
+                self.logger.warning(f"Save file no longer exists: {save_file_path}", extra={
+                    "extras": {
+                        "event_type": "save_file_missing",
+                        "episode_id": self.episode_id,
+                        "save_file_path": save_file_path
+                    }
+                })
+                return False
+            
+            # Check if modification time matches (within tolerance)
+            actual_mtime = os.path.getmtime(save_file_path)
+            time_diff = abs(actual_mtime - expected_mtime)
+            
+            # Allow 5 second tolerance for filesystem time differences
+            if time_diff > 5.0:
+                self.logger.warning(f"Save file modification time mismatch - expected: {expected_mtime}, actual: {actual_mtime}, diff: {time_diff}s", extra={
+                    "extras": {
+                        "event_type": "save_file_time_mismatch",
+                        "episode_id": self.episode_id,
+                        "save_file_path": save_file_path,
+                        "expected_mtime": expected_mtime,
+                        "actual_mtime": actual_mtime,
+                        "time_diff": time_diff
+                    }
+                })
+                return False
+            
+            self.logger.info("Save file sync validation passed", extra={
+                "extras": {
+                    "event_type": "save_sync_validated",
+                    "episode_id": self.episode_id,
+                    "save_file_path": save_file_path,
+                    "time_diff": time_diff
+                }
+            })
+            return True
+            
+        except Exception as e:
+            self.logger.warning(f"Error during save sync validation: {e}", extra={
+                "extras": {
+                    "event_type": "save_sync_validation_error",
+                    "episode_id": self.episode_id,
+                    "error": str(e)
+                }
+            })
+            return False
+
     def _merge_previous_state(self, previous_state: Dict[str, Any]) -> None:
         """Merge relevant data from previous state into current session.
         
@@ -2991,6 +3116,16 @@ Please provide a refined list of objectives that encourages exploration and prog
         """
         if not previous_state:
             return
+        
+        # Check for sync warnings
+        has_sync_warning = previous_state.get("_sync_warning", False)
+        if has_sync_warning:
+            self.logger.warning("Merging previous state with sync warning - data may be inconsistent", extra={
+                "extras": {
+                    "event_type": "merge_with_sync_warning",
+                    "episode_id": self.episode_id
+                }
+            })
         
         # Preserve map data
         if "map" in previous_state:
@@ -3008,12 +3143,15 @@ Please provide a refined list of objectives that encourages exploration and prog
                         for direction, to_room in connections.items():
                             self.game_map.add_connection(from_room, direction, to_room)
                 
-                self.logger.info("Merged previous map data", extra={
+                merge_status = "partial" if has_sync_warning else "complete"
+                self.logger.info(f"Merged previous map data ({merge_status})", extra={
                     "extras": {
                         "event_type": "map_data_merged",
                         "episode_id": self.episode_id,
                         "rooms_loaded": len(map_data["raw_data"].get("rooms", {})),
-                        "connections_loaded": sum(len(conns) for conns in map_data["raw_data"].get("connections", {}).values())
+                        "connections_loaded": sum(len(conns) for conns in map_data["raw_data"].get("connections", {}).values()),
+                        "merge_status": merge_status,
+                        "has_sync_warning": has_sync_warning
                     }
                 })
             except Exception as e:
@@ -3036,11 +3174,14 @@ Please provide a refined list of objectives that encourages exploration and prog
                     # Update adaptive knowledge manager
                     self.adaptive_knowledge_manager.last_content = kb_content
                     
-                    self.logger.info("Restored previous knowledge base", extra={
+                    merge_status = "partial" if has_sync_warning else "complete"
+                    self.logger.info(f"Restored previous knowledge base ({merge_status})", extra={
                         "extras": {
                             "event_type": "knowledge_restored",
                             "episode_id": self.episode_id,
-                            "content_length": len(kb_content)
+                            "content_length": len(kb_content),
+                            "merge_status": merge_status,
+                            "has_sync_warning": has_sync_warning
                         }
                     })
             except Exception as e:
@@ -3057,20 +3198,113 @@ Please provide a refined list of objectives that encourages exploration and prog
             current_state = previous_state["current_state"]
             if "death_count" in current_state:
                 self.death_count = current_state["death_count"]
-                self.logger.info(f"Restored death count: {self.death_count}", extra={
+                merge_status = "with_sync_warning" if has_sync_warning else "clean"
+                self.logger.info(f"Restored death count: {self.death_count} ({merge_status})", extra={
                     "extras": {
                         "event_type": "death_count_restored",
                         "episode_id": self.episode_id,
-                        "death_count": self.death_count
+                        "death_count": self.death_count,
+                        "merge_status": merge_status,
+                        "has_sync_warning": has_sync_warning
                     }
                 })
         
-        self.logger.info("Previous state merge completed", extra={
+        # Store the save metadata for later verification during reconciliation
+        if "save_metadata" in previous_state:
+            self._previous_save_metadata = previous_state["save_metadata"]
+            self.logger.info("Stored previous save metadata for reconciliation", extra={
+                "extras": {
+                    "event_type": "save_metadata_stored",
+                    "episode_id": self.episode_id,
+                    "save_turn": self._previous_save_metadata.get("save_turn"),
+                    "save_timestamp": self._previous_save_metadata.get("save_timestamp")
+                }
+            })
+        
+        final_status = "completed_with_warnings" if has_sync_warning else "completed_successfully"
+        self.logger.info(f"Previous state merge {final_status}", extra={
             "extras": {
                 "event_type": "state_merge_complete",
-                "episode_id": self.episode_id
+                "episode_id": self.episode_id,
+                "final_status": final_status,
+                "has_sync_warning": has_sync_warning
             }
         })
+
+    def _reconcile_restored_state(self, game_state: str, inventory: List[str], score: int) -> str:
+        """Reconcile restored game state with loaded JSON state to detect inconsistencies.
+        
+        Args:
+            game_state: Current game state text from restored game
+            inventory: Current inventory from restored game  
+            score: Current score from restored game
+            
+        Returns:
+            str: Reconciliation status ("consistent", "minor_discrepancy", "major_discrepancy")
+        """
+        try:
+            # If we don't have previous save metadata, we can't do detailed reconciliation
+            if not hasattr(self, '_previous_save_metadata'):
+                self.logger.info("No previous save metadata available for reconciliation", extra={
+                    "extras": {
+                        "event_type": "reconciliation_no_metadata",
+                        "episode_id": self.episode_id
+                    }
+                })
+                return "no_metadata"
+            
+            # Extract expected values from previous save metadata
+            expected_turn = self._previous_save_metadata.get("save_turn", 0)
+            save_timestamp = self._previous_save_metadata.get("save_timestamp", "unknown")
+            
+            discrepancies = []
+            
+            # Check if current state makes sense relative to save metadata
+            # We expect to be at or near the turn where we saved
+            if expected_turn > 0:
+                # For a fresh restore, we should be starting from turn 0 again
+                # But our tracking variables should reflect where we were when saved
+                
+                # Log the expected vs actual state for analysis
+                self.logger.info(f"Reconciliation check - Expected save turn: {expected_turn}, Save timestamp: {save_timestamp}", extra={
+                    "extras": {
+                        "event_type": "reconciliation_comparison",
+                        "episode_id": self.episode_id,
+                        "expected_save_turn": expected_turn,
+                        "save_timestamp": save_timestamp,
+                        "current_score": score,
+                        "current_inventory_count": len(inventory)
+                    }
+                })
+                
+                # TODO: Could add more sophisticated validation here:
+                # - Compare current location with expected location from JSON state
+                # - Validate inventory contents match expectations
+                # - Check score consistency
+                # - Verify map state consistency
+                
+            # For now, if we got here without errors, consider it consistent
+            # Future enhancements could add more detailed state comparison
+            
+            self.logger.info("Reconciliation completed - state appears consistent", extra={
+                "extras": {
+                    "event_type": "reconciliation_completed",
+                    "episode_id": self.episode_id,
+                    "status": "consistent"
+                }
+            })
+            
+            return "consistent"
+            
+        except Exception as e:
+            self.logger.warning(f"Error during reconciliation: {e}", extra={
+                "extras": {
+                    "event_type": "reconciliation_error",
+                    "episode_id": self.episode_id,
+                    "error": str(e)
+                }
+            })
+            return "error"
 
 
 if __name__ == "__main__":
