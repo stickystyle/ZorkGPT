@@ -151,27 +151,42 @@ class ZorkOrchestrator:
             except Exception as e:
                 self.logger.warning(f"Failed to initialize S3 client: {e}")
 
-        # Initialize LLM client (shared across components)
-        self.client = LLMClientWrapper(
-            base_url=client_base_url or config.llm.client_base_url,
+        # Initialize LLM clients with model-specific base URLs
+        # Agent client
+        agent_client = LLMClientWrapper(
+            base_url=client_base_url or config.llm.get_base_url_for_model('agent'),
+            api_key=client_api_key or get_client_api_key(),
+            logger=self.logger,
+        )
+        
+        # Info extractor client  
+        extractor_client = LLMClientWrapper(
+            base_url=client_base_url or config.llm.get_base_url_for_model('info_ext'),
+            api_key=client_api_key or get_client_api_key(),
+            logger=self.logger,
+        )
+        
+        # Critic client
+        critic_client = LLMClientWrapper(
+            base_url=client_base_url or config.llm.get_base_url_for_model('critic'),
             api_key=client_api_key or get_client_api_key(),
             logger=self.logger,
         )
 
-        # Initialize core components
+        # Initialize core components with their specific clients
         self.agent = AgentModule(
-            model=agent_model, client=self.client, logger=self.logger
+            model=agent_model, client=agent_client, logger=self.logger
         )
 
         # Initialize hybrid extractor (combines structured parsing with LLM extraction)
         self.extractor = HybridZorkExtractor(
-            model=info_ext_model, client=self.client, logger=self.logger
+            model=info_ext_model, client=extractor_client, logger=self.logger
         )
         if self.logger:
             self.logger.info("Using hybrid extractor (structured + LLM)")
 
         self.critic = ZorkCritic(
-            model=critic_model, client=self.client, logger=self.logger
+            model=critic_model, client=critic_client, logger=self.logger
         )
 
         # Initialize shared movement analyzer

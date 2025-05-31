@@ -16,10 +16,38 @@ from dotenv import load_dotenv
 class LLMConfig(BaseModel):
     """LLM configuration settings."""
     client_base_url: str = "http://localhost:1234"
+    
+    # Model configurations
     agent_model: str = "qwen3-30b-a3b-mlx"
-    info_ext_model: str = "qwen3-30b-a3b-mlx"
+    info_ext_model: str = "qwen3-30b-a3b-mlx" 
     critic_model: str = "qwen3-30b-a3b-mlx"
     analysis_model: str = "gpt-4"
+    
+    # Per-model base URLs (optional, falls back to client_base_url if not specified)
+    agent_base_url: Optional[str] = None
+    info_ext_base_url: Optional[str] = None
+    critic_base_url: Optional[str] = None
+    analysis_base_url: Optional[str] = None
+    
+    def get_base_url_for_model(self, model_type: str) -> str:
+        """
+        Get the appropriate base URL for a specific model type.
+        
+        Args:
+            model_type: One of 'agent', 'info_ext', 'critic', 'analysis'
+            
+        Returns:
+            The base URL to use for that model type
+        """
+        base_url_map = {
+            'agent': self.agent_base_url,
+            'info_ext': self.info_ext_base_url,
+            'critic': self.critic_base_url,
+            'analysis': self.analysis_base_url,
+        }
+        
+        # Return model-specific URL if available, otherwise fall back to client_base_url
+        return base_url_map.get(model_type) or self.client_base_url
 
 
 class AgentSamplingConfig(BaseModel):

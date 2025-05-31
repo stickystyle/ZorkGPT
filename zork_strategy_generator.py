@@ -43,7 +43,7 @@ class AdaptiveKnowledgeManager:
         # Initialize LLM client
         config = get_config()
         self.client = LLMClientWrapper(
-            base_url=config.llm.client_base_url,
+            base_url=config.llm.get_base_url_for_model('analysis'),
             api_key=get_client_api_key(),
         )
 

@@ -61,7 +61,7 @@ class ZorkAgent:
         # Initialize LLM client if not provided
         if client is None:
             self.client = LLMClientWrapper(
-                base_url=config.llm.client_base_url,
+                base_url=config.llm.get_base_url_for_model('agent'),
                 api_key=get_client_api_key(),
             )
         else:
