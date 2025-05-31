@@ -252,3 +252,8 @@ current_state.json
 test_current_state.json
 
 analysis*
+
+.SAVE_REQUESTED_BY_SYSTEM
+
+game_files/
+tmp/
