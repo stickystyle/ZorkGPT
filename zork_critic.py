@@ -468,6 +468,7 @@ Evaluate this action based on your criteria. Respond with ONLY a JSON object in 
             "doesn't work",
             "nothing happens",
             "that doesn't make sense",
+            "there was no verb in that sentence"
         ]
 
         # Check if the actual action resulted in a parser failure
