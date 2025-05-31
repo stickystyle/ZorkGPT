@@ -121,7 +121,8 @@ update_code() {
     log "Updating ZorkGPT code..."
     
     # Change to ZorkGPT directory and pull latest code as zorkgpt user
-    if sudo -u "$ZORKGPT_USER" bash -c "cd '$ZORKGPT_DIR' && git pull"; then
+    # First stash any local changes, then pull, then pop the stash
+    if sudo -u "$ZORKGPT_USER" bash -c "cd '$ZORKGPT_DIR' && git stash && git pull && git stash pop"; then
         log "ZorkGPT code updated successfully"
         return 0
     else
