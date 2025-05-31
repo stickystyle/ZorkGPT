@@ -141,7 +141,7 @@ def update_zorkgpt():
     
     # Execute the update script on the remote instance
     # Don't capture output so we can see real-time progress, and redirect stderr to stdout
-    ssh_cmd = f"ssh -i ~/.ssh/parrishfamily.pem -o StrictHostKeyChecking=no ec2-user@{public_ip} '{execute_cmd} 2>&1'"
+    ssh_cmd = f"ssh -i ~/.ssh/parrishfamily.pem -o StrictHostKeyChecking=no ec2-user@{public_ip} 'bash -c \"{execute_cmd}\"'"
     
     try:
         result = subprocess.run(ssh_cmd, shell=True, check=True)
