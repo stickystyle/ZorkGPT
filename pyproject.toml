@@ -58,7 +58,7 @@ circuit_breaker_recovery_timeout = 300.0  # Seconds before trying to close circu
 circuit_breaker_success_threshold = 3     # Consecutive successes needed to close circuit
 
 [tool.zorkgpt.agent_sampling]
-# Agent LLM Sampling Parameters
+# Agent LLM Sampling Parameters, taken from Qwen model card
 temperature = 0.6
 top_p = 0.95
 top_k = 20
