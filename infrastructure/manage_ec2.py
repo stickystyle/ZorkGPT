@@ -123,8 +123,8 @@ def update_zorkgpt():
         public_ip
     )
     
-    if "error" in signal_created.lower():
-        print(f"❌ Failed to create save signal: {signal_created}")
+    if not signal_created:
+        print(f"❌ Failed to create save signal")
         return
     
     print("✅ Save signal created, waiting for ZorkGPT to process...")
@@ -139,12 +139,12 @@ def update_zorkgpt():
         total_waited += wait_interval
         
         # Check if signal file still exists
-        check_result = run_ssh_command(
-            'sudo -u zorkgpt bash -c "ls -la /home/zorkgpt/ZorkGPT/.SAVE_REQUESTED_BY_SYSTEM 2>/dev/null || echo Signal file does not exist"',
+        check_success = run_ssh_command(
+            'sudo -u zorkgpt bash -c "test ! -f /home/zorkgpt/ZorkGPT/.SAVE_REQUESTED_BY_SYSTEM && echo Signal file removed || echo Signal file still exists"',
             public_ip
         )
         
-        if "Signal file does not exist" in check_result:
+        if check_success:
             print("✅ Save signal was processed by ZorkGPT")
             break
         else:
@@ -155,38 +155,43 @@ def update_zorkgpt():
     
     # Verify save files exist
     save_verification = run_ssh_command(
-        'sudo -u zorkgpt bash -c "ls -la /home/zorkgpt/ZorkGPT/game_files/*.qzl /home/zorkgpt/ZorkGPT/current_state.json 2>/dev/null || echo No save files found"',
+        'sudo -u zorkgpt bash -c "ls -la /home/zorkgpt/ZorkGPT/game_files/*.qzl /home/zorkgpt/ZorkGPT/current_state.json 2>/dev/null && echo Save files found || echo No save files found"',
         public_ip
     )
     
-    if "No save files found" not in save_verification:
-        print(f"✅ Save files verified:")
-        for line in save_verification.split('\n'):
-            if '.qzl' in line or 'current_state.json' in line:
-                print(f"  📄 {line.strip()}")
+    if save_verification:
+        print(f"✅ Save files verified")
     else:
-        print("⚠️ Warning: No save files found after save signal processing")
+        print("⚠️ Warning: Could not verify save files")
     
     print("\n🔄 Stopping ZorkGPT service...")
     stop_result = run_ssh_command("sudo systemctl stop zorkgpt", public_ip)
-    print(f"Stop result: {stop_result}")
+    if stop_result:
+        print("✅ ZorkGPT service stopped")
+    else:
+        print("⚠️ Failed to stop ZorkGPT service")
     
     print("📥 Updating ZorkGPT code...")
     update_result = run_ssh_command(
         "cd /home/zorkgpt/ZorkGPT && sudo -u zorkgpt git pull", public_ip
     )
-    print(f"Update result: {update_result}")
+    if update_result:
+        print("✅ ZorkGPT code updated")
+    else:
+        print("⚠️ Failed to update ZorkGPT code")
     
     print("🔄 Starting ZorkGPT service...")
     start_result = run_ssh_command("sudo systemctl start zorkgpt", public_ip)
-    print(f"Start result: {start_result}")
+    if start_result:
+        print("✅ ZorkGPT service started")
+    else:
+        print("⚠️ Failed to start ZorkGPT service")
     
     # Wait a moment for service to start
     time.sleep(5)
     
     print("✅ ZorkGPT service status:")
-    status_result = run_ssh_command("sudo systemctl status zorkgpt --no-pager", public_ip)
-    print(status_result)
+    run_ssh_command("sudo systemctl status zorkgpt --no-pager", public_ip)
     
     print("\n🎮 Game state will be automatically restored from save file on restart")
     print("📊 Monitor logs with: python infrastructure/manage_ec2.py logs-follow")
