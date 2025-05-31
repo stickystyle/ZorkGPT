@@ -2341,9 +2341,6 @@ OBJECTIVES:
 
 Focus on objectives the agent has actually discovered through gameplay patterns or its own novel reasoning, not general Zork knowledge."""
 
-            # Log the full prompt for debugging
-            self._log_objective_prompt(prompt)
-
             # Get LLM response
             if hasattr(self, 'client') and self.client:
                 messages = [{"role": "user", "content": prompt}]
