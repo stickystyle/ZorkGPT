@@ -16,6 +16,7 @@ import os
 import json
 import time
 import re
+import glob
 
 from zork_api import ZorkInterface
 from llm_client import LLMClientWrapper
@@ -94,15 +95,17 @@ class ZorkOrchestrator:
         self.json_log_file = json_log_file if json_log_file is not None else config.files.json_log_file
 
         # Save/restore configuration
-        self.zork_save_filename = config.gameplay.zork_save_filename
+        self.zork_save_filename_template = config.gameplay.zork_save_filename_template
         self.zork_game_workdir = config.gameplay.zork_game_workdir
         self.save_signal_filename = config.gameplay.save_signal_filename
         
         # Calculate absolute paths
         self.zork_workdir_abs_path = os.path.abspath(self.zork_game_workdir)
-        self.zork_save_file_abs_path = os.path.join(self.zork_workdir_abs_path, self.zork_save_filename)
         self.save_signal_file_abs_path = os.path.abspath(self.save_signal_filename)
-        
+
+        # Initialize current save filename - will be set when save is triggered or restored
+        self.current_save_filename = None
+
         # Ensure game directory exists
         os.makedirs(self.zork_workdir_abs_path, exist_ok=True)
 
@@ -2940,12 +2943,46 @@ Please provide a refined list of objectives that encourages exploration and prog
             bool: True if save signal was processed (regardless of success)
         """
         if os.path.exists(self.save_signal_file_abs_path):
+            # Read the save filename from the signal file content
+            try:
+                with open(self.save_signal_file_abs_path, 'r') as f:
+                    save_filename = f.read().strip()
+                    
+                if not save_filename:
+                    # Fallback to generated filename if signal file is empty
+                    save_filename = self._generate_unique_save_filename()
+                    self.logger.warning("Signal file was empty, generated new filename", extra={
+                        "extras": {
+                            "event_type": "empty_signal_file",
+                            "episode_id": self.episode_id,
+                            "generated_filename": save_filename
+                        }
+                    })
+                    
+            except Exception as e:
+                # Fallback to generated filename if file can't be read
+                save_filename = self._generate_unique_save_filename()
+                self.logger.warning(f"Could not read signal file content: {e}, generated new filename", extra={
+                    "extras": {
+                        "event_type": "signal_file_read_error", 
+                        "episode_id": self.episode_id,
+                        "error": str(e),
+                        "generated_filename": save_filename
+                    }
+                })
+            
+            # Set current save filename and calculate paths
+            self.current_save_filename = save_filename
+            current_save_file_abs_path = self._get_save_file_path(save_filename)
+            
             self.logger.info("Save requested by external signal", extra={
                 "extras": {
                     "event_type": "save_signal_received",
                     "episode_id": self.episode_id,
                     "turn": self.turn_count,
-                    "signal_file": self.save_signal_file_abs_path
+                    "signal_file": self.save_signal_file_abs_path,
+                    "save_filename": save_filename,
+                    "save_file_path": current_save_file_abs_path
                 }
             })
             
@@ -2956,35 +2993,36 @@ Please provide a refined list of objectives that encourages exploration and prog
                     "episode_id": self.episode_id,
                     "game_running": zork_interface_instance.is_running(),
                     "working_directory": zork_interface_instance.working_directory,
-                    "save_filename": self.zork_save_filename,
-                    "save_file_abs_path": self.zork_save_file_abs_path
+                    "save_filename": save_filename,
+                    "save_file_abs_path": current_save_file_abs_path
                 }
             })
             
             # Attempt to save the Zork game state
-            save_success = zork_interface_instance.trigger_zork_save(self.zork_save_filename)
+            save_success = zork_interface_instance.trigger_zork_save(save_filename)
             
             if save_success:
                 self.logger.info("Zork game state saved successfully", extra={
                     "extras": {
                         "event_type": "zork_save_success",
                         "episode_id": self.episode_id,
-                        "save_file": self.zork_save_file_abs_path
+                        "save_file": current_save_file_abs_path
                     }
                 })
                 
                 # Check if save file was actually created
-                save_file_with_qzl = self.zork_save_file_abs_path + ".qzl"
-                save_file_exists = os.path.exists(save_file_with_qzl) or os.path.exists(self.zork_save_file_abs_path)
+                save_file_with_qzl = current_save_file_abs_path + ".qzl"
+                save_file_exists = os.path.exists(save_file_with_qzl) or os.path.exists(current_save_file_abs_path)
                 
                 if save_file_exists:
                     # Only export JSON state if Zork save file actually exists
                     # Add save file metadata to the JSON state for verification
                     save_metadata = {
-                        "save_file_path": save_file_with_qzl if os.path.exists(save_file_with_qzl) else self.zork_save_file_abs_path,
-                        "save_file_mtime": os.path.getmtime(save_file_with_qzl) if os.path.exists(save_file_with_qzl) else os.path.getmtime(self.zork_save_file_abs_path),
+                        "save_file_path": save_file_with_qzl if os.path.exists(save_file_with_qzl) else current_save_file_abs_path,
+                        "save_file_mtime": os.path.getmtime(save_file_with_qzl) if os.path.exists(save_file_with_qzl) else os.path.getmtime(current_save_file_abs_path),
                         "save_turn": self.turn_count,
-                        "save_timestamp": datetime.now().isoformat()
+                        "save_timestamp": datetime.now().isoformat(),
+                        "save_filename": save_filename
                     }
                     
                     # Add save metadata to current state before export
@@ -3006,7 +3044,7 @@ Please provide a refined list of objectives that encourages exploration and prog
                         "extras": {
                             "event_type": "save_file_missing_after_save",
                             "episode_id": self.episode_id,
-                            "expected_paths": [self.zork_save_file_abs_path, save_file_with_qzl]
+                            "expected_paths": [current_save_file_abs_path, save_file_with_qzl]
                         }
                     })
                     save_success = False  # Mark as failed since file doesn't exist
@@ -3016,7 +3054,7 @@ Please provide a refined list of objectives that encourages exploration and prog
                     "extras": {
                         "event_type": "zork_save_failed",
                         "episode_id": self.episode_id,
-                        "save_file": self.zork_save_file_abs_path,
+                        "save_file": current_save_file_abs_path,
                         "game_running": zork_interface_instance.is_running(),
                         "working_directory": zork_interface_instance.working_directory
                     }
@@ -3051,40 +3089,56 @@ Please provide a refined list of objectives that encourages exploration and prog
         Returns:
             bool: True if restore was successful
         """
-        # Check for save file with .qzl extension (Zork adds this automatically)
-        save_file_with_qzl = self.zork_save_file_abs_path + ".qzl"
+        save_file_to_use = None
+        restore_filename = None
         
-        if os.path.exists(save_file_with_qzl):
-            save_file_to_use = save_file_with_qzl
-        elif os.path.exists(self.zork_save_file_abs_path):
-            save_file_to_use = self.zork_save_file_abs_path
+        # First, try to find the most recent save file
+        most_recent_save = self._find_most_recent_save()
+        
+        if most_recent_save:
+            save_file_to_use = most_recent_save
+            # Extract filename from path for the restore command
+            restore_filename = os.path.basename(most_recent_save).replace('.qzl', '').replace('.sav', '')
+            
+            self.logger.info("Found most recent save file", extra={
+                "extras": {
+                    "event_type": "most_recent_save_found",
+                    "episode_id": self.episode_id,
+                    "save_file": save_file_to_use,
+                    "restore_filename": restore_filename
+                }
+            })
         else:
             self.logger.info("No save file found - starting fresh game", extra={
                 "extras": {
                     "event_type": "no_save_file",
                     "episode_id": self.episode_id,
-                    "save_file": self.zork_save_file_abs_path,
-                    "save_file_with_qzl": save_file_with_qzl
+                    "game_directory": self.zork_workdir_abs_path
                 }
             })
             return False
         
-        self.logger.info("Save file found - attempting restore", extra={
+        self.logger.info("Attempting restore from save file", extra={
             "extras": {
-                "event_type": "save_file_found",
+                "event_type": "restore_attempt",
                 "episode_id": self.episode_id,
-                "save_file": save_file_to_use
+                "save_file": save_file_to_use,
+                "restore_filename": restore_filename
             }
         })
         
-        restore_success = zork_interface_instance.trigger_zork_restore(self.zork_save_filename)
+        restore_success = zork_interface_instance.trigger_zork_restore(restore_filename)
         
         if restore_success:
+            # Set current save filename for tracking
+            self.current_save_filename = restore_filename + ".sav"  # Add extension for consistency
+            
             self.logger.info("Successfully restored from save file", extra={
                 "extras": {
                     "event_type": "restore_success",
                     "episode_id": self.episode_id,
-                    "save_file": save_file_to_use
+                    "save_file": save_file_to_use,
+                    "current_save_filename": self.current_save_filename
                 }
             })
             return True
@@ -3453,6 +3507,54 @@ Please provide a refined list of objectives that encourages exploration and prog
                 }
             })
             return "error"
+
+    def _generate_unique_save_filename(self) -> str:
+        """Generate a unique save filename based on the template.
+        
+        Returns:
+            str: Unique save filename with timestamp
+        """
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        return self.zork_save_filename_template.format(timestamp=timestamp)
+    
+    def _find_most_recent_save(self) -> Optional[str]:
+        """Find the most recent save file in the game directory.
+        
+        Returns:
+            str: Path to most recent save file or None if no saves found
+        """
+        try:
+            # Look for .qzl files (Zork save format) in the game directory
+            pattern = os.path.join(self.zork_workdir_abs_path, "*.qzl")
+            save_files = glob.glob(pattern)
+            
+            if not save_files:
+                # Also check for .sav files
+                pattern = os.path.join(self.zork_workdir_abs_path, "*.sav")
+                save_files = glob.glob(pattern)
+            
+            if save_files:
+                # Sort by modification time, most recent first
+                save_files.sort(key=os.path.getmtime, reverse=True)
+                return save_files[0]
+                
+        except Exception as e:
+            self.logger.warning(f"Error finding save files: {e}")
+            
+        return None
+
+    def _get_save_file_path(self, filename: str) -> str:
+        """Get the absolute path for a save file.
+        
+        Args:
+            filename: Save filename (with or without .qzl extension)
+            
+        Returns:
+            str: Absolute path to save file
+        """
+        # Remove .qzl extension if present since Zork adds it automatically
+        base_filename = filename.replace('.qzl', '').replace('.sav', '')
+        return os.path.join(self.zork_workdir_abs_path, base_filename)
 
 
 if __name__ == "__main__":

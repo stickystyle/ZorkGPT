@@ -45,9 +45,16 @@ check_prerequisites() {
 trigger_save() {
     log "Triggering game save before update..."
     
-    # Create save signal file as zorkgpt user
-    if sudo -u "$ZORKGPT_USER" touch "$SAVE_SIGNAL_FILE"; then
-        log "Save signal created successfully"
+    # Generate unique save filename with timestamp
+    TIMESTAMP=$(date '+%Y%m%d_%H%M%S')
+    SAVE_FILENAME="zorkgpt_save_${TIMESTAMP}.sav"
+    
+    log "Generated save filename: $SAVE_FILENAME"
+    
+    # Create save signal file with the filename as content
+    if echo "$SAVE_FILENAME" | sudo -u "$ZORKGPT_USER" tee "$SAVE_SIGNAL_FILE" > /dev/null; then
+        log "Save signal created successfully with filename: $SAVE_FILENAME"
+        return 0
     else
         log_error "Failed to create save signal"
         return 1

@@ -104,7 +104,7 @@ exit_failure_threshold = 2  # Reduced from 3 to more quickly abandon failed dire
 enable_knowledge_condensation = true
 knowledge_condensation_threshold = 15000  # Characters before triggering condensation
 # Save/restore configuration
-zork_save_filename = "zorkgpt_save.sav"
+zork_save_filename_template = "zorkgpt_save_{timestamp}.sav"
 zork_game_workdir = "game_files"
 save_signal_filename = ".SAVE_REQUESTED_BY_SYSTEM"
 
