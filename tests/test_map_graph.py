@@ -182,6 +182,16 @@ class TestMapGraph(unittest.TestCase):
             self.assertIn("destination", suggestion)
             self.assertIn("confidence", suggestion)
 
+    def test_non_directional_actions_preserved(self):
+        """Test that non-directional actions are preserved separately."""
+        self.map.add_connection("Room C", "open door", "Room D")
+        self.map.add_connection("Room C", "north", "Room E")
+        
+        # Should have two separate connections
+        self.assertEqual(len(self.map.connections["Room C"]), 2)
+        self.assertIn("open door", self.map.connections["Room C"])
+        self.assertIn("north", self.map.connections["Room C"])
+
 
 if __name__ == "__main__":
     unittest.main()

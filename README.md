@@ -94,6 +94,11 @@ The spatial intelligence system provides detailed context to the agent's decisio
 
 Spatial context enhances the agent's ability to make decisions about exploration, item retrieval, and strategic positioning within the game world while accounting for the uncertainty inherent in text-based spatial understanding.
 
+### Exit Failure Tracking and Pruning
+The system includes intelligent exit validation that tracks failed movement attempts and removes consistently invalid exits from the map. When an exit fails multiple times (configurable threshold, default 3 attempts), the system automatically prunes it to prevent repeated failed attempts while maintaining the LLM-First design principle.
+
+This exit pruning system tracks failure counts for each exit, automatically removes invalid exits after reaching the failure threshold, prevents re-addition of previously pruned exits, and provides detailed failure statistics and reporting. The system only prunes exits based on empirical evidence from actual gameplay attempts, ensuring that LLM reasoning remains the primary source of navigation decisions while eliminating definitively invalid paths.
+
 ## Logging Infrastructure
 
 ZorkGPT implements a logging system that captures all aspects of gameplay for analysis by the adaptive knowledge system. The system generates structured logs of LLM interactions, decision-making processes, game state changes, performance metrics, and learning outcomes that enable the language models to analyze gameplay patterns and extract strategic insights.

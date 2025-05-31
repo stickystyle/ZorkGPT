@@ -2788,6 +2788,18 @@ Please provide a refined list of objectives that encourages exploration and prog
                 }
             })
             
+            # Log current game state before attempting save
+            self.logger.info(f"Current save attempt details", extra={
+                "extras": {
+                    "event_type": "save_attempt_details",
+                    "episode_id": self.episode_id,
+                    "game_running": zork_interface_instance.is_running(),
+                    "working_directory": zork_interface_instance.working_directory,
+                    "save_filename": self.zork_save_filename,
+                    "save_file_abs_path": self.zork_save_file_abs_path
+                }
+            })
+            
             # Attempt to save the Zork game state
             save_success = zork_interface_instance.trigger_zork_save(self.zork_save_filename)
             
@@ -2797,6 +2809,19 @@ Please provide a refined list of objectives that encourages exploration and prog
                         "event_type": "zork_save_success",
                         "episode_id": self.episode_id,
                         "save_file": self.zork_save_file_abs_path
+                    }
+                })
+                
+                # Check if save file was actually created
+                save_file_with_qzl = self.zork_save_file_abs_path + ".qzl"
+                save_file_exists = os.path.exists(save_file_with_qzl) or os.path.exists(self.zork_save_file_abs_path)
+                
+                self.logger.info(f"Save file verification", extra={
+                    "extras": {
+                        "event_type": "save_file_verification",
+                        "episode_id": self.episode_id,
+                        "save_file_exists": save_file_exists,
+                        "checked_paths": [self.zork_save_file_abs_path, save_file_with_qzl]
                     }
                 })
                 
@@ -2815,7 +2840,9 @@ Please provide a refined list of objectives that encourages exploration and prog
                     "extras": {
                         "event_type": "zork_save_failed",
                         "episode_id": self.episode_id,
-                        "save_file": self.zork_save_file_abs_path
+                        "save_file": self.zork_save_file_abs_path,
+                        "game_running": zork_interface_instance.is_running(),
+                        "working_directory": zork_interface_instance.working_directory
                     }
                 })
             

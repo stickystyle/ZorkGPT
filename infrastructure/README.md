@@ -157,22 +157,13 @@ cd ZorkGPT
 
 ## 🔧 Local Integration (Optional)
 
-You can also run ZorkGPT locally with S3 integration:
+You can also run ZorkGPT locally with S3 integration by setting the environment variable:
 
-### Option 1: Environment Variable
 ```bash
 export ZORK_S3_BUCKET=your-bucket-name-from-stack-output
 ```
 
-### Option 2: Constructor Parameter
-```python
-from zork_orchestrator import ZorkOrchestrator
-
-orchestrator = ZorkOrchestrator(
-    s3_bucket="your-bucket-name-from-stack-output",
-    enable_state_export=True  # This is the default
-)
-```
+The S3 bucket is now configured exclusively through the `ZORK_S3_BUCKET` environment variable to avoid git conflicts during server updates. This means you can run the same codebase both locally and on the server without configuration file differences.
 
 ## 🌐 CloudFront Caching
 
@@ -317,4 +308,4 @@ To modify the infrastructure:
 
 ## 📄 License
 
-This infrastructure code follows the same license as the main ZorkGPT project. 
+This infrastructure code follows the same license as the main ZorkGPT project.

@@ -180,17 +180,75 @@ class ZorkInterface:
         Returns:
             bool: True if save was successful
         """
-        success, response = self.send_interactive_command(
-            "save", 
-            filename, 
-            "Please enter a filename", 
-            "Ok."
-        )
-        
-        if not success:
-            print(f"Save failed: {response}")
-        
-        return success
+        if not self.is_running():
+            print(f"Save failed: Zork process not running")
+            return False
+            
+        # Try a more robust save approach
+        try:
+            # Send save command
+            self.process.stdin.write("save\n")
+            self.process.stdin.flush()
+            
+            # Wait a moment for prompt
+            time.sleep(0.5)
+            
+            # Send filename
+            self.process.stdin.write(filename + "\n")
+            self.process.stdin.flush()
+            
+            # Wait longer for the save operation to complete
+            time.sleep(2.0)
+            
+            # Get the response
+            response = self.get_response()
+            
+            print(f"Save command response: {repr(response)}")
+            
+            # Check for various success indicators
+            response_lower = response.lower()
+            success_indicators = [
+                "ok.",
+                "saved",
+                "done",
+                ".qzl",  # Zork mentions the .qzl file extension
+            ]
+            
+            # Check for failure indicators
+            failure_indicators = [
+                "can't",
+                "cannot",
+                "unable",
+                "error",
+                "failed",
+                "invalid"
+            ]
+            
+            has_success = any(indicator in response_lower for indicator in success_indicators)
+            has_failure = any(indicator in response_lower for indicator in failure_indicators)
+            
+            # If we see failure indicators, definitely failed
+            if has_failure:
+                print(f"Save failed - failure indicator found: {response}")
+                return False
+            
+            # If we see success indicators, probably succeeded
+            if has_success:
+                print(f"Save succeeded - success indicator found: {response}")
+                return True
+            
+            # If response is very short or empty, might have worked
+            if len(response.strip()) < 20:
+                print(f"Save may have succeeded - minimal response: {response}")
+                return True
+            
+            # Default to failure if unclear
+            print(f"Save status unclear - defaulting to failure: {response}")
+            return False
+            
+        except Exception as e:
+            print(f"Save failed with exception: {e}")
+            return False
 
     def trigger_zork_restore(self, filename: str) -> bool:
         """Restore a Zork game state from a file.

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="VcsDirectoryMappings">
+    <mapping directory="" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/infrastructure/cdk.out/asset.0de4e87e52fbb034cc73ad3df641be4a33fdba992fe8999174d2c6f72155e050" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/infrastructure/cdk.out/asset.0de68010c57fc9a3019b71c9ad18f0cb4438bc12ac0732cdbbe1380e6c873932" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/infrastructure/cdk.out/asset.0e8a538675ae7ca2c199da61bf164a8a809131b41f5290143e7398f5ab39141b" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/infrastructure/cdk.out/asset.3822f452f86bcc51db2b066a1236e1b15384c55363b911a62364489ac24126eb" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/infrastructure/cdk.out/asset.444331412767f5a2479928f8b858e002a76386156fd6aec04705f26dc65e5a1d" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/infrastructure/cdk.out/asset.56e8e40e82fa5220cacb655119480273b58e0c5bd43a97d108409fee5cdf15c7" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/infrastructure/cdk.out/asset.9d67beda239878b4d9113550b4cf9974085043f034ab893b3061ee91c7e48091" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/infrastructure/cdk.out/asset.a0125714c1443d8a8d82def85a0868b5f20fba164bbbbe6a6e21b6d0585ade9a" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/infrastructure/cdk.out/asset.a1142c87b5a5fe63e4497f0814367221e8c905716e66caf34c1be3cd6cfb23ea" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/infrastructure/cdk.out/asset.bb6eb69a6ea57cffe5d213f5ab75dcf94943f507068f7922f6b564201bcab2ee" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/infrastructure/cdk.out/asset.d1d3e79ea04344d67afb296e29327191c2832d290eb67abeeb32f47d0a00e702" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/infrastructure/cdk.out/asset.e1981900d51921b3a5c2ee2858e02d9157467d5cbc1acd7f594d94d4beb87ab6" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/infrastructure/cdk.out/asset.e33093ed18a5c17118bbeef338efaab2ec17fab8cd54cc2025cfc4113a539b40" vcs="Git" />
+  </component>
+</project>
