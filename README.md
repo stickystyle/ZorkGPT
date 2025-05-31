@@ -6,125 +6,115 @@
 
 1. [Project Overview](#project-overview)
 2. [Core Mission and Design Philosophy](#core-mission-and-design-philosophy)
-3. [Modular Architecture](#modular-architecture)
-4. [System Components](#system-components)
-5. [Adaptive Knowledge System](#adaptive-knowledge-system)
-6. [Spatial Intelligence](#spatial-intelligence)
-7. [Comprehensive Logging Infrastructure](#comprehensive-logging-infrastructure)
-8. [System Flow](#system-flow)
-9. [Architecture Diagram](#architecture-diagram)
+3. [System Architecture](#system-architecture)
+    * [Central Coordinator](#central-coordinator)
+    * [Core LLM-Powered Modules](#core-llm-powered-modules)
+    * [Supporting Systems](#supporting-systems)
+4. [Key Features](#key-features)
+    * [Extended Gameplay Sessions](#extended-gameplay-sessions)
+    * [Adaptive Knowledge System](#adaptive-knowledge-system)
+    * [Spatial Intelligence System](#spatial-intelligence-system)
+5. [Data Management](#data-management)
+6. [System Flow](#system-flow)
+7. [Logging Infrastructure](#logging-infrastructure)
+8. [Architecture Diagram](#architecture-diagram)
+9. [Turn-by-Turn Flow with Adaptive Learning](#turn-by-turn-flow-with-adaptive-learning)
 
 ## Project Overview
 
-ZorkGPT is an AI agent system designed to play the classic interactive fiction game "[Zork](https://en.wikipedia.org/wiki/Zork)" using Large Language Models (LLMs). The project explores how modern language models can understand, navigate, and solve complex interactive environments through natural language reasoning.
+ZorkGPT is an AI agent system designed to play the classic interactive fiction game "[Zork](https://en.wikipedia.org/wiki/Zork)" using Large Language Models (LLMs). The project explores how modern language models can understand, navigate, and solve complex interactive environments through natural language reasoning. It aims to achieve genuine AI-driven gameplay by relying on LLM capabilities for all aspects of decision-making and learning, rather than pre-programmed logic or solutions.
 
-The system employs a multi-agent architecture where specialized LLMs handle different aspects of gameplay: action generation, information extraction, action evaluation, and strategic learning. This modular approach allows each component to excel at its specific task while maintaining the core principle that all reasoning comes from language models rather than hardcoded game logic.
-
-The system operates through extended gameplay sessions where knowledge accumulates and refines continuously during play, enabling the AI to learn and adapt its strategies in real-time rather than only between discrete episodes.
+The system employs a modular architecture where specialized LLM-driven components handle different aspects of gameplay: action generation, information extraction, action evaluation, and strategic learning. This design allows each component to focus on its specific task while adhering to the core principle that all reasoning originates from the language models. Gameplay occurs over extended sessions, during which the system continuously accumulates knowledge and refines its strategies in real-time.
 
 ## Core Mission and Design Philosophy
 
-### LLM-First Design Principle
-ZorkGPT operates under a fundamental **LLM-First Design** principle: all game reasoning, decision-making, and understanding must come from language models. The system deliberately avoids hardcoded game mechanics, location databases, or predetermined solutions. The only acceptable hardcoded elements are parser validation checks to ensure commands are properly formatted for the game engine.
+ZorkGPT operates under several fundamental principles:
 
-### Adaptive Learning
-The system implements continuous knowledge extraction and strategy refinement during gameplay. The AI analyzes its experiences in real-time, updating its strategic understanding every 100 turns. This adaptive approach allows the system to incorporate new insights immediately and adjust its behavior based on recent discoveries.
+* **LLM-First Design**: All game reasoning, decision-making, and understanding must originate from language models. The system deliberately avoids hardcoded game mechanics, location databases, or predetermined solutions.
+* **No Hardcoded Solutions**: The only acceptable hardcoded logic is for validating parser acceptance (i.e., did the Zork game engine understand the command). Puzzle solutions, navigation choices, and strategic decisions must emerge from LLM reasoning.
+* **Adaptive Learning**: The system implements continuous knowledge extraction and strategy refinement *during* gameplay. The AI analyzes its experiences in real-time, updating its strategic understanding at regular intervals (e.g., every 100 turns). This allows for the immediate incorporation of new insights.
+* **Genuine AI Play**: The objective is to have the LLMs genuinely "play" the game, demonstrating authentic language model capabilities in a complex, interactive environment. When LLMs encounter challenges, the approach is to improve prompts, models, or context rather than introducing fallback mechanisms.
 
-## Modular Architecture
+## System Architecture
+
+ZorkGPT utilizes a multi-component architecture, coordinated by a central orchestrator, with distinct LLM-powered modules for different cognitive functions, supported by specialized systems for game interaction and data management.
+
+### Central Coordinator
+
+A **ZorkOrchestrator** class serves as the primary coordinator. It manages extended gameplay sessions (potentially thousands of turns), coordinates the interactions between all other system components, handles the overall game loop, and orchestrates the periodic adaptive knowledge updates.
 
 ### Core LLM-Powered Modules
 
-**ZorkOrchestrator** - The primary coordinator that manages extended gameplay sessions, coordinates between subsystems, handles movement tracking, manages logging, and orchestrates adaptive knowledge updates. It serves as the central hub that coordinates all other components and manages the continuous learning process.
+These components form the cognitive core of the agent:
 
-**ZorkAgent (Agent LM)** - The action generation engine that decides what the AI should do at each turn. The Agent LM analyzes the current game state, consults memory and spatial knowledge, and generates contextually appropriate actions. It integrates strategic guidance from the continuously updated knowledge base, retrieves relevant memories, formats context for LLM prompts, and generates clean, valid game commands. It receives prompts that include current observations, relevant historical context, strategic guidance from the knowledge base, and spatial awareness from the map system.
-
-**ZorkExtractor (Extractor LM)** - The information parser that converts raw game text into structured data. The Extractor LM processes raw game text into structured information, identifying locations, exits, objects, characters, and important messages. It maintains location persistence for consistent room tracking, supports both enhanced and original extraction modes, and provides JSON parsing with error handling. It maintains consistency in location naming and handles ambiguous game descriptions through parsing logic.
-
-**ZorkCritic (Critic LM)** - The action evaluator that assesses proposed actions before execution. The Critic LM evaluates proposed actions across multiple dimensions including relevance, progress potential, exploration value, risk assessment, and strategic alignment. It provides confidence scoring with detailed justification, implements trust tracking that adapts rejection thresholds based on performance, and includes override mechanisms for edge cases. It provides numerical scores with detailed justifications and adapts its evaluation criteria based on performance feedback.
-
-**AdaptiveKnowledgeManager (Strategy LM)** - The continuous learning system that analyzes gameplay data in real-time. The Strategy LM operates during gameplay to assess the quality of recent experiences, determine appropriate update strategies, and intelligently merge new insights with existing knowledge. It performs turn-window analysis to extract patterns, identifies successful tactics, recognizes dangerous situations, and synthesizes strategic guidance. It operates continuously rather than only at episode boundaries, enabling immediate incorporation of new discoveries.
+* **Agent LM**: Responsible for generating game actions. It analyzes the current game state, integrates relevant information from session memory, spatial knowledge, and strategic guidance from the knowledge base to decide the next action.
+* **Extractor LM**: Parses raw game text output into structured information. This component identifies locations, exits, objects, characters, and important game messages, maintaining consistency in how game elements are understood and tracked.
+* **Critic LM**: Evaluates proposed actions before execution. It assesses actions based on relevance, potential for progress, risk, and alignment with current strategy, providing a confidence score and justification. This helps filter out suboptimal actions and guides the agent towards more effective gameplay. It also incorporates a trust mechanism that can adapt its strictness based on recent performance.
+* **Adaptive Knowledge Manager (Strategy LM)**: Drives the continuous learning process. This component analyzes gameplay data in real-time (e.g., within 100-turn windows) to identify patterns, successful tactics, and areas for improvement. It assesses the quality of new information and intelligently merges new insights into the existing knowledge base, ensuring that learning is productive and avoids knowledge degradation.
 
 ### Supporting Systems
 
-The architecture includes supporting systems for game interface management, spatial understanding through confidence-tracked mapping, movement pattern analysis, and logging infrastructure. These systems work together to provide the core modules with the information and capabilities they need to function effectively during extended gameplay sessions.
+Several systems support the core LLM modules:
 
-## System Components
+* **Game Interface**: Manages the low-level interaction with the Zork game process, sending commands and receiving text responses.
+* **Spatial Intelligence System**: Builds and maintains a dynamic understanding of the game world's layout.
+* **Logging System**: Captures detailed data from all parts of the system for analysis, debugging, and to provide the raw material for the adaptive learning process.
 
-### Memory and Context Management
-The system maintains memory structures that preserve important information across turns within extended gameplay sessions. The memory system stores structured observations, tracks inventory changes, maintains location histories, and provides relevant context retrieval for decision-making.
+## Key Features
 
-Context management ensures that each LLM receives appropriate information without overwhelming token limits. The system prioritizes recent experiences, relevant historical patterns, and strategic insights while maintaining focus on current objectives.
+### Extended Gameplay Sessions
+
+ZorkGPT is designed for multi-thousand turn gameplay sessions. Knowledge and memory persist and evolve throughout these long sessions, allowing for cumulative learning and adaptation over extended periods of interaction with the game world.
+
+### Adaptive Knowledge System
+
+The system features a sophisticated continuous learning pipeline:
+
+* **Real-Time Analysis**: Gameplay data is analyzed during play. For instance, every 100 turns, recent experiences are processed to extract strategic insights.
+* **LLM-Driven Assessment**: The determination of what constitutes valuable knowledge and how it should be integrated is itself an LLM-driven process, adhering to the LLM-first principle.
+* **Intelligent Merging**: New insights are merged into the existing knowledge base in a way that aims to enhance, rather than overwrite or degrade, prior learning.
+* **Dynamic Strategy Guides**: The output of this system is a dynamically updated knowledge base that provides strategic guidance to the Agent LM, influencing its decisions.
+* **Dynamic Objective Formulation**: The learning system contributes to identifying and prioritizing high-level objectives. These emergent goals, derived from gameplay analysis and strategic understanding, help guide the agent's long-term decision-making and focus its exploration and actions towards achieving meaningful progress in the game.
 
 ### Spatial Intelligence System
-ZorkGPT builds and maintains a dynamic graph-based map of the game world with confidence tracking for connection reliability. This spatial intelligence system tracks room connections with confidence scores, identifies navigation patterns, recognizes hub locations, provides pathfinding capabilities, and verifies connections through repeated traversal.
 
-The map system integrates with the agent's decision-making process, offering spatial context for action selection and enabling exploration strategies. It learns from movement patterns, tracks connection reliability, and adapts to the game's spatial structure over extended gameplay sessions.
+Understanding and navigating the game's geography is crucial:
 
-## Adaptive Knowledge System
+* **Graph-Based Mapping**: A dynamic graph represents the game world, with locations as nodes and connections as edges. Confidence scores are associated with connections, reflecting the agent's certainty about them.
+* **Movement Analysis**: The system analyzes movement patterns to verify connections, identify efficient routes, and recognize important spatial features like hubs or dead ends.
+* **Contextual Navigation**: Spatial information (current location, known exits, map-based relationships) is provided to the Agent LM to inform its navigation decisions.
+* **Intelligent Exit Validation**: Failed movement attempts are tracked. Exits that consistently fail are eventually pruned from the agent's map to prevent repeated errors, based on empirical evidence from gameplay.
 
-### Continuous Learning Pipeline
-ZorkGPT implements an automated learning system that operates continuously during gameplay rather than only between episodes. Every 100 turns, the system analyzes recent gameplay data to extract insights about locations, items, successful strategies, and dangerous situations.
+## Data Management
 
-The adaptive knowledge extraction process examines action sequences within turn windows, identifies patterns in successful gameplay, recognizes common failure modes, and synthesizes strategic guidance. This analysis happens entirely through LLM reasoning, maintaining the principle that intelligence emerges from language model capabilities.
+Effective gameplay relies on robust data management:
 
-### Real-Time Strategic Intelligence
-The system generates and updates strategy guides continuously during play, focusing on priority items, navigation routes, puzzle-solving approaches, and safety considerations. These guides provide high-level strategic direction without hardcoding specific solutions and are immediately available to influence subsequent decisions.
-
-Strategic intelligence includes understanding of game mechanics discovered through play, recognition of important items and their uses, identification of dangerous areas and situations, and development of exploration patterns. The adaptive system can identify when the AI is stuck in repetitive patterns and generate escape strategies.
-
-### Intelligent Knowledge Integration
-Extracted knowledge integrates into ongoing gameplay through the agent's strategic guidance system. The agent receives updated strategic guidance that improves decision-making while preserving the exploratory and reasoning-based nature of gameplay.
-
-The adaptive knowledge system maintains a balance between providing guidance and preserving the agent's ability to adapt to novel situations and discover new solutions. It employs quality assessment to determine when new experiences warrant knowledge updates and uses intelligent merging to avoid degrading existing knowledge with low-quality insights.
-
-## Spatial Intelligence
-
-### Graph-Based Mapping
-The system constructs a dynamic graph representation of the game world where nodes represent locations and edges represent connections with confidence tracking. This spatial model updates continuously as the agent explores, building an understanding of the game's geography while tracking the reliability of discovered connections.
-
-The mapping system handles spatial relationships, bidirectional connections, ambiguous location descriptions, and connection conflicts. It maintains consistency in location identification while adapting to the game's spatial structure and providing confidence metrics for navigation decisions.
-
-### Movement Analysis and Verification
-ZorkGPT analyzes movement patterns to identify navigation strategies, recognize hub locations, optimize exploration routes, and verify connection reliability through repeated traversal. This analysis helps the agent avoid redundant exploration while ensuring coverage of the game world and building confidence in spatial understanding.
-
-Movement analysis contributes to strategic planning by identifying key locations, understanding spatial relationships between important areas, developing pathfinding strategies, and detecting when connections may be unreliable or context-dependent.
-
-### Spatial Context Integration
-The spatial intelligence system provides detailed context to the agent's decision-making process. This includes current location awareness, available exits with confidence scores, spatial relationships to important areas, navigation recommendations based on connection reliability, and conflict detection for ambiguous spatial relationships.
-
-Spatial context enhances the agent's ability to make decisions about exploration, item retrieval, and strategic positioning within the game world while accounting for the uncertainty inherent in text-based spatial understanding.
-
-### Exit Failure Tracking and Pruning
-The system includes intelligent exit validation that tracks failed movement attempts and removes consistently invalid exits from the map. When an exit fails multiple times (configurable threshold, default 3 attempts), the system automatically prunes it to prevent repeated failed attempts while maintaining the LLM-First design principle.
-
-This exit pruning system tracks failure counts for each exit, automatically removes invalid exits after reaching the failure threshold, prevents re-addition of previously pruned exits, and provides detailed failure statistics and reporting. The system only prunes exits based on empirical evidence from actual gameplay attempts, ensuring that LLM reasoning remains the primary source of navigation decisions while eliminating definitively invalid paths.
-
-## Logging Infrastructure
-
-ZorkGPT implements a logging system that captures all aspects of gameplay for analysis by the adaptive knowledge system. The system generates structured logs of LLM interactions, decision-making processes, game state changes, performance metrics, and learning outcomes that enable the language models to analyze gameplay patterns and extract strategic insights.
-
-The logging infrastructure provides the data foundation for continuous learning, allowing the adaptive knowledge manager to examine turn windows, identify successful strategies, and synthesize new guidance from gameplay experiences.
-
-### Turn-Based Analysis Support
-The logging infrastructure supports the adaptive knowledge system by providing structured access to turn-window data for analysis. Each turn receives detailed logging that enables the system to extract action-response patterns, track score changes, monitor location transitions, and identify successful strategies within specific gameplay segments.
-
+* **Session Memory**: Structured records of turn-by-turn observations, including game text, extracted information, and actions taken, are maintained throughout a session. This provides historical context for decision-making.
+* **Dynamic Knowledge Base**: A continuously updated repository of strategic insights, learned heuristics, and important facts about the game world. This knowledge base is curated by the Adaptive Knowledge Manager and directly informs the Agent LM.
 
 ## System Flow
 
-### Extended Gameplay Sessions
-The system operates through extended gameplay sessions that can span thousands of turns rather than discrete episodes. Each session begins with initialization and knowledge loading from previous sessions, providing continuity and learning progression across gameplay periods.
+A typical gameplay loop involves several stages:
 
-During gameplay, the system operates in a continuous loop of observation, reasoning, action, learning, and adaptive knowledge updating. Each turn involves memory retrieval, spatial context integration, action generation, critic evaluation, execution, state updating, and periodic knowledge refinement.
+1. **Observation**: The system receives the latest game text.
+2. **Extraction**: The Extractor LM processes this text into a structured format.
+3. **State Update**: Session memory and the spatial map are updated with the new information.
+4. **Contextualization**: Relevant memories, spatial data, and strategic knowledge are assembled for the Agent LM.
+5. **Action Generation**: The Agent LM proposes an action.
+6. **Evaluation**: The Critic LM assesses the proposed action. If the action is deemed suboptimal, the Agent LM may be prompted for alternatives.
+7. **Execution**: The chosen action is sent to the game.
+8. **Learning**: Periodically (e.g., every 25 turns for map-focused updates, every 100 turns for broader strategic updates), the Adaptive Knowledge Manager analyzes recent gameplay to refine the knowledge base.
 
-### Turn-by-Turn Execution with Adaptive Learning
-Individual turns follow a decision-making process that integrates multiple information sources and incorporates continuous learning. The agent consults its memory for relevant historical context, examines spatial relationships through the map system, and incorporates strategic guidance from the continuously updated knowledge base.
+This cycle repeats, allowing the agent to explore, interact, and learn from its experiences in the game world over thousands of turns.
 
-Action generation involves prompt construction that provides the Agent LM with context while maintaining focus on current objectives. The Critic LM evaluates proposed actions to prevent obviously poor decisions while preserving the agent's autonomy.
+## Logging Infrastructure
 
-Every 100 turns, the adaptive knowledge system analyzes recent gameplay data to extract new insights and update strategic guidance, ensuring that learning happens continuously rather than only at session boundaries.
+Comprehensive logging captures all significant events, LLM interactions, state changes, and decisions. This structured log data is crucial for:
 
-### Continuous Learning Integration
-The learning process operates continuously throughout gameplay, with real-time learning including map updates, memory consolidation, pattern recognition, and periodic strategic knowledge updates. The adaptive system assesses the quality of potential knowledge updates, determines appropriate analysis strategies, and intelligently merges new insights with existing knowledge.
+* **Debugging and Analysis**: Understanding system behavior and diagnosing issues.
+* **Adaptive Learning**: Providing the raw data (e.g., turn-window information) that the Adaptive Knowledge Manager uses to extract insights and generate new strategies.
+
+The design of the logging system is specifically tailored to support the turn-based analysis required for continuous learning.
 
 ## Architecture Diagram
 
@@ -136,29 +126,29 @@ graph TB
         end
         
         subgraph "LLM-Powered Components"
-            Agent[ZorkAgent<br/>Action Generation<br/>Context Integration<br/>Memory Retrieval]
-            HybridExtractor[HybridZorkExtractor<br/>Structured + LLM Parsing<br/>Location Persistence<br/>State Structuring]
-            Critic[ZorkCritic<br/>Action Evaluation<br/>Trust Management<br/>Rejection System]
-            AdaptiveKM[AdaptiveKnowledgeManager<br/>Continuous Learning<br/>Quality Assessment<br/>Intelligent Merging]
+            Agent[Agent LM<br/>Action Generation<br/>Context Integration<br/>Memory Retrieval]
+            HybridExtractor[Extractor LM<br/>Structured + LLM Parsing<br/>Location Persistence<br/>State Structuring]
+            Critic[Critic LM<br/>Action Evaluation<br/>Trust Management<br/>Rejection System]
+            AdaptiveKM[Adaptive Knowledge Manager<br/>Continuous Learning<br/>Quality Assessment<br/>Intelligent Merging]
         end
         
         subgraph "Supporting Systems"
-            GameAPI[ZorkInterface<br/>Game Process Management<br/>Command Execution<br/>Response Processing]
-            MapGraph[MapGraph<br/>Confidence-Tracked Mapping<br/>Connection Verification<br/>Quality Metrics]
-            Movement[MovementAnalyzer<br/>Pattern Analysis<br/>Navigation Optimization<br/>Spatial Intelligence]
-            Logger[Logger<br/>Multi-format Logging<br/>Turn-Window Analysis<br/>Performance Tracking]
-            StructuredParser[StructuredZorkParser<br/>Header Parsing<br/>Score/Moves Extraction<br/>Clean Text Separation]
+            GameAPI[Game Interface<br/>Game Process Management<br/>Command Execution<br/>Response Processing]
+            MapGraph[Spatial Intelligence System<br/>Confidence-Tracked Mapping<br/>Connection Verification<br/>Quality Metrics]
+            Movement[Movement Analyzer<br/>Pattern Analysis<br/>Navigation Optimization<br/>Spatial Intelligence]
+            Logger[Logging System<br/>Multi-format Logging<br/>Turn-Window Analysis<br/>Performance Tracking]
+            StructuredParser[Structured Parser Helper<br/>Header Parsing<br/>Score/Moves Extraction<br/>Clean Text Separation]
         end
         
         subgraph "Session Data Structures"
-            MemoryLog[memory_log_history<br/>List of ExtractorResponse<br/>Turn-by-turn observations<br/>Historical context]
-            ActionHistory[action_history<br/>Previous actions & responses<br/>Action patterns<br/>Repetition tracking]
-            GameMap[game_map<br/>MapGraph instance<br/>Confidence-tracked connections<br/>Verification metrics]
-            ActionReasoning[action_reasoning_history<br/>Agent reasoning & critic scores<br/>Override tracking<br/>State export data]
+            MemoryLog[Session Memory<br/>Turn-by-turn observations<br/>Historical context]
+            ActionHistory[Action History<br/>Previous actions & responses<br/>Action patterns<br/>Repetition tracking]
+            GameMap[Internal Game Map<br/>Graph-based representation<br/>Confidence-tracked connections<br/>Verification metrics]
+            ActionReasoning[Action Reasoning Log<br/>Agent reasoning & critic scores<br/>Override tracking<br/>State export data]
         end
         
-        subgraph "Adaptive Knowledge System"
-            KnowledgeBase[knowledgebase.md<br/>Continuously Updated Strategies<br/>Real-time Insights<br/>Quality-Assessed Knowledge]
+        subgraph "Adaptive Knowledge System (Data)"
+            KnowledgeBase[Dynamic Knowledge Base<br/>Continuously Updated Strategies<br/>Real-time Insights<br/>Quality-Assessed Knowledge]
             TurnAnalysis[Turn Window Analysis<br/>Quality Assessment<br/>Strategy Determination<br/>Intelligent Merging]
         end
         
@@ -167,14 +157,12 @@ graph TB
         end
     end
     
-    %% Core coordination flows
     Orchestrator --> Agent
     Orchestrator --> HybridExtractor
     Orchestrator --> Critic
     Orchestrator --> AdaptiveKM
     Orchestrator --> Logger
     
-    %% LLM component interactions with session data
     Agent --> MemoryLog
     Agent --> ActionHistory
     Agent --> GameMap
@@ -182,9 +170,8 @@ graph TB
     HybridExtractor --> MemoryLog
     Critic --> ActionReasoning
     
-    %% Supporting system connections
     Orchestrator --> Movement
-    Orchestrator --> GameMap
+    Orchestrator --> MapGraph
     GameAPI --> ZorkGame
     Orchestrator --> GameAPI
     HybridExtractor --> StructuredParser
@@ -196,18 +183,15 @@ graph TB
     KnowledgeBase --> Agent
     Logger --> ActionReasoning
     
-    %% Game interaction
     ZorkGame -.->|Game State| GameAPI
     GameAPI -.->|Commands| ZorkGame
     
-    %% Adaptive learning feedback loops
     AdaptiveKM -.->|Continuous Updates| KnowledgeBase
     Logger -.->|Turn Window Data| TurnAnalysis
     TurnAnalysis -.->|Quality Assessment| AdaptiveKM
-    Movement -.->|Spatial Insights| GameMap
+    Movement -.->|Spatial Insights| MapGraph
     ActionReasoning -.->|Session Data| AdaptiveKM
     
-    %% Styling
     classDef llmComponent fill:#e1f5fe,stroke:#01579b,stroke-width:2px
     classDef supportSystem fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
     classDef dataStructure fill:#e8f5e8,stroke:#1b5e20,stroke-width:2px
@@ -229,131 +213,100 @@ graph TB
 
 ```mermaid
 sequenceDiagram
-    participant User as User/Main
-    participant Orchestrator as ZorkOrchestrator
-    participant Agent as ZorkAgent
-    participant HybridExtractor as HybridZorkExtractor
-    participant Critic as ZorkCritic
-    participant AdaptiveKM as AdaptiveKnowledgeManager
-    participant ZorkGame as Zork Game (ZorkInterface)
+    participant UserMain as User/Main
+    participant Orchestrator as Central Coordinator
+    participant Agent as Agent LM
+    participant Extractor as Extractor LM
+    participant Critic as Critic LM
+    participant AdaptiveKM as Adaptive Knowledge Manager
+    participant ZorkGameProcess as Zork Game (via Interface)
 
-    User->>Orchestrator: play_episode()
+    UserMain->>Orchestrator: Start Gameplay Session
     activate Orchestrator
     
-    Orchestrator->>Orchestrator: reset_episode_state()
+    Orchestrator->>Orchestrator: Initialize session state (memory, map, knowledge)
     
-    Orchestrator->>ZorkGame: start()
-    activate ZorkGame
-    ZorkGame-->>Orchestrator: Initial Game State (S0)
-    deactivate ZorkGame
+    Orchestrator->>ZorkGameProcess: Start Game
+    activate ZorkGameProcess
+    ZorkGameProcess-->>Orchestrator: Initial Game Text
+    deactivate ZorkGameProcess
 
-    Orchestrator->>HybridExtractor: extract_info(S0)
-    activate HybridExtractor
-    HybridExtractor->>HybridExtractor: Try structured parsing first
-    HybridExtractor->>HybridExtractor: Use LLM for detailed analysis
-    HybridExtractor-->>Orchestrator: ExtractorResponse (E0)
-    deactivate HybridExtractor
+    Orchestrator->>Extractor: Process Game Text
+    activate Extractor
+    Extractor-->>Orchestrator: Structured Information
+    deactivate Extractor
 
-    Orchestrator->>Orchestrator: Update memory_log_history.append(E0)
-    Orchestrator->>Orchestrator: Update game_map with confidence tracking
+    Orchestrator->>Orchestrator: Update Session Memory & Map
 
-    loop Extended Gameplay (up to 5000 turns)
-        Orchestrator->>Orchestrator: turn_count += 1
+    loop Extended Gameplay (e.g., up to 5000 turns)
+        Orchestrator->>Orchestrator: Increment turn counter
         
-        Note over Orchestrator: Check combat status from last extraction
-        alt Not in combat
-            Orchestrator->>ZorkGame: inventory_with_response()
-            ZorkGame-->>Orchestrator: current_inventory, inventory_response
-        else In combat
-            Note over Orchestrator: Skip inventory to avoid death
-        end
-
-        Orchestrator->>Agent: get_relevant_memories_for_prompt()
-        Agent->>Agent: Process memory_log_history, game_map, action_history
-        Agent-->>Orchestrator: relevant_memories
-
-        Orchestrator->>Agent: get_action_with_reasoning(game_state, memories, action_history)
+        Orchestrator->>Agent: Prepare context (current state, relevant memories, map info, knowledge)
+        
+        Orchestrator->>Agent: Get Action
         activate Agent
-        Agent->>Agent: Load current knowledge base & format context
-        Agent-->>Orchestrator: {action, reasoning, raw_response}
+        Agent-->>Orchestrator: Proposed Action & Reasoning
         deactivate Agent
 
-        Orchestrator->>Critic: get_robust_evaluation(game_state, action)
+        Orchestrator->>Critic: Evaluate Action
         activate Critic
-        Critic->>Critic: Evaluate action with consensus mechanism
-        Critic->>Critic: Check trust threshold & rejection system
-        Critic-->>Orchestrator: CriticResponse (score, justification, confidence)
+        Critic-->>Orchestrator: Evaluation (score, justification)
         deactivate Critic
 
-        alt Critic score < rejection_threshold
-            Note over Orchestrator: Action rejected - attempting alternatives
-            loop Max 3 rejection attempts
-                Orchestrator->>Critic: Check override conditions
-                opt Override conditions met
-                    Note over Orchestrator: Override applied - using original action
-                end
-                opt No override needed
-                    Orchestrator->>Agent: Get alternative action with rejection context
-                    Orchestrator->>Critic: Re-evaluate new action
-                end
+        alt Action Rejected by Critic (and no override)
+            loop Retry (max attempts)
+                Orchestrator->>Agent: Get Alternative Action (with rejection feedback)
+                activate Agent
+                Agent-->>Orchestrator: New Proposed Action
+                deactivate Agent
+                Orchestrator->>Critic: Evaluate New Action
+                activate Critic
+                Critic-->>Orchestrator: New Evaluation
+                deactivate Critic
             end
         end
 
-        Orchestrator->>Orchestrator: Store action_reasoning_history
+        Orchestrator->>Orchestrator: Log chosen action and reasoning
+        Orchestrator->>ZorkGameProcess: Send Chosen Action
+        activate ZorkGameProcess
+        ZorkGameProcess-->>Orchestrator: New Game Text
+        deactivate ZorkGameProcess
 
-        Orchestrator->>ZorkGame: send_command(action)
-        activate ZorkGame
-        ZorkGame-->>Orchestrator: Game Response (S_t+1)
-        deactivate ZorkGame
+        Orchestrator->>Extractor: Process New Game Text
+        activate Extractor
+        Extractor-->>Orchestrator: Updated Structured Information
+        deactivate Extractor
 
-        Orchestrator->>HybridExtractor: extract_info(S_t+1, previous_location)
-        activate HybridExtractor
-        HybridExtractor->>HybridExtractor: Structured parsing + LLM analysis
-        HybridExtractor->>HybridExtractor: Apply location persistence if needed
-        HybridExtractor-->>Orchestrator: ExtractorResponse (E_t+1)
-        deactivate HybridExtractor
+        Orchestrator->>Orchestrator: Update Session Memory & Map
+        Orchestrator->>Orchestrator: Perform Movement Analysis
 
-        Orchestrator->>Orchestrator: Update memory_log_history.append(E_t+1)
-        Orchestrator->>Orchestrator: Update game_map with confidence tracking
-        Orchestrator->>Orchestrator: Update action_history
-        Orchestrator->>Orchestrator: Track movement with MovementAnalyzer
-        Orchestrator->>Orchestrator: Reset critic rejection system
-
-        alt Every 100 turns
-            Orchestrator->>AdaptiveKM: update_knowledge_from_turns()
+        alt Periodic Knowledge Update (e.g., every 100 turns)
+            Orchestrator->>AdaptiveKM: Update Knowledge Base
             activate AdaptiveKM
-            AdaptiveKM->>AdaptiveKM: Assess turn window quality
-            AdaptiveKM->>AdaptiveKM: Determine update strategy
-            AdaptiveKM->>AdaptiveKM: Perform targeted analysis
-            AdaptiveKM->>AdaptiveKM: Intelligent knowledge merging
-            AdaptiveKM-->>Orchestrator: Knowledge update result
+            AdaptiveKM->>AdaptiveKM: Analyze recent turn data
+            AdaptiveKM->>AdaptiveKM: Assess quality & determine strategy
+            AdaptiveKM->>AdaptiveKM: Merge new insights
+            AdaptiveKM-->>Orchestrator: Knowledge Update Status
             deactivate AdaptiveKM
             
-            alt Knowledge updated
-                Orchestrator->>AdaptiveKM: update_knowledge_with_map()
-                Orchestrator->>Agent: reload_knowledge_base()
-                Note over Orchestrator: Knowledge successfully updated
-            else Knowledge update skipped
-                Note over Orchestrator: Update skipped (low quality)
+            opt Knowledge Base Updated
+                Orchestrator->>Agent: Notify of Knowledge Update (Agent reloads/integrates)
             end
         end
 
-        alt Every 25 turns
-            Orchestrator->>AdaptiveKM: update_knowledge_with_map()
-            Note over Orchestrator: Map updated more frequently
+        alt Periodic Map-focused Update (e.g., every 25 turns)
+             Orchestrator->>AdaptiveKM: Update Knowledge (focus on map/spatial)
         end
-
-        Orchestrator->>Orchestrator: export_current_state() (with S3 support)
+        
+        Orchestrator->>Orchestrator: Optionally export current state for monitoring
 
         alt Game Over OR Max Turns Reached
-            Orchestrator->>Orchestrator: Break game loop
+            Orchestrator->>Orchestrator: End Gameplay Loop
         end
     end
     
-    Orchestrator->>AdaptiveKM: Final knowledge update if significant progress
+    Orchestrator->>AdaptiveKM: Perform final knowledge consolidation (if applicable)
     
-    Orchestrator-->>User: final_score
+    Orchestrator-->>UserMain: Session End (e.g., final score)
     deactivate Orchestrator
-    
-    Note over Orchestrator, AdaptiveKM: Next session continues with<br/>accumulated knowledge from continuous learning
 ```
