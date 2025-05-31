@@ -1061,9 +1061,37 @@ class ZorkOrchestrator:
             self._check_map_update()
             
             # Check for discovered objectives update every turn
-            # Ensure agent_reasoning is available; default to empty string if not
-            current_agent_reasoning = agent_reasoning if 'agent_reasoning' in locals() else ""
-            self._check_objective_update(current_agent_reasoning)
+            # agent_reasoning should always be defined by this point in normal flow
+            if 'agent_reasoning' not in locals():
+                self.logger.error(
+                    "agent_reasoning unexpectedly missing - this indicates a bug in the agent action flow",
+                    extra={
+                        "extras": {
+                            "event_type": "missing_agent_reasoning_error",
+                            "episode_id": self.episode_id,
+                            "turn": self.turn_count,
+                            "error": "agent_reasoning variable not in locals()",
+                        }
+                    },
+                )
+                current_agent_reasoning = ""
+            else:
+                current_agent_reasoning = agent_reasoning if agent_reasoning else ""
+
+            try:
+                self._check_objective_update(current_agent_reasoning)
+            except Exception as objective_error:
+                self.logger.warning(
+                    f"Failed to check objective update: {objective_error}",
+                    extra={
+                        "extras": {
+                            "event_type": "objective_update_error",
+                            "episode_id": self.episode_id,
+                            "turn": self.turn_count,
+                            "error": str(objective_error),
+                        }
+                    },
+                )
             
             # Check for objective completion after each turn
             self._check_objective_completion(action_taken, next_game_state, llm_extracted_info if 'llm_extracted_info' in locals() else None)
@@ -2182,15 +2210,66 @@ Format as a clear, structured summary that preserves essential information for c
 
     def _check_objective_update(self, current_agent_reasoning: str = "") -> None:
         """Check if it's time for an objective update and perform it if needed."""
-        # Debug logging to help diagnose issues
-        print(f"🔍 Objective update check: turn={self.turn_count}, interval={self.objective_update_interval}, last_update={self.objective_update_turn}")
-        
-        # Update objectives every turn, ensuring it's not a duplicate call for the same turn.
-        if self.turn_count > 0 and self.turn_count != self.objective_update_turn:
-            print(f"🎯 Triggering objective update at turn {self.turn_count}")
-            self._update_discovered_objectives(current_agent_reasoning)
-        else:
-            print(f"🔍 Objective update skipped: turn_count={self.turn_count}, already updated this turn or turn 0.")
+        try:
+            # Debug logging to help diagnose issues
+            print(f"🔍 Objective update check: turn={self.turn_count}, interval={self.objective_update_interval}, last_update={self.objective_update_turn}")
+            
+            # Also log to the structured logger for permanent record
+            self.logger.info(
+                f"Objective update check: turn={self.turn_count}, last_update={self.objective_update_turn}",
+                extra={
+                    "extras": {
+                        "event_type": "objective_update_check",
+                        "episode_id": self.episode_id,
+                        "turn": self.turn_count,
+                        "objective_update_turn": self.objective_update_turn,
+                        "current_objectives_count": len(self.discovered_objectives),
+                    }
+                },
+            )
+            
+            # Update objectives every turn, ensuring it's not a duplicate call for the same turn.
+            if self.turn_count > 0 and self.turn_count != self.objective_update_turn:
+                print(f"🎯 Triggering objective update at turn {self.turn_count}")
+                self.logger.info(
+                    f"Triggering objective update at turn {self.turn_count}",
+                    extra={
+                        "extras": {
+                            "event_type": "objective_update_triggered",
+                            "episode_id": self.episode_id,
+                            "turn": self.turn_count,
+                        }
+                    },
+                )
+                self._update_discovered_objectives(current_agent_reasoning)
+            else:
+                print(f"🔍 Objective update skipped: turn_count={self.turn_count}, already updated this turn or turn 0.")
+                self.logger.info(
+                    f"Objective update skipped: turn_count={self.turn_count}, already updated this turn or turn 0",
+                    extra={
+                        "extras": {
+                            "event_type": "objective_update_skipped",
+                            "episode_id": self.episode_id,
+                            "turn": self.turn_count,
+                            "objective_update_turn": self.objective_update_turn,
+                            "skip_reason": "turn_0" if self.turn_count == 0 else "already_updated",
+                        }
+                    },
+                )
+        except Exception as e:
+            print(f"❌ Exception in _check_objective_update: {e}")
+            self.logger.error(
+                f"Exception in _check_objective_update: {e}",
+                extra={
+                    "extras": {
+                        "event_type": "objective_update_exception",
+                        "episode_id": self.episode_id,
+                        "turn": self.turn_count,
+                        "error": str(e),
+                    }
+                },
+            )
+            raise  # Re-raise to be caught by the outer try-catch
 
     def _update_discovered_objectives(self, current_agent_reasoning: str = "") -> None:
         """
@@ -2200,6 +2279,20 @@ Format as a clear, structured summary that preserves essential information for c
         """
         try:
             print(f"🎯 Updating discovered objectives (turn {self.turn_count})...")
+            
+            # Log that we're starting the update
+            self.logger.info(
+                f"Starting objective discovery/update at turn {self.turn_count}",
+                extra={
+                    "extras": {
+                        "event_type": "objective_discovery_start",
+                        "episode_id": self.episode_id,
+                        "turn": self.turn_count,
+                        "current_objectives": self.discovered_objectives,
+                        "current_score": self.previous_zork_score,
+                    }
+                },
+            )
             
             # Get recent gameplay context for analysis
             recent_memory = self.memory_log_history[-20:] if len(self.memory_log_history) > 20 else self.memory_log_history
@@ -2260,6 +2353,20 @@ Focus on objectives the agent has actually discovered through gameplay patterns 
                 print(f"  🔍 Prompt length: {len(prompt)} characters")
                 print(f"  🔍 First 200 chars of prompt: {prompt[:200]}...")
                 
+                # Log that we're about to make the LLM call
+                self.logger.info(
+                    f"Making LLM call for objective discovery with model {model_to_use}",
+                    extra={
+                        "extras": {
+                            "event_type": "objective_llm_call_start",
+                            "episode_id": self.episode_id,
+                            "turn": self.turn_count,
+                            "model": model_to_use,
+                            "prompt_length": len(prompt),
+                        }
+                    },
+                )
+                
                 try:
                     response = self.client.chat.completions.create(
                         model=model_to_use,
@@ -2300,16 +2407,60 @@ Focus on objectives the agent has actually discovered through gameplay patterns 
                         )
                     else:
                         print("  ⚠️ No objectives parsed from LLM response")
+                        self.logger.warning(
+                            "No objectives parsed from LLM response",
+                            extra={
+                                "extras": {
+                                    "event_type": "objectives_parsing_failed",
+                                    "episode_id": self.episode_id,
+                                    "turn": self.turn_count,
+                                    "llm_response": response.content,
+                                }
+                            },
+                        )
                         
                 except Exception as llm_error:
                     print(f"  ❌ LLM call failed: {llm_error}")
-                    self.logger.warning(f"Objective LLM call failed: {llm_error}")
+                    self.logger.error(
+                        f"Objective LLM call failed: {llm_error}",
+                        extra={
+                            "extras": {
+                                "event_type": "objective_llm_call_failed",
+                                "episode_id": self.episode_id,
+                                "turn": self.turn_count,
+                                "error": str(llm_error),
+                                "model": model_to_use,
+                            }
+                        },
+                    )
             else:
                 print("  ⚠️ No LLM client available for objective analysis")
+                self.logger.error(
+                    "No LLM client available for objective analysis",
+                    extra={
+                        "extras": {
+                            "event_type": "objective_no_client",
+                            "episode_id": self.episode_id,
+                            "turn": self.turn_count,
+                            "has_client": hasattr(self, 'client'),
+                            "client_value": str(self.client) if hasattr(self, 'client') else "N/A",
+                        }
+                    },
+                )
                 
         except Exception as e:
             print(f"  ⚠️ Failed to update objectives: {e}")
-            self.logger.warning(f"Objective update failed: {e}")
+            self.logger.error(
+                f"Objective update failed: {e}",
+                extra={
+                    "extras": {
+                        "event_type": "objective_update_failed",
+                        "episode_id": self.episode_id,
+                        "turn": self.turn_count,
+                        "error": str(e),
+                    }
+                },
+            )
 
     def _prepare_objective_analysis_context(self, recent_memory, recent_actions, current_agent_reasoning) -> str:
         """Prepare gameplay context for objective analysis."""
