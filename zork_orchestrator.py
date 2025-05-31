@@ -75,6 +75,12 @@ class ZorkOrchestrator:
         s3_key_prefix: str = None,
         # Gameplay delay for viewer experience
         turn_delay_seconds: float = None,
+        # Objective Refinement Configuration
+        enable_objective_refinement: bool = None,
+        objective_refinement_interval: int = None,
+        max_objectives_before_forced_refinement: int = None,
+        refined_objectives_target_count: int = None,
+        last_objective_refinement_turn: int = None,
     ):
         """Initialize the ZorkOrchestrator with all subsystems."""
         # Load configuration
@@ -98,6 +104,13 @@ class ZorkOrchestrator:
 
         # Objective updating (fastest update cycle for goal discovery)
         self.objective_update_interval = objective_update_interval if objective_update_interval is not None else config.orchestrator.objective_update_interval
+
+        # Objective Refinement Configuration
+        self.enable_objective_refinement = enable_objective_refinement if enable_objective_refinement is not None else config.orchestrator.enable_objective_refinement
+        self.objective_refinement_interval = objective_refinement_interval if objective_refinement_interval is not None else config.orchestrator.objective_refinement_interval
+        self.max_objectives_before_forced_refinement = max_objectives_before_forced_refinement if max_objectives_before_forced_refinement is not None else config.orchestrator.max_objectives_before_forced_refinement
+        self.refined_objectives_target_count = refined_objectives_target_count if refined_objectives_target_count is not None else config.orchestrator.refined_objectives_target_count
+        self.last_objective_refinement_turn = last_objective_refinement_turn if last_objective_refinement_turn is not None else 0
 
         # Context management configuration
         self.max_context_tokens = config.orchestrator.max_context_tokens if hasattr(config.orchestrator, 'max_context_tokens') else 150000
@@ -957,12 +970,17 @@ class ZorkOrchestrator:
             # Check for map update (more frequent than full knowledge updates)
             self._check_map_update()
             
-            # Check for discovered objectives update every 20 turns
-            self._check_objective_update()
+            # Check for discovered objectives update every turn
+            # Ensure agent_reasoning is available; default to empty string if not
+            current_agent_reasoning = agent_reasoning if 'agent_reasoning' in locals() else ""
+            self._check_objective_update(current_agent_reasoning)
             
             # Check for objective completion after each turn
-            self._check_objective_completion(action_taken, next_game_state, extracted_info)
+            self._check_objective_completion(action_taken, next_game_state, llm_extracted_info if 'llm_extracted_info' in locals() else None)
             
+            # Check for objective refinement
+            self._check_objective_refinement()
+
             # Check for context overflow and trigger summarization if needed
             self._check_context_overflow()
             
@@ -2077,23 +2095,19 @@ Format as a clear, structured summary that preserves essential information for c
                 },
             )
 
-    def _check_objective_update(self) -> None:
+    def _check_objective_update(self, current_agent_reasoning: str = "") -> None:
         """Check if it's time for an objective update and perform it if needed."""
         # Debug logging to help diagnose issues
         print(f"🔍 Objective update check: turn={self.turn_count}, interval={self.objective_update_interval}, last_update={self.objective_update_turn}")
         
-        # Check for discovered objectives update using configurable interval
-        if (
-            self.turn_count > 0 
-            and self.turn_count % self.objective_update_interval == 0 
-            and self.turn_count != self.objective_update_turn
-        ):
+        # Update objectives every turn, ensuring it's not a duplicate call for the same turn.
+        if self.turn_count > 0 and self.turn_count != self.objective_update_turn:
             print(f"🎯 Triggering objective update at turn {self.turn_count}")
-            self._update_discovered_objectives()
+            self._update_discovered_objectives(current_agent_reasoning)
         else:
-            print(f"🔍 Objective update skipped: turn_count={self.turn_count}, modulo_check={self.turn_count % self.objective_update_interval == 0}, not_duplicate={self.turn_count != self.objective_update_turn}")
+            print(f"🔍 Objective update skipped: turn_count={self.turn_count}, already updated this turn or turn 0.")
 
-    def _update_discovered_objectives(self) -> None:
+    def _update_discovered_objectives(self, current_agent_reasoning: str = "") -> None:
         """
         Use LLM to analyze recent gameplay and discover/update objectives.
         
@@ -2107,7 +2121,7 @@ Format as a clear, structured summary that preserves essential information for c
             recent_actions = self.action_history[-10:] if len(self.action_history) > 10 else self.action_history
             
             # Prepare context for LLM analysis
-            gameplay_context = self._prepare_objective_analysis_context(recent_memory, recent_actions)
+            gameplay_context = self._prepare_objective_analysis_context(recent_memory, recent_actions, current_agent_reasoning)
             
             # Create prompt for objective discovery/updating
             prompt = f"""Analyze the recent Zork gameplay to discover and maintain the agent's objectives.
@@ -2132,8 +2146,10 @@ Based on this gameplay, identify the agent's discovered objectives. Look for:
 4. **Obstacles** that suggest significant rewards lie beyond them
 5. **Items or locations** that appear strategically important
 
+**IMPORTANT**: Consider the 'AGENT REASONING' provided in the context. If it contains new ideas, plans, or hypotheses for achieving goals, incorporate these into the objective list. However, if the reasoning is solely about escaping a loop, retrying a failed action, or simple exploration without a clear new goal, it should NOT lead to new objectives.
+
 Update the objective list by:
-- **Adding new objectives** discovered through recent gameplay patterns
+- **Adding new objectives** discovered through recent gameplay patterns or valid agent reasoning
 - **Updating existing objectives** with new information or progress
 - **Removing objectives** that have been completed or proven incorrect
 - **Prioritizing objectives** based on evidence of importance
@@ -2145,7 +2161,10 @@ OBJECTIVES:
 - [objective 2]
 - [etc.]
 
-Focus on objectives the agent has actually discovered through gameplay patterns, not general Zork knowledge."""
+Focus on objectives the agent has actually discovered through gameplay patterns or its own novel reasoning, not general Zork knowledge."""
+
+            # Log the full prompt for debugging
+            self._log_objective_prompt(prompt)
 
             # Get LLM response
             if hasattr(self, 'client') and self.client:
@@ -2161,7 +2180,6 @@ Focus on objectives the agent has actually discovered through gameplay patterns,
                         model=model_to_use,
                         messages=messages,
                         temperature=0.3,  # Lower temperature for consistent objective tracking
-                        max_tokens=500
                     )
                     
                     print(f"  🔍 LLM call successful, response type: {type(response)}")
@@ -2208,7 +2226,7 @@ Focus on objectives the agent has actually discovered through gameplay patterns,
             print(f"  ⚠️ Failed to update objectives: {e}")
             self.logger.warning(f"Objective update failed: {e}")
 
-    def _prepare_objective_analysis_context(self, recent_memory, recent_actions) -> str:
+    def _prepare_objective_analysis_context(self, recent_memory, recent_actions, current_agent_reasoning) -> str:
         """Prepare gameplay context for objective analysis."""
         context_parts = []
         
@@ -2250,6 +2268,34 @@ Focus on objectives the agent has actually discovered through gameplay patterns,
                 context_parts.append(f"  - {change}")
             context_parts.append("")
         
+        # Add agent reasoning if it doesn't seem to be solely about escaping a loop
+        if current_agent_reasoning:
+            # Keywords indicating loop-escaping or simple re-attempts, not new objectives
+            loop_keywords = [
+                'stuck', 'loop', 'repeat', 'try again', 'another way', 'instead',
+                'alternative', 'avoid repeating', 'different action', 'failed before'
+            ]
+            # Keywords indicating new ideas or goals
+            idea_keywords = [
+                'idea', 'maybe if', 'i should try', 'plan to', 'goal is to', 'what if',
+                'perhaps', 'new approach', 'strategy', 'objective is to', 'hypothesize'
+            ]
+
+            reasoning_lower = current_agent_reasoning.lower()
+            is_loop_related = any(keyword in reasoning_lower for keyword in loop_keywords)
+            has_new_idea = any(keyword in reasoning_lower for keyword in idea_keywords)
+
+            # Include reasoning if it has new ideas OR if it's not clearly loop-related
+            # This prioritizes including potentially useful reasoning unless it's obviously just about getting unstuck.
+            if has_new_idea or not is_loop_related:
+                context_parts.append("AGENT REASONING (Current Turn):")
+                context_parts.append(f"  {current_agent_reasoning}")
+                context_parts.append("")
+            else:
+                context_parts.append("AGENT REASONING (Current Turn - Filtered as loop-related):")
+                context_parts.append(f"  {current_agent_reasoning}") # Still include for LLM to see it was considered
+                context_parts.append("")
+         
         return "\n".join(context_parts)
 
     def _parse_objectives_from_response(self, response: str) -> List[str]:
@@ -2449,6 +2495,154 @@ Only mark objectives as completed if you're confident they were achieved."""
                     
         except Exception as e:
             self.logger.warning(f"Failed to mark objectives complete: {e}")
+
+    def _log_objective_prompt(self, prompt_content: str) -> None:
+        """Log the full objective generation prompt to a temporary file."""
+        try:
+            # Ensure tmp directory exists
+            if not os.path.exists("tmp"):
+                os.makedirs("tmp")
+            
+            # Simple counter for unique filenames, reset per orchestrator instance might be okay for debugging
+            if not hasattr(self, '_objective_prompt_counter'):
+                self._objective_prompt_counter = 0
+            self._objective_prompt_counter += 1
+            
+            filename = f"tmp/objective_prompt_t{self.turn_count}_{self._objective_prompt_counter:03d}.txt"
+            
+            with open(filename, 'w', encoding='utf-8') as f:
+                f.write(f"=== OBJECTIVE GENERATION PROMPT (Turn: {self.turn_count}, Episode: {self.episode_id}) ===\\n")
+                model_to_use = self.adaptive_knowledge_manager.analysis_model if self.adaptive_knowledge_manager else "gpt-4" # Fallback for safety
+                f.write(f"Model: {model_to_use}\\n")
+                # Assuming sampling params are accessible or hardcoded for this debug log
+                f.write(f"Temperature: 0.3 (default for objective update)\\n") 
+                f.write("=" * 70 + "\\n\\n")
+                f.write(prompt_content)
+            
+            if self.logger:
+                self.logger.info(f"Objective prompt logged to {filename}")
+        except Exception as e:
+            if self.logger:
+                self.logger.warning(f"Failed to log objective prompt: {e}")
+
+    def _check_objective_refinement(self) -> None:
+        """Checks if objectives need refinement and triggers it."""
+        if not self.enable_objective_refinement:
+            return
+
+        time_for_scheduled_refinement = (self.turn_count - self.last_objective_refinement_turn) >= self.objective_refinement_interval
+        forced_refinement_due_to_length = len(self.discovered_objectives) > self.max_objectives_before_forced_refinement
+
+        if self.turn_count > 0 and (time_for_scheduled_refinement or forced_refinement_due_to_length):
+            if time_for_scheduled_refinement:
+                reason = f"interval met ({self.objective_refinement_interval} turns)"
+            else:
+                reason = f"max objectives exceeded ({len(self.discovered_objectives)} > {self.max_objectives_before_forced_refinement})"
+            
+            self.logger.info(
+                f"Triggering objective refinement at turn {self.turn_count}. Reason: {reason}",
+                extra={
+                    "extras": {
+                        "event_type": "objective_refinement_triggered",
+                        "episode_id": self.episode_id,
+                        "turn": self.turn_count,
+                        "current_objective_count": len(self.discovered_objectives),
+                        "reason": reason,
+                    }
+                }
+            )
+            self._refine_discovered_objectives()
+            self.last_objective_refinement_turn = self.turn_count
+
+    def _refine_discovered_objectives(self) -> None:
+        """Uses an LLM to refine the current list of discovered objectives."""
+        if not self.discovered_objectives:
+            self.logger.info("No discovered objectives to refine.")
+            return
+
+        self.logger.info(f"🎯 Refining {len(self.discovered_objectives)} objectives (target: ~{self.refined_objectives_target_count})...")
+
+        # Prepare a brief game state summary for context
+        game_summary_parts = [
+            f"- Current Location: {self.current_room_name_for_map}",
+            f"- Current Score: {self.previous_zork_score}",
+            f"- Turn: {self.turn_count}",
+        ]
+        if self.current_inventory:
+            game_summary_parts.append(f"- Key Inventory: {', '.join(self.current_inventory[:5])}{'...' if len(self.current_inventory) > 5 else ''}")
+
+        # Consider adding a brief summary from knowledgebase if available and concise
+        # For now, keeping it simple to avoid excessive token usage here.
+
+        game_state_summary = "\\n".join(game_summary_parts)
+
+        # Corrected prompt construction
+        objectives_str = "\\n".join([f"- {idx + 1}. {obj}" for idx, obj in enumerate(self.discovered_objectives)])
+        completed_objectives_str = "\\n".join([f"- {comp['objective']}" for comp in self.completed_objectives[-10:]]) if self.completed_objectives else "None recently completed"
+
+        prompt = (
+            f"You are an expert strategy analyst for the game Zork. Your task is to refine a list of objectives "
+            f"to ensure it remains focused, relevant, and actionable for an AI agent.\\n\\n"
+            f"CURRENT GAME SUMMARY:\\n{game_state_summary}\\n\\n"
+            f"CURRENT DISCOVERED OBJECTIVES (Count: {len(self.discovered_objectives)}):\\n{objectives_str}\\n\\n"
+            f"RECENTLY COMPLETED OBJECTIVES:\\n{completed_objectives_str}\\n\\n"
+            f"INSTRUCTIONS FOR REFINEMENT:\\n"
+            f"1.  **Review**: Carefully review the 'CURRENT DISCOVERED OBJECTIVES'.\\n"
+            f"2.  **Consider Context**: Take into account the 'CURRENT GAME SUMMARY' and 'RECENTLY COMPLETED OBJECTIVES'.\\n"
+            f"3.  **Eliminate Obsolete/Irrelevant**: Remove objectives that are no longer relevant due to game progression, "
+            f"have been implicitly achieved without formal completion, or are clearly outdated.\\n"
+            f"4.  **Merge Redundant**: Combine objectives that are very similar or cover the same essential goal.\\n"
+            f"5.  **Improve Clarity**: Rephrase objectives for better clarity, conciseness, and actionability if needed. "
+            f"Ensure they represent tangible goals.\\n"
+            f"6.  **Prioritize**: Focus on the most critical and strategically valuable objectives for the current stage of the game.\\n"
+            f"7.  **Target Count**: Aim to produce a refined list of approximately {self.refined_objectives_target_count} key objectives. "
+            f"You can slightly exceed this if multiple objectives are highly critical, but the goal is a focused list. "
+            f"If the current list is already small and focused, you may return a similar number.\\n"
+            f"8.  **Maintain Game-Specific Language**: Objectives should sound like they are from within the game's context.\\n\\n"
+            f"OUTPUT FORMAT:\\n"
+            f"Provide ONLY the refined list of objectives, formatted exactly as follows:\\n"
+            f"OBJECTIVES:\\n"
+            f"- [Refined Objective 1]\\n"
+            f"- [Refined Objective 2]\\n"
+            f"...\\n"
+            f"- [Refined Objective N]\\n\\n"
+            f"If no objectives remain after refinement (e.g., all are obsolete), output:\\n"
+            f"OBJECTIVES:\\n"
+            f"None"
+        )
+
+        self._log_objective_prompt(prompt) # Reuse existing logging for the prompt
+
+        try:
+            if hasattr(self, 'client') and self.client:
+                messages = [{"role": "user", "content": prompt}]
+                # Use analysis_model and sampling parameters similar to knowledge generation
+                # Fallback to a default model if not configured
+                model_to_use = self.adaptive_knowledge_manager.analysis_model if self.adaptive_knowledge_manager and self.adaptive_knowledge_manager.analysis_model else "gpt-4-turbo" 
+                sampling_params = self.adaptive_knowledge_manager.analysis_sampling.model_dump(exclude_unset=True) if self.adaptive_knowledge_manager else {"temperature": 0.5, "max_tokens": 1000}
+
+
+                response = self.client.chat.completions.create(
+                    model=model_to_use,
+                    messages=messages,
+                    **sampling_params
+                )
+
+                refined_objectives = self._parse_objectives_from_response(response.content)
+
+                if refined_objectives:
+                    self.logger.info(f"Objective list refined from {len(self.discovered_objectives)} to {len(refined_objectives)} objectives.")
+                    self.discovered_objectives = refined_objectives
+                elif response.content.strip().upper() == "OBJECTIVES:\nNONE":
+                    self.logger.info("Objective list refined to None as per LLM response.")
+                    self.discovered_objectives = []
+                else:
+                    self.logger.warning(f"Objective refinement LLM call returned an unexpected or empty response. Raw: '{response.content[:200]}...' No changes made to objectives.")
+
+            else:
+                self.logger.warning("No LLM client available for objective refinement.")
+        except Exception as e:
+            self.logger.error(f"Error during objective refinement: {e}", exc_info=True)
 
 
 if __name__ == "__main__":

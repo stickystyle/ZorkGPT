@@ -76,14 +76,18 @@ class LoggingConfig(BaseModel):
 
 class OrchestratorConfig(BaseModel):
     """Orchestrator configuration settings."""
-    max_turns_per_episode: int = 500
-    knowledge_update_interval: int = 100
-    map_update_interval: int = 25
-    objective_update_interval: int = 10
+    max_turns_per_episode: int = 200
+    knowledge_update_interval: int = 100  # Every 100 turns
+    map_update_interval: int = 25  # Every 25 turns, more frequent than full knowledge
+    objective_update_interval: int = 20 # Every 20 turns for objective discovery
     enable_state_export: bool = True
     # Context management settings - adjusted for 40K token models
-    max_context_tokens: int = 40000
-    context_overflow_threshold: float = 0.6
+    max_context_tokens: int = 150000  # Max context tokens for LLM calls
+    context_overflow_threshold: float = 0.8  # Trigger summarization at 80% of max_context_tokens
+    enable_objective_refinement: bool = True
+    objective_refinement_interval: int = 75 
+    max_objectives_before_forced_refinement: int = 20
+    refined_objectives_target_count: int = 10
 
 
 class FilesConfig(BaseModel):
