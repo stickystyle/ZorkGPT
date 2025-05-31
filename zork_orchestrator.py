@@ -2675,7 +2675,6 @@ Review the current objectives carefully for signs of:
 
 Please provide a refined list of objectives that encourages exploration and progress while avoiding repetitive loops."""
 
-        self._log_objective_prompt(refined_objectives_prompt) # Reuse existing logging for the prompt
 
         try:
             if hasattr(self, 'client') and self.client:
