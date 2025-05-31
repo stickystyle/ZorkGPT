@@ -8,9 +8,8 @@ Available actions:
 - status: Check ZorkGPT service status
 - start/stop/restart: Control the ZorkGPT service
 - logs/logs-follow: View service logs
-- update: Update ZorkGPT code (uses local script for reliability)
+- update: Update ZorkGPT code (uses script from git repository)
 - update-viewer: Update only the viewer HTML file
-- deploy-script: Deploy the update script to infrastructure directory on EC2
 - download: Download analysis files from the instance
 - ssh: Open interactive SSH session
 - info: Display instance connection details
@@ -123,7 +122,7 @@ def view_logs(public_ip: str, follow: bool = False) -> None:
 
 
 def update_zorkgpt():
-    """Update ZorkGPT on the EC2 instance using a local update script."""
+    """Update ZorkGPT on the EC2 instance using the update script from the git repository."""
     public_ip = get_stack_output("EC2PublicIP")
     
     if not public_ip:
@@ -132,61 +131,17 @@ def update_zorkgpt():
     
     print("🚀 Starting ZorkGPT update process...")
     
-    # Check if script is already deployed on the server
-    deployed_script_path = "/home/zorkgpt/ZorkGPT/infrastructure/update_zorkgpt.sh"
-    temp_script_path = "/tmp/update_zorkgpt.sh"
+    # Use the script that's already in the git repository
+    script_path = "/home/zorkgpt/ZorkGPT/infrastructure/update_zorkgpt.sh"
     
-    # Check if deployed script exists
-    check_deployed = f"test -f {deployed_script_path} && echo 'deployed' || echo 'not_deployed'"
-    ssh_check_cmd = f"ssh -i ~/.ssh/parrishfamily.pem -o StrictHostKeyChecking=no ec2-user@{public_ip} '{check_deployed}'"
+    print("🔧 Running update script from git repository...")
     
-    script_path_to_use = None
-    
-    try:
-        result = subprocess.run(ssh_check_cmd, shell=True, check=True, capture_output=True, text=True)
-        if result.stdout.strip() == "deployed":
-            print("✅ Using pre-deployed update script")
-            script_path_to_use = deployed_script_path
-        else:
-            print("💡 Deployed script not found, uploading temporary script...")
-    except subprocess.CalledProcessError:
-        print("💡 Could not check for deployed script, uploading temporary script...")
-    
-    # If no deployed script, upload one temporarily
-    if script_path_to_use is None:
-        local_script_path = os.path.join(os.path.dirname(__file__), "update_zorkgpt.sh")
-        
-        # Check if the local script exists
-        if not os.path.exists(local_script_path):
-            print(f"❌ Update script not found at {local_script_path}")
-            return
-        
-        print("📤 Uploading update script to EC2 instance...")
-        
-        # Upload the script to the EC2 instance
-        scp_cmd = f"scp -i ~/.ssh/parrishfamily.pem -o StrictHostKeyChecking=no {local_script_path} ec2-user@{public_ip}:{temp_script_path}"
-        
-        try:
-            result = subprocess.run(scp_cmd, shell=True, check=True, capture_output=True, text=True)
-            print("✅ Update script uploaded successfully")
-            script_path_to_use = temp_script_path
-        except subprocess.CalledProcessError as e:
-            print(f"❌ Failed to upload update script: {e}")
-            if hasattr(e, 'stderr') and e.stderr:
-                print(f"   Error details: {e.stderr}")
-            return
-    
-    print("🔧 Running update script...")
-    
-    # Make the script executable (if temporary) and run it with sudo
-    if script_path_to_use == temp_script_path:
-        execute_cmd = f"chmod +x {script_path_to_use} && sudo {script_path_to_use}"
-    else:
-        execute_cmd = f"sudo {script_path_to_use}"
+    # Make sure the script is executable and run it with sudo
+    execute_cmd = f"sudo chmod +x {script_path} && sudo {script_path}"
     
     # Execute the update script on the remote instance
-    # Don't capture output so we can see real-time progress
-    ssh_cmd = f"ssh -i ~/.ssh/parrishfamily.pem -o StrictHostKeyChecking=no ec2-user@{public_ip} '{execute_cmd}'"
+    # Don't capture output so we can see real-time progress, and redirect stderr to stdout
+    ssh_cmd = f"ssh -i ~/.ssh/parrishfamily.pem -o StrictHostKeyChecking=no ec2-user@{public_ip} '{execute_cmd} 2>&1'"
     
     try:
         result = subprocess.run(ssh_cmd, shell=True, check=True)
@@ -199,16 +154,6 @@ def update_zorkgpt():
         print("\n⚠️  Update interrupted by user")
         print("💡 The update script may still be running on the server")
         print("   Check status with: python infrastructure/manage_ec2.py status")
-    finally:
-        # Clean up the temporary script file if we uploaded one
-        if script_path_to_use == temp_script_path:
-            cleanup_cmd = f"rm -f {temp_script_path}"
-            cleanup_ssh_cmd = f"ssh -i ~/.ssh/parrishfamily.pem -o StrictHostKeyChecking=no ec2-user@{public_ip} '{cleanup_cmd}'"
-            try:
-                subprocess.run(cleanup_ssh_cmd, shell=True, check=True, capture_output=True, text=True)
-            except subprocess.CalledProcessError:
-                # Not critical if cleanup fails
-                pass
 
 
 def update_viewer_only(public_ip: str) -> None:
@@ -347,44 +292,6 @@ def ssh_connect(public_ip: str) -> None:
     subprocess.run(ssh_cmd, shell=True)
 
 
-def deploy_update_script(public_ip: str) -> None:
-    """Deploy the update script to the infrastructure directory on the EC2 instance."""
-    print("📤 Deploying update script to EC2 instance...")
-    
-    # Path to the local update script
-    local_script_path = os.path.join(os.path.dirname(__file__), "update_zorkgpt.sh")
-    remote_script_path = "/home/zorkgpt/ZorkGPT/infrastructure/update_zorkgpt.sh"
-    
-    # Check if the local script exists
-    if not os.path.exists(local_script_path):
-        print(f"❌ Update script not found at {local_script_path}")
-        return
-    
-    # Upload the script directly to the infrastructure directory
-    scp_cmd = f"scp -i ~/.ssh/parrishfamily.pem -o StrictHostKeyChecking=no {local_script_path} ec2-user@{public_ip}:{remote_script_path}"
-    
-    try:
-        result = subprocess.run(scp_cmd, shell=True, check=True, capture_output=True, text=True)
-        print("✅ Script uploaded to infrastructure directory")
-    except subprocess.CalledProcessError as e:
-        print(f"❌ Failed to upload script: {e}")
-        return
-    
-    # Set proper ownership and permissions as zorkgpt user
-    setup_commands = [
-        f"sudo chown zorkgpt:zorkgpt {remote_script_path}",
-        f"sudo chmod +x {remote_script_path}"
-    ]
-    
-    for cmd in setup_commands:
-        if not run_ssh_command(cmd, public_ip):
-            print(f"❌ Failed to execute: {cmd}")
-            return
-    
-    print(f"✅ Update script deployed to {remote_script_path}")
-    print("💡 The script is now available for future updates")
-
-
 def main():
     parser = argparse.ArgumentParser(description="Manage ZorkGPT EC2 instance")
     parser.add_argument(
@@ -398,7 +305,6 @@ def main():
             "logs-follow",
             "update",
             "update-viewer",
-            "deploy-script",
             "download",
             "ssh",
             "info",
@@ -448,8 +354,6 @@ def main():
         update_zorkgpt()
     elif args.action == "update-viewer":
         update_viewer_only(public_ip)
-    elif args.action == "deploy-script":
-        deploy_update_script(public_ip)
     elif args.action == "download":
         download_analysis_files(public_ip)
     elif args.action == "ssh":

@@ -4,7 +4,8 @@
 # This script handles the complete update process locally on the EC2 instance
 # to avoid issues with multiple SSH calls
 
-set -e  # Exit on any error
+# Don't exit on error - we want to handle errors explicitly
+# set -e  # Commented out for better error visibility
 
 ZORKGPT_DIR="/home/zorkgpt/ZorkGPT"
 ZORKGPT_USER="zorkgpt"
@@ -162,7 +163,10 @@ main() {
     log "Starting ZorkGPT update process..."
     
     # Step 1: Check prerequisites
-    check_prerequisites
+    if ! check_prerequisites; then
+        log_error "Prerequisites check failed, aborting update"
+        exit 1
+    fi
     
     # Step 2: Trigger save
     if ! trigger_save; then
@@ -177,12 +181,14 @@ main() {
     check_save_files
     
     # Step 5: Stop service
+    log "About to stop service..."
     if ! stop_service; then
         log_error "Failed to stop service, aborting update"
         exit 1
     fi
     
     # Step 6: Update code
+    log "About to update code..."
     if ! update_code; then
         log_error "Code update failed, attempting to restart service anyway"
         start_service
@@ -190,12 +196,14 @@ main() {
     fi
     
     # Step 7: Start service
+    log "About to start service..."
     if ! start_service; then
         log_error "Failed to start service after update"
         exit 1
     fi
     
     # Step 8: Check final status
+    log "About to check service status..."
     if check_service_status; then
         log "ZorkGPT update completed successfully!"
         log "Game state will be automatically restored from save file"
