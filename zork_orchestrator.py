@@ -2232,7 +2232,8 @@ Format as a clear, structured summary that preserves essential information for c
             )
             
             # Update objectives every turn, ensuring it's not a duplicate call for the same turn.
-            if self.turn_count > 0 and self.turn_count != self.objective_update_turn:
+            if (self.turn_count > 0 and 
+            self.turn_count - self.objective_update_turn >= self.objective_update_interval):
                 print(f"🎯 Triggering objective update at turn {self.turn_count}")
                 self.logger.info(
                     f"Triggering objective update at turn {self.turn_count}",
@@ -2371,7 +2372,7 @@ Focus on objectives the agent has actually discovered through gameplay patterns 
                     response = self.client.chat.completions.create(
                         model=model_to_use,
                         messages=messages,
-                        temperature=0.3,  # Lower temperature for consistent objective tracking
+                        **self.adaptive_knowledge_manager.analysis_sampling.model_dump(exclude_unset=True) if self.adaptive_knowledge_manager else {"temperature": 0.3, "max_tokens": 5000}
                     )
                     
                     print(f"  🔍 LLM call successful, response type: {type(response)}")
@@ -2656,8 +2657,7 @@ Only mark objectives as completed if you're confident they were achieved."""
                 response = self.client.chat.completions.create(
                     model=self.adaptive_knowledge_manager.analysis_model if self.adaptive_knowledge_manager else "gpt-4",
                     messages=messages,
-                    temperature=0.2,  # Low temperature for consistency
-                    max_tokens=300
+                    **self.adaptive_knowledge_manager.analysis_sampling.model_dump(exclude_unset=True) if self.adaptive_knowledge_manager else {"temperature": 0.2, "max_tokens": 5000}
                 )
                 
                 # Parse completed objectives
@@ -2861,7 +2861,7 @@ Please provide a refined list of objectives that encourages exploration and prog
                 # Use analysis_model and sampling parameters similar to knowledge generation
                 # Fallback to a default model if not configured
                 model_to_use = self.adaptive_knowledge_manager.analysis_model if self.adaptive_knowledge_manager and self.adaptive_knowledge_manager.analysis_model else "gpt-4-turbo" 
-                sampling_params = self.adaptive_knowledge_manager.analysis_sampling.model_dump(exclude_unset=True) if self.adaptive_knowledge_manager else {"temperature": 0.5, "max_tokens": 1000}
+                sampling_params = self.adaptive_knowledge_manager.analysis_sampling.model_dump(exclude_unset=True) if self.adaptive_knowledge_manager else {"temperature": 0.5, "max_tokens": 5000}
 
 
                 response = self.client.chat.completions.create(
