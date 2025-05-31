@@ -375,30 +375,36 @@ class LLMClient:
         if extra_headers:
             headers.update(extra_headers)
         
+        # Handle model-specific parameter restrictions
+        is_o1_model = "o1-" in model.lower()
+        is_o3_model = "o3-" in model.lower()
+        is_reasoning_model = is_o1_model or is_o3_model
+        
+        # For o1/o3 models, set all message roles to "user"
+        if is_reasoning_model:
+            messages = [{"role": "user", "content": msg.get("content", "")} for msg in messages]
+        
         # Build the request payload
         payload = {
             "model": model,
             "messages": messages,
         }
         
-        # Handle model-specific parameter restrictions
-        is_o1_model = "o1-" in model.lower()
-        
         # Only include sampling parameters if they're not None and supported by the model
         if temperature is not None:
-            if not is_o1_model:  # o1 models don't support temperature
+            if not is_reasoning_model:  # o1/o3 models don't support temperature
                 payload["temperature"] = temperature
             
         if top_p is not None:
-            if not is_o1_model:  # o1 models don't support top_p
+            if not is_reasoning_model:  # o1/o3 models don't support top_p
                 payload["top_p"] = top_p
             
         if top_k is not None:
-            if not is_o1_model:  # o1 models don't support top_k
+            if not is_reasoning_model:  # o1/o3 models don't support top_k
                 payload["top_k"] = top_k
             
         if min_p is not None:
-            if not is_o1_model:  # o1 models don't support min_p
+            if not is_reasoning_model:  # o1/o3 models don't support min_p
                 payload["min_p"] = min_p
         
         # Add optional parameters
@@ -409,7 +415,7 @@ class LLMClient:
             payload["stop"] = stop
             
         if response_format is not None:
-            if not is_o1_model:  # o1 models don't support response_format
+            if not is_reasoning_model:  # o1/o3 models don't support response_format
                 payload["response_format"] = response_format
         
         # Add any additional kwargs
