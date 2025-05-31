@@ -27,16 +27,11 @@ dev = [
 [tool.zorkgpt.llm]
 # LLM Configuration
 client_base_url = "https://openrouter.ai/api/v1"
-agent_model = "qwen/qwen3-235b-a22b"
+agent_model = "qwen/qwen3-30b-a3b"
 info_ext_model = "google/gemma-3-12b-it"
 critic_model = "google/gemma-3-12b-it"
-analysis_model = "qwen/qwen3-30b-a3b:free"
+analysis_model = "qwen/qwen3-30b-a3b"
 
-# client_base_url = "http://192.168.10.109:1234/v1"
-# agent_model = "qwen/qwen3-30b-a3b:free"
-# info_ext_model = "gemma-3-12b-it-qat"
-# critic_model = "gemma-3-12b-it-qat"
-# analysis_model = "qwen/qwen3-30b-a3b:free"
 
 [tool.zorkgpt.retry]
 # Retry and Exponential Backoff Configuration
@@ -106,6 +101,7 @@ enable_prompt_logging = false
 max_turns_per_episode = 5000
 knowledge_update_interval = 100
 map_update_interval = 10
+objective_update_interval = 10
 enable_state_export = true
 max_context_tokens = 40000
 context_overflow_threshold = 0.6

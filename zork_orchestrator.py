@@ -66,6 +66,8 @@ class ZorkOrchestrator:
         knowledge_update_interval: int = None,
         # Map updating (more frequent than full knowledge updates)
         map_update_interval: int = None,
+        # Objective updating (fastest update cycle for goal discovery)
+        objective_update_interval: int = None,
         # State export configuration
         enable_state_export: bool = None,
         state_export_file: str = None,
@@ -93,6 +95,9 @@ class ZorkOrchestrator:
         # Map updating (more frequent than full knowledge updates)
         self.map_update_interval = map_update_interval if map_update_interval is not None else config.orchestrator.map_update_interval
         self.last_map_update_turn = 0
+
+        # Objective updating (fastest update cycle for goal discovery)
+        self.objective_update_interval = objective_update_interval if objective_update_interval is not None else config.orchestrator.objective_update_interval
 
         # Context management configuration
         self.max_context_tokens = config.orchestrator.max_context_tokens if hasattr(config.orchestrator, 'max_context_tokens') else 150000
@@ -1115,15 +1120,6 @@ class ZorkOrchestrator:
             if update_success:
                 self.last_knowledge_update_turn = self.turn_count
 
-        # Check for discovered objectives update every 20 turns
-        if (
-            self.turn_count > 0 
-            and self.turn_count % 20 == 0 
-            and self.turn_count != self.objective_update_turn
-        ):
-            self._update_discovered_objectives()
-
-        # Check for map updates every 25 turns
 
         return self.previous_zork_score
 
@@ -2083,13 +2079,19 @@ Format as a clear, structured summary that preserves essential information for c
 
     def _check_objective_update(self) -> None:
         """Check if it's time for an objective update and perform it if needed."""
-        # Check for discovered objectives update every 20 turns
+        # Debug logging to help diagnose issues
+        print(f"🔍 Objective update check: turn={self.turn_count}, interval={self.objective_update_interval}, last_update={self.objective_update_turn}")
+        
+        # Check for discovered objectives update using configurable interval
         if (
             self.turn_count > 0 
-            and self.turn_count % 20 == 0 
+            and self.turn_count % self.objective_update_interval == 0 
             and self.turn_count != self.objective_update_turn
         ):
+            print(f"🎯 Triggering objective update at turn {self.turn_count}")
             self._update_discovered_objectives()
+        else:
+            print(f"🔍 Objective update skipped: turn_count={self.turn_count}, modulo_check={self.turn_count % self.objective_update_interval == 0}, not_duplicate={self.turn_count != self.objective_update_turn}")
 
     def _update_discovered_objectives(self) -> None:
         """
@@ -2149,39 +2151,56 @@ Focus on objectives the agent has actually discovered through gameplay patterns,
             if hasattr(self, 'client') and self.client:
                 messages = [{"role": "user", "content": prompt}]
                 
-                response = self.client.chat.completions.create(
-                    model=self.adaptive_knowledge_manager.analysis_model if self.adaptive_knowledge_manager else "gpt-4",
-                    messages=messages,
-                    temperature=0.3,  # Lower temperature for consistent objective tracking
-                    max_tokens=500
-                )
+                model_to_use = self.adaptive_knowledge_manager.analysis_model if self.adaptive_knowledge_manager else "gpt-4"
+                print(f"  🔍 Using model: {model_to_use}")
+                print(f"  🔍 Prompt length: {len(prompt)} characters")
+                print(f"  🔍 First 200 chars of prompt: {prompt[:200]}...")
                 
-                # Parse objectives from response
-                updated_objectives = self._parse_objectives_from_response(response.content)
-                
-                if updated_objectives:
-                    self.discovered_objectives = updated_objectives
-                    self.objective_update_turn = self.turn_count
-                    
-                    print(f"  ✅ Objectives updated: {len(updated_objectives)} objectives discovered")
-                    for i, obj in enumerate(updated_objectives[:3], 1):  # Show first 3
-                        print(f"    {i}. {obj}")
-                    
-                    # Log the update
-                    self.logger.info(
-                        "Discovered objectives updated",
-                        extra={
-                            "extras": {
-                                "event_type": "objectives_updated",
-                                "episode_id": self.episode_id,
-                                "turn": self.turn_count,
-                                "objective_count": len(updated_objectives),
-                                "objectives": updated_objectives,
-                            }
-                        },
+                try:
+                    response = self.client.chat.completions.create(
+                        model=model_to_use,
+                        messages=messages,
+                        temperature=0.3,  # Lower temperature for consistent objective tracking
+                        max_tokens=500
                     )
-                else:
-                    print("  ⚠️ No objectives parsed from LLM response")
+                    
+                    print(f"  🔍 LLM call successful, response type: {type(response)}")
+                    print(f"  🔍 Response content type: {type(response.content)}")
+                    print(f"  🔍 Response content length: {len(response.content) if response.content else 0}")
+                    
+                    # Parse objectives from response
+                    updated_objectives = self._parse_objectives_from_response(response.content)
+                    
+                    print(f"  🔍 Raw LLM response: '{response.content}'")
+                    print(f"  🔍 Parsed objectives: {updated_objectives}")
+                    
+                    if updated_objectives:
+                        self.discovered_objectives = updated_objectives
+                        self.objective_update_turn = self.turn_count
+                        
+                        print(f"  ✅ Objectives updated: {len(updated_objectives)} objectives discovered")
+                        for i, obj in enumerate(updated_objectives[:3], 1):  # Show first 3
+                            print(f"    {i}. {obj}")
+                        
+                        # Log the update
+                        self.logger.info(
+                            "Discovered objectives updated",
+                            extra={
+                                "extras": {
+                                    "event_type": "objectives_updated",
+                                    "episode_id": self.episode_id,
+                                    "turn": self.turn_count,
+                                    "objective_count": len(updated_objectives),
+                                    "objectives": updated_objectives,
+                                }
+                            },
+                        )
+                    else:
+                        print("  ⚠️ No objectives parsed from LLM response")
+                        
+                except Exception as llm_error:
+                    print(f"  ❌ LLM call failed: {llm_error}")
+                    self.logger.warning(f"Objective LLM call failed: {llm_error}")
             else:
                 print("  ⚠️ No LLM client available for objective analysis")
                 

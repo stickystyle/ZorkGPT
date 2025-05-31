@@ -163,10 +163,10 @@ class LLMClient:
         }
         
         # Ensure base_url ends with /v1 if it doesn't already
-        if not self.base_url.endswith('/v1'):
-            if not self.base_url.endswith('/'):
-                self.base_url += '/'
-            self.base_url += 'v1'
+        # if not self.base_url.endswith('/v1'):
+        #     if not self.base_url.endswith('/'):
+        #         self.base_url += '/'
+        #     self.base_url += 'v1'
 
     def _calculate_backoff_delay(self, attempt: int) -> float:
         """Calculate the delay for exponential backoff with jitter."""
