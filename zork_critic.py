@@ -79,6 +79,28 @@ class ActionRejectionSystem:
         if action.lower() in failed_actions:
             return False, None
 
+        # NEW: Detect location-specific loops (like up/down tree pattern)
+        recent_locations = context.get("recent_locations", [])
+        if len(recent_locations) >= 6:
+            # Check for alternating between 2 locations (like "Forest Path" <-> "Up A Tree")
+            unique_recent_locations = list(set(recent_locations[-6:]))
+            if len(unique_recent_locations) <= 2:
+                # Agent is stuck bouncing between 1-2 locations
+                return True, "location_loop_detected"
+        
+        # Enhanced stuck detection: lower threshold for override when in specific problem patterns
+        turns_without_progress = context.get("turns_since_movement", 0)
+        recent_actions = context.get("recent_actions", [])
+        
+        # Detect egg/tree interaction patterns specifically
+        if len(recent_actions) >= 4:
+            egg_tree_keywords = ["egg", "nest", "tree", "clasp", "leaflet", "up", "down"]
+            recent_action_text = " ".join(recent_actions[-4:]).lower()
+            if any(keyword in recent_action_text for keyword in egg_tree_keywords):
+                keyword_count = sum(1 for keyword in egg_tree_keywords if keyword in recent_action_text)
+                if keyword_count >= 3:  # Multiple egg/tree related actions recently
+                    return True, "egg_tree_loop_detected"
+
         # NEW: Override for systematic exploration of standard directions - RESTRICTIVE BUT TARGETED
         standard_directions = {
             "north", "south", "east", "west", "up", "down", 
@@ -89,14 +111,13 @@ class ActionRejectionSystem:
         # Check if this is systematic exploration of a standard direction
         if action.lower() in standard_directions:
             critic_confidence = context.get("critic_confidence", 0.5)
-            turns_without_progress = context.get("turns_since_movement", 0)
             
-            # Override if critic is NOT confident about the rejection AND agent is somewhat stuck
-            if critic_confidence < 0.7 and turns_without_progress >= 3:
+            # Override if critic is NOT confident about the rejection AND agent shows signs of being stuck
+            if critic_confidence < 0.7 and turns_without_progress >= 2:  # Lowered threshold
                 return True, "systematic_exploration"
 
         # Override if agent is very stuck and needs to explore non-movement actions
-        if context.get("turns_since_movement", 0) >= 8:
+        if turns_without_progress >= 8:
             # But only for reasonable non-movement actions, not invalid directions or failed actions
             reasonable_actions = [
                 "climb", "examine", "take", "open", "close", "look", "search", "enter", "exit"

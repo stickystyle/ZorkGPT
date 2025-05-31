@@ -87,10 +87,10 @@ max_tokens = 5000  # Optional - leave commented to use default
 turn_delay_seconds = 30.0
 turn_window_size = 100
 min_knowledge_quality = 6.0
-critic_rejection_threshold = -0.05
+critic_rejection_threshold = -0.2  # More permissive from -0.05 to allow more experimentation
 # Exit pruning configuration
 enable_exit_pruning = true
-exit_failure_threshold = 3  # Number of failures before pruning an exit
+exit_failure_threshold = 2  # Reduced from 3 to more quickly abandon failed directions
 # Knowledge base condensation configuration  
 enable_knowledge_condensation = true
 knowledge_condensation_threshold = 15000  # Characters before triggering condensation
@@ -104,15 +104,15 @@ enable_prompt_logging = false
 max_turns_per_episode = 5000
 knowledge_update_interval = 100
 map_update_interval = 10
-objective_update_interval = 10
+objective_update_interval = 25
 enable_state_export = true
 max_context_tokens = 40000
 context_overflow_threshold = 0.6
 
 enable_objective_refinement = true
-objective_refinement_interval = 75
-max_objectives_before_forced_refinement = 20
-refined_objectives_target_count = 10
+objective_refinement_interval = 50
+max_objectives_before_forced_refinement = 15
+refined_objectives_target_count = 8
 
 [tool.zorkgpt.files]
 # File Configuration

@@ -202,7 +202,11 @@ class ZorkOrchestrator:
         # Discovered objectives tracking - maintains goals discovered through gameplay
         self.discovered_objectives = []
         self.completed_objectives = []  # Track completed objectives for learning
-        self.objective_update_turn = 0  # Track when objectives were last updated
+        self.objective_update_turn = 0
+        # Add objective staleness tracking
+        self.objective_staleness_tracker = {}  # Track turns since progress on each objective
+        self.last_location_for_staleness = None
+        self.last_score_for_staleness = 0
 
         # Reset adaptive knowledge tracking for new episode
         self.last_knowledge_update_turn = 0
@@ -502,6 +506,18 @@ class ZorkOrchestrator:
                                 self, "turns_since_movement", 0
                             ),
                             "critic_confidence": critic_confidence,
+                            "recent_locations": [
+                                entry.get("current_location_name", "")
+                                for entry in self.memory_log_history[-10:]
+                                if hasattr(entry, 'current_location_name')
+                            ],
+                            "recent_actions": [
+                                action for action, _ in self.action_history[-8:]
+                            ],
+                            "recent_critic_scores": [
+                                reasoning.get("critic_score", 0.0)
+                                for reasoning in self.action_reasoning_history[-5:]
+                            ],
                         },
                     )
                 )
@@ -983,6 +999,9 @@ class ZorkOrchestrator:
             
             # Check for objective refinement
             self._check_objective_refinement()
+            
+            # Check for objective staleness
+            self._check_objective_staleness()
 
             # Check for context overflow and trigger summarization if needed
             self._check_context_overflow()
@@ -2569,42 +2588,49 @@ Only mark objectives as completed if you're confident they were achieved."""
         objectives_str = "\\n".join([f"- {idx + 1}. {obj}" for idx, obj in enumerate(self.discovered_objectives)])
         completed_objectives_str = "\\n".join([f"- {comp['objective']}" for comp in self.completed_objectives[-10:]]) if self.completed_objectives else "None recently completed"
 
-        prompt = (
-            f"You are an expert strategy analyst for the game Zork. Your task is to refine a list of objectives "
-            f"to ensure it remains focused, relevant, and actionable for an AI agent.\\n\\n"
-            f"CURRENT GAME SUMMARY:\\n{game_state_summary}\\n\\n"
-            f"CURRENT DISCOVERED OBJECTIVES (Count: {len(self.discovered_objectives)}):\\n{objectives_str}\\n\\n"
-            f"RECENTLY COMPLETED OBJECTIVES:\\n{completed_objectives_str}\\n\\n"
-            f"INSTRUCTIONS FOR REFINEMENT:\\n"
-            f"1.  **Review**: Carefully review the 'CURRENT DISCOVERED OBJECTIVES'.\\n"
-            f"2.  **Consider Context**: Take into account the 'CURRENT GAME SUMMARY' and 'RECENTLY COMPLETED OBJECTIVES'.\\n"
-            f"3.  **Eliminate Obsolete/Irrelevant**: Remove objectives that are no longer relevant due to game progression, "
-            f"have been implicitly achieved without formal completion, or are clearly outdated.\\n"
-            f"4.  **Merge Redundant**: Combine objectives that are very similar or cover the same essential goal.\\n"
-            f"5.  **Improve Clarity**: Rephrase objectives for better clarity, conciseness, and actionability if needed. "
-            f"Ensure they represent tangible goals.\\n"
-            f"6.  **Prioritize**: Focus on the most critical and strategically valuable objectives for the current stage of the game.\\n"
-            f"7.  **Target Count**: Aim to produce a refined list of approximately {self.refined_objectives_target_count} key objectives. "
-            f"You can slightly exceed this if multiple objectives are highly critical, but the goal is a focused list. "
-            f"If the current list is already small and focused, you may return a similar number.\\n"
-            f"8.  **Maintain Game-Specific Language**: Objectives should sound like they are from within the game's context.\\n\\n"
-            f"OUTPUT FORMAT:\\n"
-            f"Provide ONLY the refined list of objectives, formatted exactly as follows:\\n"
-            f"OBJECTIVES:\\n"
-            f"- [Refined Objective 1]\\n"
-            f"- [Refined Objective 2]\\n"
-            f"...\\n"
-            f"- [Refined Objective N]\\n\\n"
-            f"If no objectives remain after refinement (e.g., all are obsolete), output:\\n"
-            f"OBJECTIVES:\\n"
-            f"None"
-        )
+        refined_objectives_prompt = f"""You are tasked with refining a list of discovered objectives for a Zork gameplay session. The agent has discovered too many objectives and needs to focus on the most promising ones.
 
-        self._log_objective_prompt(prompt) # Reuse existing logging for the prompt
+Current Game State:
+{game_state_summary}
+
+Current Objectives (to be refined):
+{objectives_str}
+
+Recently Completed Objectives:
+{completed_objectives_str}
+
+**CRITICAL: Loop and Stagnation Detection**
+Review the current objectives carefully for signs of:
+1. **Repetitive patterns** that may cause the agent to get stuck in loops
+2. **Overly specific puzzle objectives** that may require tools/knowledge not yet available
+3. **Location-specific goals** that trap the agent in one area (e.g., "experiment with egg/tree")
+4. **Parser interaction objectives** that attempt complex commands the game doesn't understand
+
+**Refinement Guidelines:**
+1. **Prioritize exploration objectives** over specific puzzle-solving objectives
+2. **Remove objectives** that seem to encourage repetitive behavior in one location
+3. **Keep objectives** that promote visiting new areas or finding new items
+4. **Prefer general goals** over highly specific interaction patterns
+5. **Target ~{self.refined_objectives_target_count} objectives** total
+
+**Examples of problematic objectives to REMOVE:**
+- "Experiment with the egg's fragile clasp using specific tools"
+- "Test vertical movement possibilities from specific location" 
+- "Try different verbs with [specific object] at [specific location]"
+
+**Examples of good objectives to KEEP:**
+- "Explore unmapped areas to find new locations"
+- "Look for light sources to safely explore dark areas"
+- "Find keys or tools that can unlock doors or containers"
+- "Locate and collect valuable items or treasures"
+
+Please provide a refined list of objectives that encourages exploration and progress while avoiding repetitive loops."""
+
+        self._log_objective_prompt(refined_objectives_prompt) # Reuse existing logging for the prompt
 
         try:
             if hasattr(self, 'client') and self.client:
-                messages = [{"role": "user", "content": prompt}]
+                messages = [{"role": "user", "content": refined_objectives_prompt}]
                 # Use analysis_model and sampling parameters similar to knowledge generation
                 # Fallback to a default model if not configured
                 model_to_use = self.adaptive_knowledge_manager.analysis_model if self.adaptive_knowledge_manager and self.adaptive_knowledge_manager.analysis_model else "gpt-4-turbo" 
@@ -2632,6 +2658,56 @@ Only mark objectives as completed if you're confident they were achieved."""
                 self.logger.warning("No LLM client available for objective refinement.")
         except Exception as e:
             self.logger.error(f"Error during objective refinement: {e}", exc_info=True)
+
+    def _check_objective_staleness(self) -> None:
+        """Check for stale objectives and remove them if no progress has been made."""
+        if not self.discovered_objectives:
+            return
+            
+        current_location = self.current_room_name_for_map
+        current_score = self.previous_zork_score
+        
+        # Detect if we're making progress (location change or score increase)
+        made_progress = (
+            current_location != self.last_location_for_staleness or
+            current_score > self.last_score_for_staleness
+        )
+        
+        # Update staleness tracking for all objectives
+        for objective in self.discovered_objectives[:]:  # Copy list to allow modification
+            if objective not in self.objective_staleness_tracker:
+                self.objective_staleness_tracker[objective] = 0
+            
+            if made_progress:
+                # Reset staleness counter if we made any progress
+                self.objective_staleness_tracker[objective] = 0
+            else:
+                # Increment staleness counter
+                self.objective_staleness_tracker[objective] += 1
+                
+                # Remove objectives that have been stale for too long (30+ turns without progress)
+                if self.objective_staleness_tracker[objective] >= 30:
+                    self.discovered_objectives.remove(objective)
+                    del self.objective_staleness_tracker[objective]
+                    
+                    print(f"🗑️ Removed stale objective (30+ turns without progress): {objective}")
+                    
+                    self.logger.info(
+                        f"Objective removed due to staleness: {objective}",
+                        extra={
+                            "extras": {
+                                "event_type": "objective_staleness_removal",
+                                "episode_id": self.episode_id,
+                                "turn": self.turn_count,
+                                "stale_objective": objective,
+                                "turns_without_progress": 30,
+                            }
+                        },
+                    )
+        
+        # Update tracking variables
+        self.last_location_for_staleness = current_location
+        self.last_score_for_staleness = current_score
 
 
 if __name__ == "__main__":
