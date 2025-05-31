@@ -1233,7 +1233,7 @@ Focus on creating a guide that is information-dense but highly readable for an A
                 top_p=getattr(self.extractor_sampling, 'top_p', None),
                 top_k=getattr(self.extractor_sampling, 'top_k', None), 
                 min_p=getattr(self.extractor_sampling, 'min_p', None),
-                max_tokens=self.extractor_sampling.max_tokens or 2000,
+                max_tokens=2000,
             )
             
             condensed_content = response.content.strip()
