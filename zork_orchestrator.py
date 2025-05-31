@@ -39,6 +39,9 @@ try:
 except ImportError:
     S3_AVAILABLE = False
 
+# Import shared utilities
+from shared_utils import estimate_context_tokens
+
 
 class ZorkOrchestrator:
     """
@@ -1885,27 +1888,13 @@ class ZorkOrchestrator:
         """
         Estimate total context tokens based on memory log history.
         
-        Uses a rough approximation: 4 characters per token.
+        Uses the shared token estimation utility.
         """
-        total_chars = 0
-        
-        # Count memory log history
-        for memory in self.memory_log_history:
-            total_chars += len(str(memory))
-            
-        # Count action reasoning history
-        for reasoning in self.action_reasoning_history:
-            total_chars += len(str(reasoning))
-            
-        # Count knowledge base
-        try:
-            with open("knowledgebase.md", "r") as f:
-                total_chars += len(f.read())
-        except FileNotFoundError:
-            pass
-            
-        # Rough approximation: 4 characters per token
-        return total_chars // 4
+        return estimate_context_tokens(
+            memory_history=self.memory_log_history,
+            reasoning_history=self.action_reasoning_history,
+            knowledge_base_path="knowledgebase.md"
+        )
 
     def _trigger_context_summarization(self) -> None:
         """

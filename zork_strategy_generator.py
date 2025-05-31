@@ -16,6 +16,9 @@ from config import get_config, get_client_api_key
 import re
 from pathlib import Path
 
+# Import shared utilities
+from shared_utils import estimate_tokens
+
 
 
 class AdaptiveKnowledgeManager:
@@ -44,15 +47,21 @@ class AdaptiveKnowledgeManager:
             api_key=get_client_api_key(),
         )
 
-        # Model for analysis
+        # Models for different tasks
         self.analysis_model = config.llm.analysis_model
+        self.info_ext_model = config.llm.info_ext_model
 
-        # Load analysis sampling parameters from configuration
+        # Load sampling parameters from configuration
         self.analysis_sampling = config.analysis_sampling
+        self.extractor_sampling = config.extractor_sampling
 
         # Turn-based configuration
         self.turn_window_size = config.gameplay.turn_window_size
         self.min_quality_threshold = config.gameplay.min_knowledge_quality
+        
+        # Knowledge base condensation configuration
+        self.enable_condensation = config.gameplay.enable_knowledge_condensation
+        self.condensation_threshold = config.gameplay.knowledge_condensation_threshold
         
         # Prompt logging counter for temporary evaluation
         self.prompt_counter = 0
@@ -483,7 +492,7 @@ SCORE: [0-10]
 REASON: [brief explanation]"""
 
         # Incase using Qwen qwen3-30b-a3b
-        prompt = r"\no_think " + prompt
+        # prompt = r"\no_think " + prompt
         try:
             messages = [
                 {
@@ -978,6 +987,26 @@ Do not add new information - only reorganize and clarify existing knowledge for 
         if not merged_knowledge:
             return False
 
+        # Check if condensation is needed based on size threshold
+        # Remove map section for size checking since it's handled separately
+        knowledge_without_map = self._trim_map_section(merged_knowledge)
+        
+        if (self.enable_condensation and 
+            len(knowledge_without_map) > self.condensation_threshold):
+            print(f"  📏 Knowledge base size ({len(knowledge_without_map)} chars) exceeds threshold ({self.condensation_threshold}), triggering condensation...")
+            
+            # Apply condensation to the knowledge content (without map)
+            condensed_knowledge = self._condense_knowledge_base(knowledge_without_map)
+            
+            if condensed_knowledge and condensed_knowledge != knowledge_without_map:
+                # Condensation was successful, restore map section
+                merged_knowledge = self._preserve_map_section(existing_knowledge, condensed_knowledge)
+                print(f"  ✨ Condensation complete: {len(knowledge_without_map)} -> {len(condensed_knowledge)} chars")
+            else:
+                print(f"  ⚠️ Condensation failed or unnecessary, keeping original content")
+        elif not self.enable_condensation and len(knowledge_without_map) > self.condensation_threshold:
+            print(f"  ℹ️ Knowledge base size ({len(knowledge_without_map)} chars) exceeds threshold but condensation is disabled")
+
         # Save merged knowledge
         try:
             with open(self.output_file, "w", encoding="utf-8") as f:
@@ -1140,6 +1169,91 @@ Create a strategy guide that prioritizes strategic discovery frameworks, objecti
         
         # Add map section to new knowledge
         return f"{new_knowledge.rstrip()}\n\n{map_section}"
+
+    def _condense_knowledge_base(self, verbose_knowledge: str) -> Optional[str]:
+        """
+        Use the info_ext_model to condense a knowledge base into a more concise format.
+        
+        This step focuses purely on reformatting and removing redundancy without
+        adding new strategies or losing critical information.
+        
+        Args:
+            verbose_knowledge: The full knowledge base content (without map section)
+            
+        Returns:
+            Condensed knowledge base or None if condensation failed
+        """
+        
+        if not verbose_knowledge or len(verbose_knowledge) < 1000:
+            # Don't condense if content is already short
+            return verbose_knowledge
+            
+        prompt = f"""You are tasked with condensing this Zork strategy guide into a more concise format while preserving ALL critical information.
+
+**CRITICAL REQUIREMENTS**:
+1. **NO NEW STRATEGIES**: Only reformat existing content - never invent or add new strategic advice
+2. **PRESERVE ALL KEY INFORMATION**: Every important insight, danger warning, item detail, and strategic pattern must be retained
+3. **REMOVE REDUNDANCY**: Eliminate repetitive statements and merge similar advice
+4. **MAINTAIN STRUCTURE**: Keep the logical organization but make it more compact
+5. **AI-FOCUSED LANGUAGE**: Use direct, actionable instructions for an AI language model
+6. **CONSOLIDATE EXAMPLES**: Merge similar examples or scenarios into representative cases
+
+**CURRENT KNOWLEDGE BASE TO CONDENSE**:
+{verbose_knowledge}
+
+**CONDENSATION GUIDELINES**:
+- Merge repetitive advice into single, comprehensive statements
+- Combine similar examples or scenarios into representative cases  
+- Use bullet points and concise formatting for better readability
+- Eliminate verbose explanations while keeping essential details
+- Maintain all specific game elements (locations, items, commands, dangers)
+- Preserve the strategic frameworks and decision-making patterns
+- Keep all unique insights and specialized knowledge
+
+**OUTPUT FORMAT**: Provide a condensed version that is 50-70% of the original length while maintaining 100% of the strategic value.
+
+Focus on creating a guide that is information-dense but highly readable for an AI agent during gameplay."""
+
+        try:
+            messages = [
+                {
+                    "role": "system", 
+                    "content": "You are an expert technical writer specializing in condensing strategic guides for AI systems. Your goal is to maximize information density while preserving completeness and accuracy. Never add new information - only reorganize and consolidate existing content."
+                },
+                {"role": "user", "content": prompt}
+            ]
+            
+            # Log the condensation prompt if enabled
+            self._log_prompt_to_file(messages, "knowledge_condensation")
+            
+            response = self.client.chat.completions.create(
+                model=self.info_ext_model,
+                messages=messages,
+                temperature=self.extractor_sampling.temperature,
+                top_p=getattr(self.extractor_sampling, 'top_p', None),
+                top_k=getattr(self.extractor_sampling, 'top_k', None), 
+                min_p=getattr(self.extractor_sampling, 'min_p', None),
+                max_tokens=self.extractor_sampling.max_tokens or 2000,
+            )
+            
+            condensed_content = response.content.strip()
+            
+            # Validate that condensation was successful and actually shorter
+            if condensed_content and len(condensed_content) < len(verbose_knowledge):
+                # Provide both character and token estimates for better feedback
+                original_tokens = estimate_tokens(verbose_knowledge)
+                condensed_tokens = estimate_tokens(condensed_content)
+                
+                print(f"  📝 Knowledge condensed: {len(verbose_knowledge)} -> {len(condensed_content)} characters ({len(condensed_content)/len(verbose_knowledge)*100:.1f}%)")
+                print(f"      Token estimate: {original_tokens} -> {condensed_tokens} tokens ({condensed_tokens/original_tokens*100:.1f}%)")
+                return condensed_content
+            else:
+                print(f"  ⚠️ Condensation failed or didn't reduce size - keeping original")
+                return verbose_knowledge
+                
+        except Exception as e:
+            print(f"  ⚠️ Knowledge condensation failed: {e}")
+            return verbose_knowledge  # Return original on failure
 
     def update_knowledge_with_map(self, episode_id: str, game_map: MapGraph) -> bool:
         """

@@ -91,6 +91,9 @@ critic_rejection_threshold = -0.05
 # Exit pruning configuration
 enable_exit_pruning = true
 exit_failure_threshold = 3  # Number of failures before pruning an exit
+# Knowledge base condensation configuration  
+enable_knowledge_condensation = true
+knowledge_condensation_threshold = 15000  # Characters before triggering condensation
 
 [tool.zorkgpt.logging]
 # Logging Configuration

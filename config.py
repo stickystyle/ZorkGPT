@@ -67,6 +67,9 @@ class GameplayConfig(BaseModel):
     # Exit pruning configuration
     enable_exit_pruning: bool = True
     exit_failure_threshold: int = 3
+    # Knowledge base condensation configuration
+    enable_knowledge_condensation: bool = True
+    knowledge_condensation_threshold: int = 15000
 
 
 class LoggingConfig(BaseModel):

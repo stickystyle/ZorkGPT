@@ -177,6 +177,40 @@
             overflow-y: auto;
         }
         
+        .objectives-list {
+            margin: 0 0 20px 0;
+            padding: 0;
+            list-style: none;
+        }
+        
+        .objective-item {
+            background: #f8f9fa;
+            margin: 8px 0;
+            padding: 12px;
+            border-radius: 6px;
+            border-left: 4px solid #28a745;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+        
+        .objective-item:nth-child(even) {
+            background: #e9ecef;
+        }
+        
+        .objective-item strong {
+            display: block;
+            margin-bottom: 4px;
+            color: #2c5530;
+        }
+        
+        .objectives-divider {
+            border: none;
+            height: 2px;
+            background: linear-gradient(to right, #dee2e6, #6c757d, #dee2e6);
+            margin: 20px 0;
+            border-radius: 1px;
+        }
+        
         .current-room {
             background: #ffeb3b;
             padding: 4px 8px;
@@ -607,6 +641,11 @@
         </div>
         
         <div class="knowledge-section">
+            <h3 id="objectives-header">Current Objectives</h3>
+            <div id="objectives-content" class="loading">Loading...</div>
+            
+            <hr class="objectives-divider">
+            
             <h3>Knowledge Base</h3>
             <div id="knowledge-content" class="loading">Loading...</div>
         </div>
@@ -869,6 +908,7 @@
                 this.updateGameInfo();
                 this.updateMap();
                 this.updateRecentLog();
+                this.updateObjectives();
                 this.updateKnowledgeBase();
             }
             
@@ -1094,6 +1134,61 @@
                 
                 // Track that we've scrolled at least once
                 this.hasScrolled = true;
+            }
+            
+            updateObjectives() {
+                const objectivesContainer = document.getElementById('objectives-content');
+                const objectivesHeader = document.getElementById('objectives-header');
+                const currentState = this.currentState.current_state;
+                const objectives = currentState ? currentState.discovered_objectives : null;
+                
+                if (!objectives || objectives.length === 0) {
+                    objectivesContainer.innerHTML = '<p style="color: #666; font-style: italic;">No current objectives</p>';
+                    objectivesHeader.textContent = 'Current Objectives';
+                    return;
+                }
+                
+                // Update header with count
+                objectivesHeader.textContent = `Current Objectives (${objectives.length})`;
+                
+                try {
+                    // Create a nicely formatted list of objectives
+                    let objectivesHtml = '<ul class="objectives-list">';
+                    
+                    objectives.forEach((objective, index) => {
+                        // Clean up the objective text by removing brackets if present
+                        let cleanObjective = objective.trim();
+                        if (cleanObjective.startsWith('[') && cleanObjective.includes(']')) {
+                            cleanObjective = cleanObjective.substring(1);
+                            const endBracket = cleanObjective.indexOf(']');
+                            if (endBracket !== -1) {
+                                const title = cleanObjective.substring(0, endBracket);
+                                let description = cleanObjective.substring(endBracket + 1).trim();
+                                
+                                // Remove leading parenthesis and trailing parenthesis if present
+                                if (description.startsWith('(') && description.endsWith(')')) {
+                                    description = description.substring(1, description.length - 1);
+                                }
+                                
+                                cleanObjective = `<strong>${this.escapeHtml(title)}</strong>`;
+                                if (description) {
+                                    cleanObjective += `<br><small style="color: #666; line-height: 1.3;">${this.escapeHtml(description)}</small>`;
+                                }
+                            }
+                        } else {
+                            cleanObjective = this.escapeHtml(cleanObjective);
+                        }
+                        
+                        objectivesHtml += `<li class="objective-item">${cleanObjective}</li>`;
+                    });
+                    
+                    objectivesHtml += '</ul>';
+                    objectivesContainer.innerHTML = objectivesHtml;
+                    
+                } catch (error) {
+                    console.error('Failed to render objectives:', error);
+                    objectivesContainer.innerHTML = `<p class="error-message">Error rendering objectives: ${error.message}</p>`;
+                }
             }
             
             updateKnowledgeBase() {
