@@ -4,18 +4,21 @@ import queue
 import time
 import re
 from typing import List
+import os
 
 
 class ZorkInterface:
     """A Python interface for interacting with the Zork text adventure game."""
 
-    def __init__(self, timeout=0.1):
+    def __init__(self, timeout=0.1, working_directory=None):
         """Initialize the Zork interface.
 
         Args:
             timeout (float): Time to wait for responses after sending a command (in seconds)
+            working_directory (str): Optional working directory for the Zork process (for save files)
         """
         self.timeout = timeout
+        self.working_directory = working_directory
         self.process = None
         self.response_queue = queue.Queue()
         self.reader_thread = None
@@ -37,13 +40,18 @@ class ZorkInterface:
         if self.process is not None:
             raise RuntimeError("Zork process is already running")
 
+        # Get absolute path to zork.z5 file to ensure it works regardless of working directory
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        zork_file_path = os.path.join(script_dir, "infrastructure", "zork.z5")
+
         self.process = subprocess.Popen(
-            ["dfrotz", "./infrastructure/zork.z5"],
+            ["dfrotz", zork_file_path],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
             bufsize=1,  # Line buffered
+            cwd=self.working_directory,  # Set working directory for save files
         )
 
         self.running = True
@@ -112,6 +120,99 @@ class ZorkInterface:
 
         # Get the response
         return self.get_response().strip()
+
+    def send_interactive_command(self, initial_command: str, follow_up_input: str, 
+                               prompt_keyword: str, success_keyword: str, 
+                               timeout: float = 10.0) -> tuple[bool, str]:
+        """Send a command that requires interactive input (like save/restore).
+        
+        Args:
+            initial_command: The first command to send (e.g., "save")
+            follow_up_input: The response to the prompt (e.g., filename)
+            prompt_keyword: Text to look for in Zork's prompt (e.g., "Please enter a filename")
+            success_keyword: Text indicating success (e.g., "Ok.")
+            timeout: Maximum time to wait for responses
+            
+        Returns:
+            tuple: (success: bool, full_response: str)
+        """
+        if not self.is_running():
+            raise RuntimeError("Zork process is not running")
+
+        start_time = time.time()
+        full_response = ""
+        
+        try:
+            # Send the initial command and filename together for save/restore
+            # Zork's save/restore commands don't produce output until filename is provided
+            self.process.stdin.write(initial_command + "\n")
+            self.process.stdin.flush()
+            
+            # Send the follow-up input immediately (for save/restore this is the filename)
+            self.process.stdin.write(follow_up_input + "\n")
+            self.process.stdin.flush()
+            
+            # Wait for the combined response (prompt + result)
+            time.sleep(1.0)  # Give Zork time to process both commands
+            
+            response = self.get_response()
+            full_response = response
+            
+            # Check if we got both the prompt and success message
+            has_prompt = prompt_keyword.lower() in response.lower()
+            has_success = success_keyword.lower() in response.lower()
+            
+            # For save/restore, success means we got both prompt and "Ok." in the response
+            success_found = has_prompt and has_success
+            
+            return success_found, full_response.strip()
+            
+        except Exception as e:
+            return False, f"Error during interactive command: {e}. Response: {full_response}"
+
+    def trigger_zork_save(self, filename: str) -> bool:
+        """Save the current Zork game state to a file.
+        
+        Args:
+            filename: The filename to save to (relative to Zork's working directory)
+                     Note: Zork will automatically add .qzl extension
+            
+        Returns:
+            bool: True if save was successful
+        """
+        success, response = self.send_interactive_command(
+            "save", 
+            filename, 
+            "Please enter a filename", 
+            "Ok."
+        )
+        
+        if not success:
+            print(f"Save failed: {response}")
+        
+        return success
+
+    def trigger_zork_restore(self, filename: str) -> bool:
+        """Restore a Zork game state from a file.
+        
+        Args:
+            filename: The filename to restore from (relative to Zork's working directory)
+                     Note: Should match the name used in save (Zork adds .qzl extension)
+            
+        Returns:
+            bool: True if restore was successful
+        """
+        success, response = self.send_interactive_command(
+            "restore", 
+            filename, 
+            "Please enter a filename", 
+            "Ok."
+        )
+        
+        if not success:
+            print(f"Restore failed: {response}")
+        
+        return success
 
     def close(self):
         """Terminate the Zork game process."""

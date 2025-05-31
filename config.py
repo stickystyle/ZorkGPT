@@ -70,6 +70,10 @@ class GameplayConfig(BaseModel):
     # Knowledge base condensation configuration
     enable_knowledge_condensation: bool = True
     knowledge_condensation_threshold: int = 15000
+    # Save/restore configuration
+    zork_save_filename: str = "zorkgpt_save.sav"
+    zork_game_workdir: str = "game_files"
+    save_signal_filename: str = ".SAVE_REQUESTED_BY_SYSTEM"
 
 
 class LoggingConfig(BaseModel):

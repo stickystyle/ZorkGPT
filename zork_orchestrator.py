@@ -93,6 +93,19 @@ class ZorkOrchestrator:
         self.episode_log_file = episode_log_file if episode_log_file is not None else config.files.episode_log_file
         self.json_log_file = json_log_file if json_log_file is not None else config.files.json_log_file
 
+        # Save/restore configuration
+        self.zork_save_filename = config.gameplay.zork_save_filename
+        self.zork_game_workdir = config.gameplay.zork_game_workdir
+        self.save_signal_filename = config.gameplay.save_signal_filename
+        
+        # Calculate absolute paths
+        self.zork_workdir_abs_path = os.path.abspath(self.zork_game_workdir)
+        self.zork_save_file_abs_path = os.path.join(self.zork_workdir_abs_path, self.zork_save_filename)
+        self.save_signal_file_abs_path = os.path.abspath(self.save_signal_filename)
+        
+        # Ensure game directory exists
+        os.makedirs(self.zork_workdir_abs_path, exist_ok=True)
+
         # Game settings
         self.max_turns_per_episode = max_turns_per_episode if max_turns_per_episode is not None else config.orchestrator.max_turns_per_episode
         self.turn_delay_seconds = turn_delay_seconds if turn_delay_seconds is not None else config.gameplay.turn_delay_seconds
@@ -262,6 +275,34 @@ class ZorkOrchestrator:
             )
             return 0
 
+        # Try to load previous state and merge learning data
+        previous_state = self._load_previous_state()
+        self._merge_previous_state(previous_state)
+
+        # Try to restore from save file if it exists
+        game_was_restored = self._attempt_restore_from_save(zork_interface_instance)
+        
+        if game_was_restored:
+            # Get current state from restored game to reconcile with our tracking
+            current_game_state = zork_interface_instance.send_command("look")
+            
+            # Get current inventory and score from restored game
+            current_inventory, _ = zork_interface_instance.inventory_with_response()
+            self.current_inventory = current_inventory
+            
+            current_zork_score, max_zork_score = zork_interface_instance.score()
+            self.previous_zork_score = current_zork_score
+            
+            self.logger.info(f"Game restored - Score: {current_zork_score}, Inventory: {len(current_inventory)} items", extra={
+                "extras": {
+                    "event_type": "game_state_reconciled",
+                    "episode_id": self.episode_id,
+                    "score": current_zork_score,
+                    "inventory_count": len(current_inventory),
+                    "inventory": current_inventory
+                }
+            })
+
         # Enable verbose mode to get full room descriptions on every visit
         verbose_response = zork_interface_instance.send_command("verbose")
         self.logger.info(
@@ -271,6 +312,7 @@ class ZorkOrchestrator:
                     "event_type": "verbose_mode_enabled",
                     "episode_id": self.episode_id,
                     "verbose_response": verbose_response,
+                    "game_was_restored": game_was_restored,
                 }
             },
         )
@@ -330,6 +372,13 @@ class ZorkOrchestrator:
                     }
                 },
             )
+
+            # Check for save signal from external process (like manage_ec2.py)
+            save_signal_processed = self._handle_save_signal(zork_interface_instance)
+            if save_signal_processed:
+                # Save signal was processed, continue with normal gameplay
+                # The system is ready for shutdown but will complete current turn
+                pass
 
             # Check if we're in combat from the previous turn's extracted info
             in_combat = False
@@ -507,7 +556,7 @@ class ZorkOrchestrator:
                             ),
                             "critic_confidence": critic_confidence,
                             "recent_locations": [
-                                entry.get("current_location_name", "")
+                                getattr(entry, "current_location_name", "")
                                 for entry in self.memory_log_history[-10:]
                                 if hasattr(entry, 'current_location_name')
                             ],
@@ -2708,6 +2757,279 @@ Please provide a refined list of objectives that encourages exploration and prog
         # Update tracking variables
         self.last_location_for_staleness = current_location
         self.last_score_for_staleness = current_score
+
+    def _handle_save_signal(self, zork_interface_instance) -> bool:
+        """Check for and handle save signal from external process (like manage_ec2.py).
+        
+        Returns:
+            bool: True if save signal was processed (regardless of success)
+        """
+        if os.path.exists(self.save_signal_file_abs_path):
+            self.logger.info("Save requested by external signal", extra={
+                "extras": {
+                    "event_type": "save_signal_received",
+                    "episode_id": self.episode_id,
+                    "turn": self.turn_count,
+                    "signal_file": self.save_signal_file_abs_path
+                }
+            })
+            
+            # Attempt to save the Zork game state
+            save_success = zork_interface_instance.trigger_zork_save(self.zork_save_filename)
+            
+            if save_success:
+                self.logger.info("Zork game state saved successfully", extra={
+                    "extras": {
+                        "event_type": "zork_save_success",
+                        "episode_id": self.episode_id,
+                        "save_file": self.zork_save_file_abs_path
+                    }
+                })
+                
+                # Force save current ZorkGPT state to JSON
+                self.export_current_state()
+                
+                self.logger.info("ZorkGPT state exported - ready for shutdown", extra={
+                    "extras": {
+                        "event_type": "state_export_complete",
+                        "episode_id": self.episode_id,
+                        "export_file": self.state_export_file
+                    }
+                })
+            else:
+                self.logger.error("Failed to save Zork game state", extra={
+                    "extras": {
+                        "event_type": "zork_save_failed",
+                        "episode_id": self.episode_id,
+                        "save_file": self.zork_save_file_abs_path
+                    }
+                })
+            
+            # Remove signal file regardless of save success/failure
+            try:
+                os.remove(self.save_signal_file_abs_path)
+                self.logger.info("Save signal file removed", extra={
+                    "extras": {
+                        "event_type": "save_signal_removed",
+                        "episode_id": self.episode_id
+                    }
+                })
+            except OSError as e:
+                self.logger.warning(f"Failed to remove save signal file: {e}", extra={
+                    "extras": {
+                        "event_type": "save_signal_removal_failed",
+                        "episode_id": self.episode_id,
+                        "error": str(e)
+                    }
+                })
+            
+            return True
+        
+        return False
+
+    def _attempt_restore_from_save(self, zork_interface_instance) -> bool:
+        """Attempt to restore from a previous save file.
+        
+        Returns:
+            bool: True if restore was successful
+        """
+        # Check for save file with .qzl extension (Zork adds this automatically)
+        save_file_with_qzl = self.zork_save_file_abs_path + ".qzl"
+        
+        if os.path.exists(save_file_with_qzl):
+            save_file_to_use = save_file_with_qzl
+        elif os.path.exists(self.zork_save_file_abs_path):
+            save_file_to_use = self.zork_save_file_abs_path
+        else:
+            self.logger.info("No save file found - starting fresh game", extra={
+                "extras": {
+                    "event_type": "no_save_file",
+                    "episode_id": self.episode_id,
+                    "save_file": self.zork_save_file_abs_path,
+                    "save_file_with_qzl": save_file_with_qzl
+                }
+            })
+            return False
+        
+        self.logger.info("Save file found - attempting restore", extra={
+            "extras": {
+                "event_type": "save_file_found",
+                "episode_id": self.episode_id,
+                "save_file": save_file_to_use
+            }
+        })
+        
+        restore_success = zork_interface_instance.trigger_zork_restore(self.zork_save_filename)
+        
+        if restore_success:
+            self.logger.info("Successfully restored from save file", extra={
+                "extras": {
+                    "event_type": "restore_success",
+                    "episode_id": self.episode_id,
+                    "save_file": save_file_to_use
+                }
+            })
+            return True
+        else:
+            self.logger.error("Failed to restore from save file", extra={
+                "extras": {
+                    "event_type": "restore_failed",
+                    "episode_id": self.episode_id,
+                    "save_file": save_file_to_use
+                }
+            })
+            
+            # Delete corrupt save file
+            try:
+                os.remove(save_file_to_use)
+                self.logger.info("Removed corrupt save file", extra={
+                    "extras": {
+                        "event_type": "corrupt_save_removed",
+                        "episode_id": self.episode_id,
+                        "save_file": save_file_to_use
+                    }
+                })
+            except OSError as e:
+                self.logger.warning(f"Failed to remove corrupt save file: {e}", extra={
+                    "extras": {
+                        "event_type": "corrupt_save_removal_failed",
+                        "episode_id": self.episode_id,
+                        "error": str(e)
+                    }
+                })
+            
+            return False
+
+    def _load_previous_state(self) -> Optional[Dict[str, Any]]:
+        """Load previous state from current_state.json if it exists.
+        
+        Returns:
+            Dict containing previous state or None if not found/invalid
+        """
+        try:
+            if os.path.exists(self.state_export_file):
+                with open(self.state_export_file, 'r') as f:
+                    previous_state = json.load(f)
+                
+                self.logger.info("Loaded previous state from JSON", extra={
+                    "extras": {
+                        "event_type": "previous_state_loaded",
+                        "episode_id": self.episode_id,
+                        "state_file": self.state_export_file,
+                        "previous_episode_id": previous_state.get("metadata", {}).get("episode_id", "unknown"),
+                        "previous_turn_count": previous_state.get("metadata", {}).get("turn_count", 0)
+                    }
+                })
+                
+                return previous_state
+            else:
+                self.logger.info("No previous state file found", extra={
+                    "extras": {
+                        "event_type": "no_previous_state",
+                        "episode_id": self.episode_id,
+                        "state_file": self.state_export_file
+                    }
+                })
+                return None
+                
+        except (json.JSONDecodeError, OSError) as e:
+            self.logger.warning(f"Failed to load previous state: {e}", extra={
+                "extras": {
+                    "event_type": "previous_state_load_failed",
+                    "episode_id": self.episode_id,
+                    "error": str(e),
+                    "state_file": self.state_export_file
+                }
+            })
+            return None
+
+    def _merge_previous_state(self, previous_state: Dict[str, Any]) -> None:
+        """Merge relevant data from previous state into current session.
+        
+        Preserves learning (map, knowledge, objectives) while allowing fresh game state.
+        """
+        if not previous_state:
+            return
+        
+        # Preserve map data
+        if "map" in previous_state:
+            try:
+                # Load previous map data into current map
+                map_data = previous_state["map"]
+                if "raw_data" in map_data and "rooms" in map_data["raw_data"]:
+                    for room_name, room_info in map_data["raw_data"]["rooms"].items():
+                        self.game_map.add_room(room_name)
+                        if "exits" in room_info:
+                            self.game_map.update_room_exits(room_name, room_info["exits"])
+                
+                if "raw_data" in map_data and "connections" in map_data["raw_data"]:
+                    for from_room, connections in map_data["raw_data"]["connections"].items():
+                        for direction, to_room in connections.items():
+                            self.game_map.add_connection(from_room, direction, to_room)
+                
+                self.logger.info("Merged previous map data", extra={
+                    "extras": {
+                        "event_type": "map_data_merged",
+                        "episode_id": self.episode_id,
+                        "rooms_loaded": len(map_data["raw_data"].get("rooms", {})),
+                        "connections_loaded": sum(len(conns) for conns in map_data["raw_data"].get("connections", {}).values())
+                    }
+                })
+            except Exception as e:
+                self.logger.warning(f"Failed to merge map data: {e}", extra={
+                    "extras": {
+                        "event_type": "map_merge_failed",
+                        "episode_id": self.episode_id,
+                        "error": str(e)
+                    }
+                })
+        
+        # Preserve knowledge base
+        if "knowledge_base" in previous_state:
+            try:
+                kb_content = previous_state["knowledge_base"].get("content", "")
+                if kb_content and len(kb_content.strip()) > 50:  # Only if substantial content
+                    with open("knowledgebase.md", "w") as f:
+                        f.write(kb_content)
+                    
+                    # Update adaptive knowledge manager
+                    self.adaptive_knowledge_manager.last_content = kb_content
+                    
+                    self.logger.info("Restored previous knowledge base", extra={
+                        "extras": {
+                            "event_type": "knowledge_restored",
+                            "episode_id": self.episode_id,
+                            "content_length": len(kb_content)
+                        }
+                    })
+            except Exception as e:
+                self.logger.warning(f"Failed to restore knowledge base: {e}", extra={
+                    "extras": {
+                        "event_type": "knowledge_restore_failed",
+                        "episode_id": self.episode_id,
+                        "error": str(e)
+                    }
+                })
+        
+        # Preserve death count and other persistent stats
+        if "current_state" in previous_state:
+            current_state = previous_state["current_state"]
+            if "death_count" in current_state:
+                self.death_count = current_state["death_count"]
+                self.logger.info(f"Restored death count: {self.death_count}", extra={
+                    "extras": {
+                        "event_type": "death_count_restored",
+                        "episode_id": self.episode_id,
+                        "death_count": self.death_count
+                    }
+                })
+        
+        self.logger.info("Previous state merge completed", extra={
+            "extras": {
+                "event_type": "state_merge_complete",
+                "episode_id": self.episode_id
+            }
+        })
 
 
 if __name__ == "__main__":

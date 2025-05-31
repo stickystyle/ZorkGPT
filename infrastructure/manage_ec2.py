@@ -12,6 +12,7 @@ import argparse
 import os
 from datetime import datetime
 from typing import Optional
+import time
 
 
 def get_stack_output(output_key: str) -> Optional[str]:
@@ -122,6 +123,34 @@ def update_zorkgpt(public_ip: str) -> None:
     if not bucket_name:
         print("⚠️  Warning: Could not get S3 bucket name from CloudFormation stack")
 
+    # Step 0: Request save before stopping service
+    save_signal_filepath_on_ec2 = "/home/zorkgpt/ZorkGPT/.SAVE_REQUESTED_BY_SYSTEM"
+    print("💾 Requesting ZorkGPT to save game state before update...")
+    
+    # Create the save signal file
+    touch_command = f'sudo -u zorkgpt bash -c "touch {save_signal_filepath_on_ec2}"'
+    
+    if run_ssh_command(touch_command, public_ip):
+        print(f"✅ Save request signal sent ({save_signal_filepath_on_ec2})")
+        
+        # Wait for ZorkGPT to process the save signal
+        save_request_timeout = 30  # Seconds to wait for save processing
+        print(f"⏳ Waiting up to {save_request_timeout}s for ZorkGPT to process save signal...")
+        
+        time.sleep(save_request_timeout)
+        
+        print("⏰ Wait time elapsed. Proceeding with service stop and update.")
+        
+        # Optional: Check if signal file was removed (indicates save was processed)
+        check_signal_removed_cmd = f'sudo -u zorkgpt bash -c "! test -f {save_signal_filepath_on_ec2}"'
+        if run_ssh_command(check_signal_removed_cmd, public_ip):
+            print("✅ Save signal was processed by ZorkGPT")
+        else:
+            print("⚠️  Save signal file still exists - save may not have been processed")
+    else:
+        print(f"⚠️  Failed to send save request signal to ZorkGPT")
+        print("⚠️  Proceeding with update, but Zork game state may not be saved")
+
     commands = [
         "sudo systemctl stop zorkgpt",
         'sudo -u zorkgpt bash -c "cd /home/zorkgpt/ZorkGPT && git pull"',
@@ -163,6 +192,7 @@ def update_zorkgpt(public_ip: str) -> None:
         print("⚠️  Could not get CloudFront distribution ID for cache invalidation")
 
     print("✅ ZorkGPT updated successfully")
+    print("🎮 Game state should be restored from save file on next startup")
 
 
 def update_viewer_only(public_ip: str) -> None:
