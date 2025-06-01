@@ -143,9 +143,18 @@ update_code() {
     # First stash any local changes, then pull, then pop the stash
     if sudo -u "$ZORKGPT_USER" bash -c "cd '$ZORKGPT_DIR' && git stash && git pull && git stash pop"; then
         log "ZorkGPT code updated successfully"
-        return 0
     else
         log_error "Failed to update ZorkGPT code"
+        return 1
+    fi
+    
+    # Sync dependencies with uv to ensure environment is up to date
+    log "Syncing dependencies with uv..."
+    if sudo -u "$ZORKGPT_USER" bash -c "cd '$ZORKGPT_DIR' && uv sync"; then
+        log "Dependencies synced successfully"
+        return 0
+    else
+        log_error "Failed to sync dependencies with uv"
         return 1
     fi
 }
