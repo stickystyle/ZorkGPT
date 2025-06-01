@@ -3695,7 +3695,7 @@ Please provide a refined list of objectives that encourages exploration and prog
             if self.game_map:
                 map_metrics = self.game_map.get_map_quality_metrics()
                 episode_data.update({
-                    "map_rooms_discovered": len(self.game_map.graph.nodes),
+                    "map_rooms_discovered": len(self.game_map.rooms),  # Fixed: was self.game_map.graph.nodes
                     "map_average_confidence": map_metrics['average_confidence'],
                     "map_high_confidence_ratio": map_metrics['high_confidence_ratio'],
                     "map_verified_connections": map_metrics['verified_connections'],
