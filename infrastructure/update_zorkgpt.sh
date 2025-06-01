@@ -140,14 +140,11 @@ update_code() {
     log "Updating ZorkGPT code..."
     
     # Change to ZorkGPT directory and update code as zorkgpt user
-    # Handle stash operations more carefully to avoid failures when no changes exist
+    # Use a simpler approach: fetch and reset to avoid stash complications
     if sudo -u "$ZORKGPT_USER" bash -c "
         cd '$ZORKGPT_DIR' && 
-        git stash push -m 'Pre-update stash' --include-untracked 2>/dev/null || true &&
-        git pull &&
-        if git stash list | grep -q 'Pre-update stash'; then 
-            git stash pop; 
-        fi
+        git fetch origin &&
+        git reset --hard origin/main
     "; then
         log "ZorkGPT code updated successfully"
     else
