@@ -157,13 +157,13 @@ update_code() {
     if sudo -u "$ZORKGPT_USER" bash -c "
         cd '$ZORKGPT_DIR' && 
         if command -v uv >/dev/null 2>&1; then
-            uv sync
+            uv sync --extra s3
         elif [ -f ~/.local/bin/uv ]; then
-            ~/.local/bin/uv sync
+            ~/.local/bin/uv sync --extra s3
         elif [ -f ~/.cargo/bin/uv ]; then
-            ~/.cargo/bin/uv sync
+            ~/.cargo/bin/uv sync --extra s3
         elif [ -f /usr/local/bin/uv ]; then
-            /usr/local/bin/uv sync
+            /usr/local/bin/uv sync --extra s3
         else
             echo 'uv not found, skipping dependency sync'
             exit 1
