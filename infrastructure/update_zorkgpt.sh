@@ -42,6 +42,18 @@ check_prerequisites() {
     log "Prerequisites check passed"
 }
 
+check_service_running() {
+    log "Checking if ZorkGPT service is running..."
+    
+    if systemctl is-active zorkgpt --quiet; then
+        log "ZorkGPT service is currently active"
+        return 0
+    else
+        log "ZorkGPT service is not currently running"
+        return 1
+    fi
+}
+
 trigger_save() {
     log "Triggering game save before update..."
     
@@ -176,49 +188,66 @@ main() {
         exit 1
     fi
     
-    # Step 2: Trigger save
-    if ! trigger_save; then
-        log_error "Failed to trigger save, aborting update"
-        exit 1
+    # Step 2: Check if service is running
+    local service_was_running=false
+    if check_service_running; then
+        service_was_running=true
+        
+        # Step 3: Trigger save only if service is running
+        if ! trigger_save; then
+            log_error "Failed to trigger save, aborting update"
+            exit 1
+        fi
+        
+        # Step 4: Wait for save completion
+        wait_for_save_completion
+        
+        # Step 5: Check save files
+        check_save_files
+        
+        # Step 6: Stop service
+        log "About to stop service..."
+        if ! stop_service; then
+            log_error "Failed to stop service, aborting update"
+            exit 1
+        fi
+    else
+        log "Service is not running, skipping save operations"
     fi
     
-    # Step 3: Wait for save completion
-    wait_for_save_completion
-    
-    # Step 4: Check save files
-    check_save_files
-    
-    # Step 5: Stop service
-    log "About to stop service..."
-    if ! stop_service; then
-        log_error "Failed to stop service, aborting update"
-        exit 1
-    fi
-    
-    # Step 6: Update code
+    # Step 7: Update code
     log "About to update code..."
     if ! update_code; then
-        log_error "Code update failed, attempting to restart service anyway"
-        start_service
+        log_error "Code update failed"
+        if [[ "$service_was_running" == true ]]; then
+            log "Attempting to restart service anyway"
+            start_service
+        fi
         exit 1
     fi
     
-    # Step 7: Start service
-    log "About to start service..."
-    if ! start_service; then
-        log_error "Failed to start service after update"
-        exit 1
-    fi
-    
-    # Step 8: Check final status
-    log "About to check service status..."
-    if check_service_status; then
-        log "ZorkGPT update completed successfully!"
-        log "Game state will be automatically restored from save file"
-        log "Monitor logs with: sudo journalctl -u zorkgpt -f"
+    # Step 8: Start service (only if it was running before, or if we stopped it)
+    if [[ "$service_was_running" == true ]]; then
+        log "About to start service..."
+        if ! start_service; then
+            log_error "Failed to start service after update"
+            exit 1
+        fi
+        
+        # Step 9: Check final status
+        log "About to check service status..."
+        if check_service_status; then
+            log "ZorkGPT update completed successfully!"
+            log "Game state will be automatically restored from save file"
+            log "Monitor logs with: sudo journalctl -u zorkgpt -f"
+        else
+            log_error "Update completed but service status check failed"
+            exit 1
+        fi
     else
-        log_error "Update completed but service status check failed"
-        exit 1
+        log "ZorkGPT update completed successfully!"
+        log "Service was not running before update and was not restarted"
+        log "Start the service manually with: sudo systemctl start zorkgpt"
     fi
 }
 
