@@ -123,6 +123,9 @@ class OrchestratorConfig(BaseModel):
     objective_refinement_interval: int = 75 
     max_objectives_before_forced_refinement: int = 20
     refined_objectives_target_count: int = 10
+    # Inter-episode synthesis configuration
+    enable_inter_episode_synthesis: bool = True
+    persistent_wisdom_file: str = "persistent_wisdom.md"
 
 
 class FilesConfig(BaseModel):

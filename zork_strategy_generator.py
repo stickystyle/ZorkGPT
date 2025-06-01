@@ -233,18 +233,18 @@ class AdaptiveKnowledgeManager:
             )
             return False
 
-        # Step 2: LLM determines update strategy
-        update_strategy = self._determine_update_strategy(turn_data, quality_score)
-        print(f"  🎯 Update strategy: {update_strategy}")
+        # Method 2 Optimization: Always use comprehensive analysis since we have full episode context
+        # The strategy determination system was designed for incremental windows with limited context
+        print(f"  🎯 Using comprehensive analysis (Method 2: full episode context)")
 
-        # Step 3: Perform analysis based on strategy
-        new_insights = self._perform_targeted_analysis(turn_data, update_strategy)
+        # Step 2: Perform comprehensive analysis with full episode context
+        new_insights = self._analyze_full_insights(turn_data)
         if not new_insights:
-            print("  ⚠️ Analysis failed to generate insights")
+            print("  ⚠️ Comprehensive analysis failed to generate insights")
             return False
 
-        # Step 4: Intelligent knowledge merging
-        success = self._intelligent_knowledge_merge(new_insights, update_strategy)
+        # Step 3: Intelligent knowledge merging with comprehensive strategy
+        success = self._intelligent_knowledge_merge(new_insights, "FULL_UPDATE")
         if success:
             print("  ✅ Knowledge base updated successfully")
         else:
@@ -537,109 +537,6 @@ REASON: [brief explanation]"""
             print(f"  ⚠️ Quality assessment failed: {e}")
             return 5.0, "Assessment failed due to API error"
 
-    def _determine_update_strategy(self, turn_data: Dict, quality_score: float) -> str:
-        """Let LLM determine the best update strategy for this data."""
-
-        # Load current knowledge base for context
-        current_knowledge = ""
-        try:
-            with open(self.output_file, "r", encoding="utf-8") as f:
-                current_knowledge = f.read()[:2000]  # First 2000 chars for context
-        except:
-            current_knowledge = "No existing knowledge base"
-
-        prompt = f"""Based on the gameplay data and current knowledge base, determine the best analysis strategy.
-
-CURRENT KNOWLEDGE BASE (excerpt):
-{current_knowledge}
-
-TURN DATA QUALITY: {quality_score}/10
-
-TURN DATA SUMMARY:
-- Actions: {len(turn_data["actions_and_responses"])}
-- Score changes: {len(turn_data["score_changes"])}
-- Location changes: {len(turn_data["location_changes"])}
-- Death events: {len(turn_data.get("death_events", []))}
-
-Choose the most appropriate strategy based on what will generate the most valuable game world knowledge:
-
-1. FULL_UPDATE: Comprehensive analysis focusing on items, puzzles, dangers, and strategic discoveries
-2. SELECTIVE_UPDATE: Focus on specific game world aspects (items, deaths, new areas, puzzle clues)
-3. CONSOLIDATION_ONLY: Reorganize existing knowledge without adding new information
-4. ESCAPE_ANALYSIS: Focus on navigation and movement strategies for stuck situations
-
-**PRIORITIZE GAME WORLD CONTENT**: Focus on strategies that will extract:
-- Specific item locations, uses, and combinations
-- Puzzle mechanics and solution patterns  
-- Danger identification and avoidance strategies
-- Room-specific secrets and interactive elements
-- Combat/interaction strategies with NPCs or creatures
-
-Consider:
-- What specific game world discoveries could be documented?
-- Are there deaths that reveal important danger patterns?
-- Do score changes indicate successful puzzle solving or item acquisition?
-- Are there new areas with unique properties to document?
-
-Respond with just the strategy name: FULL_UPDATE, SELECTIVE_UPDATE, CONSOLIDATION_ONLY, or ESCAPE_ANALYSIS"""
-
-        # Incase using Qwen qwen3-30b-a3b
-        prompt = r"\no_think " + prompt
-
-        try:
-            messages = [
-                {
-                    "role": "system",
-                    "content": "You are an expert at determining optimal knowledge extraction strategies for interactive fiction gameplay. Focus on strategies that will generate valuable game world knowledge about items, puzzles, dangers, and strategic discoveries rather than just navigation patterns.",
-                },
-                {"role": "user", "content": prompt},
-            ]
-            
-            # Log the full prompt for evaluation
-            self._log_prompt_to_file(messages, "knowledge_strategy")
-            
-            response = self.client.chat.completions.create(
-                model=self.analysis_model,
-                messages=messages,
-                temperature=self.analysis_sampling.temperature,
-                top_p=self.analysis_sampling.top_p,
-                top_k=self.analysis_sampling.top_k,
-                min_p=self.analysis_sampling.min_p,
-                max_tokens=self.analysis_sampling.max_tokens or 100,
-            )
-
-            strategy = response.content.strip().upper()
-
-            # Validate strategy
-            valid_strategies = [
-                "FULL_UPDATE",
-                "SELECTIVE_UPDATE",
-                "CONSOLIDATION_ONLY",
-                "ESCAPE_ANALYSIS",
-            ]
-            if strategy not in valid_strategies:
-                return "SELECTIVE_UPDATE"  # Default fallback
-
-            return strategy
-
-        except Exception as e:
-            print(f"  ⚠️ Strategy determination failed: {e}")
-            return "SELECTIVE_UPDATE"
-
-    def _perform_targeted_analysis(
-        self, turn_data: Dict, strategy: str
-    ) -> Optional[str]:
-        """Perform analysis based on the determined strategy."""
-
-        if strategy == "CONSOLIDATION_ONLY":
-            return self._consolidate_existing_knowledge()
-        elif strategy == "ESCAPE_ANALYSIS":
-            return self._analyze_escape_strategies(turn_data)
-        elif strategy == "SELECTIVE_UPDATE":
-            return self._analyze_selective_insights(turn_data)
-        else:  # FULL_UPDATE
-            return self._analyze_full_insights(turn_data)
-
     def _analyze_selective_insights(self, turn_data: Dict) -> Optional[str]:
         """Focus on the most promising aspects of the turn data."""
 
@@ -845,6 +742,25 @@ Focus on CONCRETE DISCOVERIES from this specific gameplay session rather than ge
                     death_analysis += f"- Death messages: {', '.join(event['death_messages'])}\n"
                 death_analysis += "\n"
 
+        # Load persistent wisdom from previous episodes for context
+        persistent_wisdom = ""
+        try:
+            from config import get_config
+            config = get_config()
+            persistent_wisdom_file = config.orchestrator.persistent_wisdom_file
+            
+            with open(persistent_wisdom_file, "r", encoding="utf-8") as f:
+                persistent_wisdom = f.read().strip()
+                
+            if persistent_wisdom:
+                persistent_wisdom = f"\n\n**PERSISTENT WISDOM FROM PREVIOUS EPISODES:**\n{persistent_wisdom}\n"
+        except FileNotFoundError:
+            # No persistent wisdom file yet - this is fine for early episodes
+            persistent_wisdom = ""
+        except Exception as e:
+            print(f"  ⚠️ Could not load persistent wisdom for analysis: {e}")
+            persistent_wisdom = ""
+
         prompt = f"""Analyze this Zork gameplay data and provide comprehensive strategic insights.
 
 TURN RANGE: {turn_data["start_turn"]}-{turn_data["end_turn"]}
@@ -853,10 +769,13 @@ LOCATION CHANGES: {turn_data["location_changes"]}
 DEATH EVENTS: {len(turn_data.get("death_events", []))} death(s) occurred
 
 ACTION SEQUENCE:
-{actions_text}{death_analysis}
+{actions_text}{death_analysis}{persistent_wisdom}
 
 **IMPORTANT - COORDINATE WITH DISCOVERED OBJECTIVES SYSTEM**: 
 The agent has a separate real-time objective tracking system that maintains current goals every 20 turns. Your knowledge base should COMPLEMENT this system by focusing on LONG-TERM strategic insights rather than current objectives.
+
+**LEVERAGE PERSISTENT WISDOM**: 
+Use the persistent wisdom from previous episodes to inform your analysis. Look for patterns that confirm, contradict, or extend the existing cross-episode knowledge.
 
 Provide insights in these categories focused on strategic patterns and game world knowledge:
 
@@ -867,6 +786,7 @@ Provide insights in these categories focused on strategic patterns and game worl
 5. **Efficiency Insights**: What meta-strategies help approach different types of situations more effectively?
 6. **Problem-Solving Patterns**: What general approaches work well for different categories of challenges?
 7. **Learning from Experience**: What insights about the game world emerged from this gameplay session?
+8. **Cross-Episode Validation**: How do these discoveries relate to patterns from previous episodes?
 
 **AVOID (Handled by Objectives System)**:
 - Specific current objectives or immediate tactical goals
@@ -877,7 +797,7 @@ Provide insights in these categories focused on strategic patterns and game worl
 Focus on actionable insights that help the agent become better at recognizing opportunities, avoiding dangers, and understanding the game world. Be specific about locations, items, commands, and game mechanics discovered through actual gameplay experience."""
 
         # Incase using Qwen qwen3-30b-a3b
-        prompt = r"\no_think " + prompt
+        # prompt = r"\no_think " + prompt
 
         try:
             response = self.client.chat.completions.create(
@@ -1516,9 +1436,163 @@ This knowledge base contains discovered information about the Zork game world, i
         return assembled
 
     def _create_sectioned_knowledge_base(self, initial_section: str, content: str) -> None:
-        """Create a new knowledge base with sectioned structure."""
-        sections = {initial_section: content}
-        knowledge_base = self._reassemble_knowledge_sections(sections)
-        
+        """Create a new knowledge base with sections, starting with the given section."""
         with open(self.output_file, "w", encoding="utf-8") as f:
-            f.write(knowledge_base)
+            f.write(f"# Zork Strategy Guide\n\n## {initial_section}\n{content}\n")
+
+    def synthesize_inter_episode_wisdom(self, episode_data: Dict) -> bool:
+        """
+        Synthesize persistent wisdom from episode completion that should carry forward
+        to future episodes. Focuses on deaths, major discoveries, and cross-episode patterns.
+        
+        Args:
+            episode_data: Dictionary containing episode summary information
+            
+        Returns:
+            True if synthesis was performed and wisdom was updated, False if skipped
+        """
+        from config import get_config
+        config = get_config()
+        
+        persistent_wisdom_file = config.orchestrator.persistent_wisdom_file
+        
+        print(f"🔄 Synthesizing inter-episode wisdom from episode {episode_data['episode_id']}...")
+        
+        # Extract key episode data for synthesis
+        episode_id = episode_data['episode_id']
+        turn_count = episode_data['turn_count']
+        final_score = episode_data['final_score']
+        death_count = episode_data['death_count']
+        episode_ended_in_death = episode_data['episode_ended_in_death']
+        avg_critic_score = episode_data['avg_critic_score']
+        
+        # Always synthesize if episode ended in death (critical learning event)
+        # or if significant progress was made (score > 50 or many turns)
+        should_synthesize = (
+            episode_ended_in_death or 
+            final_score >= 50 or 
+            turn_count >= 100 or
+            avg_critic_score >= 0.3
+        )
+        
+        if not should_synthesize:
+            print(f"  ⚠️ Episode not significant enough for wisdom synthesis")
+            print(f"     - Death: {episode_ended_in_death}, Score: {final_score}, Turns: {turn_count}, Avg Critic: {avg_critic_score:.2f}")
+            return False
+        
+        # Extract turn-by-turn data for death analysis and major discoveries
+        turn_data = self._extract_turn_window_data(episode_id, 1, turn_count)
+        if not turn_data:
+            print(f"  ⚠️ Could not extract turn data for wisdom synthesis")
+            return False
+        
+        # Load existing persistent wisdom
+        existing_wisdom = ""
+        try:
+            with open(persistent_wisdom_file, "r", encoding="utf-8") as f:
+                existing_wisdom = f.read()
+        except FileNotFoundError:
+            # No existing wisdom file - this is fine for first episode
+            existing_wisdom = ""
+        except Exception as e:
+            print(f"  ⚠️ Could not load existing wisdom: {e}")
+        
+        # Prepare death event analysis if applicable
+        death_analysis = ""
+        if episode_ended_in_death or turn_data.get("death_events"):
+            death_analysis = "\n\nDEATH EVENT ANALYSIS:\n"
+            for event in turn_data.get("death_events", []):
+                death_analysis += f"Episode {episode_id}, Turn {event['turn']}: {event['reason']}\n"
+                if event.get('death_context'):
+                    death_analysis += f"- Context: {event['death_context']}\n"
+                if event.get('death_location'):
+                    death_analysis += f"- Location: {event['death_location']}\n"
+                if event.get('action_taken'):
+                    death_analysis += f"- Fatal action: {event['action_taken']}\n"
+                death_analysis += "\n"
+        
+        # Create synthesis prompt
+        prompt = f"""Analyze this completed Zork episode and update the persistent wisdom base with key learnings that should carry forward to future episodes.
+
+**CURRENT EPISODE SUMMARY:**
+- Episode ID: {episode_id}
+- Total turns: {turn_count}
+- Final score: {final_score}
+- Deaths this episode: {death_count}
+- Episode ended in death: {episode_ended_in_death}
+- Average critic score: {avg_critic_score:.2f}
+- Discovered objectives: {len(episode_data.get('discovered_objectives', []))}
+- Completed objectives: {len(episode_data.get('completed_objectives', []))}
+
+**EPISODE ACTIONS SUMMARY:**
+{turn_data['actions_and_responses'][:10] if turn_data.get('actions_and_responses') else 'No action data available'}
+
+{death_analysis}
+
+**EXISTING PERSISTENT WISDOM:**
+{existing_wisdom if existing_wisdom else "No previous wisdom recorded."}
+
+**SYNTHESIS TASK:**
+
+Extract and synthesize the most critical learnings from this episode that should persist across future episodes. Focus on:
+
+1. **Death Pattern Analysis**: If deaths occurred, what specific patterns, locations, or actions consistently lead to death? What environmental cues signal danger?
+
+2. **Critical Environmental Knowledge**: What persistent facts about the game world were discovered? (Dangerous locations, item behaviors, puzzle mechanics)
+
+3. **Strategic Patterns**: What meta-strategies or approaches proved consistently effective or ineffective across different situations?
+
+4. **Discovery Insights**: What major discoveries about game mechanics, hidden areas, or puzzle solutions should be remembered?
+
+5. **Cross-Episode Learning**: How does this episode's experience relate to patterns from previous episodes?
+
+**REQUIREMENTS:**
+- Focus on persistent, reusable knowledge rather than episode-specific details
+- Emphasize death avoidance and danger recognition patterns
+- Maintain existing wisdom while adding new insights
+- Remove outdated or contradicted information
+- Keep wisdom concise but actionable for an AI agent
+
+**OUTPUT FORMAT:**
+Provide the updated persistent wisdom as a well-organized markdown document. If no significant new wisdom emerged, return "NO_SIGNIFICANT_WISDOM" instead."""
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.analysis_model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are an expert at extracting persistent strategic wisdom from interactive fiction gameplay that can help AI agents improve across multiple game sessions. Focus on actionable patterns, danger recognition, and cross-episode learning."
+                    },
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=self.analysis_sampling.temperature,
+                top_p=self.analysis_sampling.top_p,
+                top_k=self.analysis_sampling.top_k,
+                min_p=self.analysis_sampling.min_p,
+                max_tokens=self.analysis_sampling.max_tokens or 2000,
+            )
+
+            wisdom_response = response.content.strip()
+            
+            if wisdom_response == "NO_SIGNIFICANT_WISDOM":
+                print(f"  ⚠️ No significant wisdom to synthesize from this episode")
+                return False
+            
+            # Save the updated persistent wisdom
+            try:
+                with open(persistent_wisdom_file, "w", encoding="utf-8") as f:
+                    f.write(wisdom_response)
+                
+                print(f"  ✅ Persistent wisdom updated and saved to {persistent_wisdom_file}")
+                print(f"     - Synthesized from episode with {turn_count} turns, score {final_score}")
+                
+                return True
+                
+            except Exception as e:
+                print(f"  ⚠️ Failed to save persistent wisdom: {e}")
+                return False
+            
+        except Exception as e:
+            print(f"  ⚠️ Inter-episode wisdom synthesis failed: {e}")
+            return False
