@@ -154,11 +154,25 @@ update_code() {
     
     # Sync dependencies with uv to ensure environment is up to date
     log "Syncing dependencies with uv..."
-    if sudo -u "$ZORKGPT_USER" bash -c "cd '$ZORKGPT_DIR' && uv sync"; then
+    if sudo -u "$ZORKGPT_USER" bash -c "
+        cd '$ZORKGPT_DIR' && 
+        if command -v uv >/dev/null 2>&1; then
+            uv sync
+        elif [ -f ~/.local/bin/uv ]; then
+            ~/.local/bin/uv sync
+        elif [ -f ~/.cargo/bin/uv ]; then
+            ~/.cargo/bin/uv sync
+        elif [ -f /usr/local/bin/uv ]; then
+            /usr/local/bin/uv sync
+        else
+            echo 'uv not found, skipping dependency sync'
+            exit 1
+        fi
+    "; then
         log "Dependencies synced successfully"
         return 0
     else
-        log_error "Failed to sync dependencies with uv"
+        log_error "Failed to sync dependencies with uv (or uv not found)"
         return 1
     fi
 }
