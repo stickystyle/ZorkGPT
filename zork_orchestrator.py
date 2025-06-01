@@ -1530,6 +1530,7 @@ class ZorkOrchestrator:
         if significant progress has been made since the last comprehensive update.
         
         EXCEPTION: Always update if episode ended in death (critical learning event).
+        EXCEPTION: Always update if inter-episode synthesis will occur (to integrate new persistent wisdom).
         """
         if not self.adaptive_knowledge_manager:
             return
@@ -1540,8 +1541,16 @@ class ZorkOrchestrator:
         # Check if episode ended in death (critical learning event)
         episode_ended_in_death = self.game_over_flag and self._is_death_episode()
         
-        # Only perform final update if significant progress since last update OR death occurred
-        if turns_since_last_update < 20 and not episode_ended_in_death:
+        # Check if inter-episode synthesis will occur (need KB update to integrate new wisdom)
+        config = get_config()
+        will_synthesize_wisdom = (
+            config.orchestrator.enable_inter_episode_synthesis and
+            self.adaptive_knowledge_manager and
+            self._should_synthesize_inter_episode_wisdom()
+        )
+        
+        # Only perform final update if significant progress since last update OR death occurred OR wisdom synthesis needed
+        if turns_since_last_update < 20 and not episode_ended_in_death and not will_synthesize_wisdom:
             skip_reason = f"recent comprehensive update at turn {self.last_knowledge_update_turn} ({turns_since_last_update} turns ago)"
             self.logger.info(
                 f"Skipping final knowledge update - {skip_reason}",
@@ -1554,6 +1563,7 @@ class ZorkOrchestrator:
                         "last_update_turn": self.last_knowledge_update_turn,
                         "turns_since_last": turns_since_last_update,
                         "episode_ended_in_death": episode_ended_in_death,
+                        "will_synthesize_wisdom": will_synthesize_wisdom,
                         "method": "single_batch_comprehensive",
                     }
                 },
@@ -1564,6 +1574,9 @@ class ZorkOrchestrator:
         if episode_ended_in_death:
             update_reason = "episode_ended_in_death"
             reason_desc = f"death analysis (death count: {self.death_count})"
+        elif will_synthesize_wisdom:
+            update_reason = "wisdom_synthesis_required"
+            reason_desc = "wisdom synthesis will create new persistent knowledge"
         else:
             update_reason = "episode_ended_with_progress" 
             reason_desc = f"remaining progress ({turns_since_last_update} turns since last update)"
@@ -1595,6 +1608,7 @@ class ZorkOrchestrator:
                     "method": "single_batch_comprehensive",
                     "reason": update_reason,
                     "episode_ended_in_death": episode_ended_in_death,
+                    "will_synthesize_wisdom": will_synthesize_wisdom,
                     "death_count": self.death_count,
                 }
             },
@@ -1633,6 +1647,7 @@ class ZorkOrchestrator:
                             "method": "single_batch_comprehensive",
                             "reason": update_reason,
                             "episode_ended_in_death": episode_ended_in_death,
+                            "will_synthesize_wisdom": will_synthesize_wisdom,
                         }
                     },
                 )
@@ -1653,6 +1668,7 @@ class ZorkOrchestrator:
                             "turns_analyzed": self.turn_count,
                             "method": "single_batch_comprehensive",
                             "episode_ended_in_death": episode_ended_in_death,
+                            "will_synthesize_wisdom": will_synthesize_wisdom,
                         }
                     },
                 )
@@ -1668,6 +1684,7 @@ class ZorkOrchestrator:
                         "turns_analyzed": self.turn_count,
                         "method": "single_batch_comprehensive",
                         "episode_ended_in_death": episode_ended_in_death,
+                        "will_synthesize_wisdom": will_synthesize_wisdom,
                     }
                 },
             )
@@ -3743,6 +3760,29 @@ Please provide a refined list of objectives that encourages exploration and prog
                     }
                 },
             )
+
+    def _should_synthesize_inter_episode_wisdom(self) -> bool:
+        """
+        Determine if inter-episode wisdom synthesis should occur for this episode.
+        Uses same criteria as synthesize_inter_episode_wisdom method.
+        """
+        # Extract key episode data for synthesis decision
+        turn_count = self.turn_count
+        final_score = self.previous_zork_score or 0
+        death_count = self.death_count
+        episode_ended_in_death = self.game_over_flag and self._is_death_episode()
+        avg_critic_score = self.get_avg_critic_score()
+        
+        # Always synthesize if episode ended in death (critical learning event)
+        # or if significant progress was made (score > 50 or many turns)
+        should_synthesize = (
+            episode_ended_in_death or 
+            final_score >= 50 or 
+            turn_count >= 100 or
+            avg_critic_score >= 0.3
+        )
+        
+        return should_synthesize
 
 
 if __name__ == "__main__":
