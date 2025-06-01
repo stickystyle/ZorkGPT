@@ -28,18 +28,18 @@ dev = [
 # LLM Configuration
 client_base_url = "https://openrouter.ai/api/v1"
 agent_model = "openai/o3-mini"
-# info_ext_model = "gemma-3-12b-it-qat"
-info_ext_model = "google/gemma-3-12b-it"
-# critic_model = "gemma-3-12b-it-qat"
-critic_model = "google/gemma-3-12b-it"
+info_ext_model = "gemma-3-12b-it-qat"
+# info_ext_model = "google/gemma-3-12b-it"
+critic_model = "gemma-3-12b-it-qat"
+# critic_model = "google/gemma-3-12b-it"
 analysis_model = "qwen/qwen3-30b-a3b"
 
 # Per-model base URLs (optional, for cost optimization)
 # If not specified, will fall back to client_base_url
 # Examples:
 # agent_base_url = "https://api.together.xyz/v1"
-# info_ext_base_url = "http://oracle.nord:1234/v1"
-# critic_base_url = "http://oracle.nord:1234/v1"
+info_ext_base_url = "http://oracle.nord:1234/v1"
+critic_base_url = "http://oracle.nord:1234/v1"
 # analysis_base_url = "https://api.openai.com/v1"
 
 [tool.zorkgpt.retry]
