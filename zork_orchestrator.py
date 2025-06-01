@@ -2061,7 +2061,7 @@ class ZorkOrchestrator:
 
     def _generate_gameplay_summary(self) -> str:
         """Generate a comprehensive summary of recent gameplay progress."""
-        if not hasattr(self, 'client'):
+        if not hasattr(self.adaptive_knowledge_manager, 'client') or not self.adaptive_knowledge_manager.client:
             return "Summary generation unavailable (no LLM client)"
             
         # Prepare summary prompt
@@ -2094,7 +2094,7 @@ Format as a clear, structured summary that preserves essential information for c
         try:
             messages = [{"role": "user", "content": summary_prompt}]
             
-            response = self.client.chat.completions.create(
+            response = self.adaptive_knowledge_manager.client.chat.completions.create(
                 model=self.adaptive_knowledge_manager.analysis_model,
                 messages=messages,
                 **self.adaptive_knowledge_manager.analysis_sampling.model_dump(exclude_unset=True)
@@ -2345,8 +2345,8 @@ OBJECTIVES:
 
 Focus on objectives the agent has actually discovered through gameplay patterns or its own novel reasoning, not general Zork knowledge."""
 
-            # Get LLM response
-            if hasattr(self, 'client') and self.client:
+            # Get LLM response using adaptive knowledge manager's client
+            if hasattr(self.adaptive_knowledge_manager, 'client') and self.adaptive_knowledge_manager.client:
                 messages = [{"role": "user", "content": prompt}]
                 
                 model_to_use = self.adaptive_knowledge_manager.analysis_model if self.adaptive_knowledge_manager else "gpt-4"
@@ -2369,7 +2369,7 @@ Focus on objectives the agent has actually discovered through gameplay patterns 
                 )
                 
                 try:
-                    response = self.client.chat.completions.create(
+                    response = self.adaptive_knowledge_manager.client.chat.completions.create(
                         model=model_to_use,
                         messages=messages,
                         **self.adaptive_knowledge_manager.analysis_sampling.model_dump(exclude_unset=True) if self.adaptive_knowledge_manager else {"temperature": 0.3, "max_tokens": 5000}
@@ -2443,8 +2443,9 @@ Focus on objectives the agent has actually discovered through gameplay patterns 
                             "event_type": "objective_no_client",
                             "episode_id": self.episode_id,
                             "turn": self.turn_count,
-                            "has_client": hasattr(self, 'client'),
-                            "client_value": str(self.client) if hasattr(self, 'client') else "N/A",
+                            "has_adaptive_manager": hasattr(self, 'adaptive_knowledge_manager'),
+                            "has_client": hasattr(self.adaptive_knowledge_manager, 'client') if hasattr(self, 'adaptive_knowledge_manager') else False,
+                            "client_value": str(self.adaptive_knowledge_manager.client) if hasattr(self, 'adaptive_knowledge_manager') and hasattr(self.adaptive_knowledge_manager, 'client') else "N/A",
                         }
                     },
                 )
@@ -2651,10 +2652,10 @@ REASONING: [brief explanation of why each objective was marked complete]
 
 Only mark objectives as completed if you're confident they were achieved."""
 
-            if hasattr(self, 'client') and self.client:
+            if hasattr(self.adaptive_knowledge_manager, 'client') and self.adaptive_knowledge_manager.client:
                 messages = [{"role": "user", "content": prompt}]
                 
-                response = self.client.chat.completions.create(
+                response = self.adaptive_knowledge_manager.client.chat.completions.create(
                     model=self.adaptive_knowledge_manager.analysis_model if self.adaptive_knowledge_manager else "gpt-4",
                     messages=messages,
                     **self.adaptive_knowledge_manager.analysis_sampling.model_dump(exclude_unset=True) if self.adaptive_knowledge_manager else {"temperature": 0.2, "max_tokens": 5000}
@@ -2856,7 +2857,7 @@ Please provide a refined list of objectives that encourages exploration and prog
 
 
         try:
-            if hasattr(self, 'client') and self.client:
+            if hasattr(self.adaptive_knowledge_manager, 'client') and self.adaptive_knowledge_manager.client:
                 messages = [{"role": "user", "content": refined_objectives_prompt}]
                 # Use analysis_model and sampling parameters similar to knowledge generation
                 # Fallback to a default model if not configured
@@ -2864,7 +2865,7 @@ Please provide a refined list of objectives that encourages exploration and prog
                 sampling_params = self.adaptive_knowledge_manager.analysis_sampling.model_dump(exclude_unset=True) if self.adaptive_knowledge_manager else {"temperature": 0.5, "max_tokens": 5000}
 
 
-                response = self.client.chat.completions.create(
+                response = self.adaptive_knowledge_manager.client.chat.completions.create(
                     model=model_to_use,
                     messages=messages,
                     **sampling_params
