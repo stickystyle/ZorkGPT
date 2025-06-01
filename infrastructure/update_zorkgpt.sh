@@ -139,9 +139,16 @@ stop_service() {
 update_code() {
     log "Updating ZorkGPT code..."
     
-    # Change to ZorkGPT directory and pull latest code as zorkgpt user
-    # First stash any local changes, then pull, then pop the stash
-    if sudo -u "$ZORKGPT_USER" bash -c "cd '$ZORKGPT_DIR' && git stash && git pull && git stash pop"; then
+    # Change to ZorkGPT directory and update code as zorkgpt user
+    # Handle stash operations more carefully to avoid failures when no changes exist
+    if sudo -u "$ZORKGPT_USER" bash -c "
+        cd '$ZORKGPT_DIR' && 
+        git stash push -m 'Pre-update stash' --include-untracked 2>/dev/null || true &&
+        git pull &&
+        if git stash list | grep -q 'Pre-update stash'; then 
+            git stash pop; 
+        fi
+    "; then
         log "ZorkGPT code updated successfully"
     else
         log_error "Failed to update ZorkGPT code"
