@@ -225,6 +225,7 @@ def download_analysis_files(public_ip: str) -> None:
     files_to_download = [
         "current_state.json",
         "knowledgebase.md", 
+        "persistent_wisdom.md",
         "zork_episode_log.jsonl"
     ]
     
