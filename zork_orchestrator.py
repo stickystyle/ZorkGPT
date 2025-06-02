@@ -2728,6 +2728,7 @@ CURRENT OBJECTIVES:
 RECENT CONTEXT:
 - Current Location: {self.current_room_name_for_map}
 - Current Score: {self.previous_zork_score}
+- Current Inventory: {', '.join(self.current_inventory) if self.current_inventory else 'Empty'}
 - Turn: {self.turn_count}
 """
 
