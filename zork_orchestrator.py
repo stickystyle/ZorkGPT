@@ -1239,9 +1239,6 @@ class ZorkOrchestrator:
                     "episode_id": self.episode_id,
                     "turn_count": self.turn_count,
                     "zork_score": self.previous_zork_score,
-                    "max_score": max_zork_score
-                    if "max_zork_score" in locals()
-                    else 585,
                     "final_max_turns": self.max_turns_per_episode,
                     # Performance metrics
                     "avg_critic_score": self.get_avg_critic_score(),
@@ -2102,7 +2099,7 @@ class ZorkOrchestrator:
             
             # Only summarize if we have meaningful content since last summarization
             if turns_since_last >= 20:  # Minimum turns before summarization
-                print(f"🧠 Context overflow detected ({estimated_tokens} tokens), triggering summarization...")
+                self.logger.info(f"Context overflow detected ({estimated_tokens} tokens), triggering summarization...", extra={"turns_since_last": turns_since_last,  "episode_id": self.episode_id})
                 self._trigger_context_summarization()
                 return True
                 
@@ -2151,10 +2148,10 @@ class ZorkOrchestrator:
             
             self.last_summarization_turn = self.turn_count
             
-            print(f"  ✅ Context summarized, preserved {len(recent_critical_memories)} critical memories")
+            self.logger.info(f"Context summarized, preserved {len(recent_critical_memories)} critical memories", extra={"episode_id": self.episode_id})
             
         except Exception as e:
-            print(f"  ⚠️ Failed to perform context summarization: {e}")
+            self.logger.warning(f"Failed to trigger summarization: {e}", extra={"episode_id": self.episode_id})
 
     def _generate_gameplay_summary(self) -> str:
         """Generate a comprehensive summary of recent gameplay progress."""
@@ -2200,7 +2197,7 @@ Format as a clear, structured summary that preserves essential information for c
             return response.content.strip()
             
         except Exception as e:
-            print(f"  ⚠️ Failed to generate LLM summary, using fallback: {e}")
+            self.logger.error(f"Failed to generate LLM summary, using fallback: {e}", extra={"episode_id": self.episode_id})
             return self._generate_fallback_summary()
 
     def _extract_critical_memories(self, last_n_turns: int = 10) -> List[Dict]:
@@ -3681,7 +3678,7 @@ Please provide a refined list of objectives that encourages exploration and prog
             return
 
         self.logger.info(
-            f"🔄 Performing inter-episode synthesis for episode {self.episode_id}",
+            f"Performing inter-episode synthesis for episode {self.episode_id}",
             extra={
                 "extras": {
                     "event_type": "inter_episode_synthesis_start",
@@ -3726,7 +3723,7 @@ Please provide a refined list of objectives that encourages exploration and prog
 
             if synthesis_success:
                 self.logger.info(
-                    f"✅ Inter-episode synthesis completed successfully",
+                    f"Inter-episode synthesis completed successfully",
                     extra={
                         "extras": {
                             "event_type": "inter_episode_synthesis_success",
@@ -3738,7 +3735,7 @@ Please provide a refined list of objectives that encourages exploration and prog
                 )
             else:
                 self.logger.info(
-                    f"⚠️ Inter-episode synthesis skipped - no significant insights to preserve",
+                    f"Inter-episode synthesis skipped - no significant insights to preserve",
                     extra={
                         "extras": {
                             "event_type": "inter_episode_synthesis_skipped",
@@ -3751,7 +3748,7 @@ Please provide a refined list of objectives that encourages exploration and prog
 
         except Exception as e:
             self.logger.warning(
-                f"❌ Inter-episode synthesis failed: {e}",
+                f"Inter-episode synthesis failed: {e}",
                 extra={
                     "extras": {
                         "event_type": "inter_episode_synthesis_failed",
