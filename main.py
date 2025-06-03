@@ -27,7 +27,7 @@ def run_episode():
     print(f"  - Save file template: {orchestrator.zork_save_filename_template}")
     print()
 
-    with ZorkInterface(timeout=1.0, working_directory=orchestrator.zork_workdir_abs_path) as zork_game:
+    with ZorkInterface(timeout=1.0, working_directory=orchestrator.zork_workdir_abs_path, logger=orchestrator.logger) as zork_game:
         try:
             final_score = orchestrator.play_episode(zork_game)
 

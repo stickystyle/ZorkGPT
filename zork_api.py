@@ -10,15 +10,17 @@ import os
 class ZorkInterface:
     """A Python interface for interacting with the Zork text adventure game."""
 
-    def __init__(self, timeout=0.1, working_directory=None):
+    def __init__(self, timeout=0.1, working_directory=None, logger=None):
         """Initialize the Zork interface.
 
         Args:
             timeout (float): Time to wait for responses after sending a command (in seconds)
             working_directory (str): Optional working directory for the Zork process (for save files)
+            logger: Optional logger instance for enhanced debugging
         """
         self.timeout = timeout
         self.working_directory = working_directory
+        self.logger = logger
         self.process = None
         self.response_queue = queue.Queue()
         self.reader_thread = None
@@ -119,7 +121,23 @@ class ZorkInterface:
         self.process.stdin.flush()
 
         # Get the response
-        return self.get_response().strip()
+        response = self.get_response().strip()
+        
+        # Enhanced logging for debug - capture all game responses
+        if self.logger:
+            self.logger.info(
+                f"[DEBUG] Game command and response",
+                extra={
+                    "extras": {
+                        "event_type": "game_command_response_debug",
+                        "command": command,
+                        "response": response,
+                        "response_length": len(response),
+                    }
+                },
+            )
+        
+        return response
 
     def send_interactive_command(self, initial_command: str, follow_up_input: str, 
                                prompt_keyword: str, success_keyword: str, 
@@ -381,6 +399,43 @@ class ZorkInterface:
 
     def _parse_inventory(self, inv_text: str) -> List[str]:
         """Parse inventory text into a list of items."""
+        # Enhanced logging for debug - capture full response text
+        if self.logger:
+            self.logger.info(
+                f"[DEBUG] Inventory parsing input",
+                extra={
+                    "extras": {
+                        "event_type": "inventory_parse_debug",
+                        "raw_inventory_text": inv_text,
+                        "text_length": len(inv_text),
+                    }
+                },
+            )
+        
+        # Check for death messages that shouldn't be parsed as inventory
+        death_indicators = [
+            "you have died", "you are dead", "slavering fangs", "eaten by a grue",
+            "you have been killed", "****  you have died  ****", "fatal",
+            "troll", "axe hits you", "puts you to death", "last blow was too much",
+            "i'm afraid you are dead", "conquering his fears", "flat of the troll's axe"
+        ]
+        
+        inv_text_lower = inv_text.lower()
+        for indicator in death_indicators:
+            if indicator in inv_text_lower:
+                if self.logger:
+                    self.logger.warning(
+                        f"Death text detected in inventory response",
+                        extra={
+                            "extras": {
+                                "event_type": "death_text_in_inventory",
+                                "death_indicator": indicator,
+                                "full_response": inv_text,
+                            }
+                        },
+                    )
+                return []  # Return empty inventory if death text detected
+        
         # Check for empty inventory (case insensitive)
         if "empty-handed" in inv_text.lower() or "empty handed" in inv_text.lower():
             return []
@@ -466,6 +521,19 @@ class ZorkInterface:
                     # If not found in result, it might be a nested container - add it as a separate item
                     if not found_in_result and first_content:
                         result.append(f"A {container_name}: Containing {first_content}")
+
+        # Enhanced logging for debug - capture final parsed result
+        if self.logger:
+            self.logger.info(
+                f"[DEBUG] Inventory parsing result",
+                extra={
+                    "extras": {
+                        "event_type": "inventory_parse_result",
+                        "parsed_items": result,
+                        "item_count": len(result),
+                    }
+                },
+            )
 
         return result
 

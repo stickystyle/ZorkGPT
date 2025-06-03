@@ -72,6 +72,26 @@ Extract the following with equal attention to detail:
 4. **important_messages**: Key information from the game response (action results, alerts, descriptions)
 5. **in_combat**: Boolean indicating active combat or immediate threat
 
+### Combat State Persistence Rules
+Combat is a **persistent state** that continues across multiple turns until explicitly resolved. Follow these guidelines:
+
+**Combat Continues When:**
+- Brief parser responses like ">You don't have that!" or ">I don't understand that."
+- Failed action attempts during ongoing combat situations
+- Any response that doesn't explicitly resolve the combat encounter
+- Previous context indicates active combat with no clear resolution
+
+**Combat Ends When:**
+- Explicit resolution text indicates combat conclusion (death, victory, escape)
+- Clear location change away from the combat area
+- Explicit narrative indicating the threat has passed
+
+**Combat Starts When:**
+- New threats or hostile encounters are introduced
+- Clear combat or threatening language appears
+
+**Key Principle**: If previous context indicates combat and current response is ambiguous, **maintain the combat state** rather than defaulting to false.
+
 ## SPECIAL LOCATION CASES
 
 **No Location Change Situations:**

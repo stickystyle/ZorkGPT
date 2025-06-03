@@ -110,6 +110,10 @@ class HybridZorkExtractor:
 
         # Load system prompt for LLM extraction
         self._load_system_prompt()
+        
+        # Previous state tracking for context
+        self.previous_combat_state = False
+        self.previous_location = None
 
     def _log_prompt_to_file(self, messages: List[Dict], prefix: str = "extractor") -> None:
         """Log the full prompt to a temporary file for evaluation."""
@@ -232,20 +236,37 @@ Extract key information from the game text and return it as JSON with these fiel
                             "location_changed": location_changed,
                             "location_change_reason": location_change_reason,
                             "structured_available": bool(structured_info.get("current_location_name")),
+                            "combat_state_transition": f"{self.previous_combat_state} -> {parsed_response.in_combat}",
                         }
                     }
                 )
                 
+                # Update previous state tracking for next turn
+                self.previous_combat_state = parsed_response.in_combat
+                self.previous_location = parsed_response.current_location_name
+                
                 return parsed_response
             else:
                 self.logger.warning(f"[{self.episode_id}] Failed to parse LLM extraction response")
-                return self._create_fallback_response(clean_game_text, previous_location, structured_info)
+                fallback_response = self._create_fallback_response(clean_game_text, previous_location, structured_info)
+                
+                # Update previous state tracking even for fallback
+                self.previous_combat_state = fallback_response.in_combat
+                self.previous_location = fallback_response.current_location_name
+                
+                return fallback_response
         
         except Exception as e:
             self.logger.error(f"[{self.episode_id}] Extraction failed: {e}")
             # Pass structured_info to fallback even on exception
             structured_info = self._extract_structured_info(game_text_from_zork)
-            return self._create_fallback_response(game_text_from_zork, previous_location, structured_info)
+            fallback_response = self._create_fallback_response(game_text_from_zork, previous_location, structured_info)
+            
+            # Update previous state tracking even for exception case
+            self.previous_combat_state = fallback_response.in_combat
+            self.previous_location = fallback_response.current_location_name
+            
+            return fallback_response
 
     def _extract_structured_info(self, game_text_from_zork: str) -> Dict:
         """Extract structured information from the game text."""
@@ -372,6 +393,12 @@ Respond only with the JSON, no other text."""
         if previous_location:
             prompt_parts.append(f"Previous Location: {previous_location}")
         
+        # Add previous combat state context for persistence reasoning
+        if self.previous_location or self.previous_combat_state:
+            prompt_parts.append(f"Previous Combat State: {self.previous_combat_state}")
+            if self.previous_location:
+                prompt_parts.append(f"Previous Turn Location: {self.previous_location}")
+        
         # Add movement analysis context
         prompt_parts.append(f"Movement Analysis: {location_change_reason}")
         
@@ -451,6 +478,12 @@ Respond only with the JSON, no other text."""
             "Extraction Failed"
         )
         
+        # For combat state, use structured info if available, otherwise maintain previous state
+        fallback_combat_state = structured_info.get("in_combat")
+        if fallback_combat_state is None:
+            # No structured combat info, use previous state for persistence
+            fallback_combat_state = self.previous_combat_state
+        
         # Create response with best available information
         return ExtractorResponse(
             current_location_name=fallback_location,
@@ -458,7 +491,7 @@ Respond only with the JSON, no other text."""
             visible_objects=[],
             visible_characters=[],
             important_messages=structured_info.get("important_messages", [game_text] if game_text else []),
-            in_combat=structured_info.get("in_combat", False),
+            in_combat=fallback_combat_state,
             score=structured_info.get("score"),
             moves=structured_info.get("moves"),
         )
