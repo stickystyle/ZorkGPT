@@ -59,7 +59,7 @@ trigger_save() {
     
     # Generate unique save filename with timestamp
     TIMESTAMP=$(date '+%Y%m%d_%H%M%S')
-    SAVE_FILENAME="zorkgpt_save_${TIMESTAMP}.sav"
+    SAVE_FILENAME="zorkgpt_save_${TIMESTAMP}"
     
     log "Generated save filename: $SAVE_FILENAME"
     
