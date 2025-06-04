@@ -599,6 +599,91 @@
                 min-height: 300px;
             }
         }
+
+        /* Historical Data Loading Styles */
+        .load-earlier-container {
+            text-align: center;
+            margin: 15px 0;
+            padding: 10px;
+            border-bottom: 1px solid #333;
+        }
+
+        .load-earlier-btn {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.2s;
+        }
+
+        .load-earlier-btn:hover:not(:disabled) {
+            background: #0056b3;
+        }
+
+        .load-earlier-btn:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+
+        .historical-log-entry {
+            opacity: 0.8;
+            border-left: 3px solid #6c757d;
+        }
+
+        .log-turn-indicator {
+            font-size: 0.9em;
+            color: #00bfff;
+            margin-bottom: 5px;
+        }
+
+        .historical-indicator {
+            color: #ffa500;
+            font-size: 0.8em;
+            font-style: italic;
+            margin-left: 8px;
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #6c757d;
+            border-radius: 50%;
+            border-top-color: #007bff;
+            animation: spin 1s ease-in-out infinite;
+            margin-right: 8px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .episode-selector {
+            margin: 10px 0;
+            padding: 10px;
+            background: #2a2a2a;
+            border-radius: 6px;
+            border-bottom: 1px solid #333;
+        }
+
+        .episode-selector select {
+            background: #1e1e1e;
+            color: #00ff00;
+            border: 1px solid #333;
+            padding: 5px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+        }
+
+        .historical-stats {
+            font-size: 0.8em;
+            color: #888;
+            text-align: center;
+            margin: 5px 0;
+        }
     </style>
 </head>
 <body>
@@ -774,6 +859,231 @@
             }
         });
 
+        // Historical Data Manager for lazy-loading turn snapshots
+        // IMPORTANT: Each turn_X.json contains a complete snapshot with recent_log containing multiple turns
+        // We need to be smart about which snapshots to fetch and extract only the turns we need
+        class HistoricalDataManager {
+            constructor(baseUrl, episodeId) {
+                this.baseUrl = baseUrl;
+                this.episodeId = episodeId;
+                this.turnCache = new Map(); // Cache individual turn entries
+                this.snapshotCache = new Map(); // Cache full snapshots
+                this.maxTurnCacheSize = 200; // More turns since they're smaller
+                this.maxSnapshotCacheSize = 10; // Fewer snapshots since they're larger
+                this.isLoading = false;
+                this.loadedTurnSet = new Set(); // Track which individual turns we have
+            }
+
+            // Smart strategy: Determine which snapshot(s) to fetch for a given turn range
+            determineSnapshotsNeeded(startTurn, endTurn) {
+                const snapshots = [];
+                
+                // Strategy: Each snapshot turn_X.json typically contains recent_log with ~10-20 turns
+                // We want to minimize snapshot fetches while covering our range
+                
+                // For efficiency, we'll fetch snapshots at strategic intervals
+                // Assume each snapshot contains ~20 turns in recent_log
+                const estimatedLogSize = 20;
+                
+                // Find the best snapshots to fetch
+                // Start from the end of our range and work backwards
+                let currentTurn = endTurn;
+                
+                while (currentTurn >= startTurn) {
+                    // Check if we already have this snapshot cached
+                    const snapshotKey = `${this.episodeId}_snapshot_${currentTurn}`;
+                    
+                    if (!this.snapshotCache.has(snapshotKey)) {
+                        snapshots.push(currentTurn);
+                    }
+                    
+                    // Move to the next strategic snapshot
+                    // Go back by estimated log size to minimize overlap
+                    currentTurn -= estimatedLogSize;
+                }
+                
+                // Also try a few key snapshots that might contain our range
+                const keySnapshots = [
+                    endTurn, // Latest snapshot in range
+                    Math.floor((startTurn + endTurn) / 2), // Middle snapshot
+                    startTurn + 10 // Snapshot likely to contain start of range
+                ].filter(turn => turn >= startTurn && turn <= endTurn);
+                
+                // Combine and deduplicate
+                const allSnapshots = [...new Set([...snapshots, ...keySnapshots])];
+                
+                console.log(`For range ${startTurn}-${endTurn}, will try snapshots: ${allSnapshots.join(', ')}`);
+                return allSnapshots;
+            }
+
+            async fetchSnapshot(episodeId, turnNumber) {
+                const cacheKey = `${episodeId}_snapshot_${turnNumber}`;
+                
+                if (this.snapshotCache.has(cacheKey)) {
+                    // Move to end for LRU
+                    const value = this.snapshotCache.get(cacheKey);
+                    this.snapshotCache.delete(cacheKey);
+                    this.snapshotCache.set(cacheKey, value);
+                    return value;
+                }
+
+                try {
+                    const url = `${this.baseUrl}/snapshots/${episodeId}/turn_${turnNumber}.json`;
+                    console.log(`Fetching snapshot: ${url}`);
+                    
+                    const response = await fetch(url);
+                    
+                    if (!response.ok) {
+                        if (response.status === 404) {
+                            console.warn(`Snapshot turn_${turnNumber}.json not found for episode ${episodeId}`);
+                            return null;
+                        }
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+                    
+                    const snapshotData = await response.json();
+                    
+                    // Cache management - LRU eviction for snapshots
+                    if (this.snapshotCache.size >= this.maxSnapshotCacheSize) {
+                        const firstKey = this.snapshotCache.keys().next().value;
+                        this.snapshotCache.delete(firstKey);
+                    }
+                    
+                    this.snapshotCache.set(cacheKey, snapshotData);
+                    return snapshotData;
+                    
+                } catch (error) {
+                    console.warn(`Failed to fetch snapshot turn_${turnNumber}.json for episode ${episodeId}:`, error);
+                    return null;
+                }
+            }
+
+            // Extract specific turns from a snapshot's recent_log
+            extractTurnsFromSnapshot(snapshot, neededTurns) {
+                if (!snapshot || !snapshot.recent_log) {
+                    return [];
+                }
+                
+                const extractedTurns = [];
+                const neededSet = new Set(neededTurns);
+                
+                for (const logEntry of snapshot.recent_log) {
+                    if (neededSet.has(logEntry.turn)) {
+                        // Mark as historical and add metadata
+                        const turnEntry = {
+                            ...logEntry,
+                            _isHistorical: true,
+                            _episodeId: snapshot.metadata?.episode_id,
+                            _sourceSnapshot: snapshot.metadata?.turn_count
+                        };
+                        
+                        extractedTurns.push(turnEntry);
+                        
+                        // Cache this individual turn
+                        const turnCacheKey = `${this.episodeId}_turn_${logEntry.turn}`;
+                        this.turnCache.set(turnCacheKey, turnEntry);
+                        this.loadedTurnSet.add(logEntry.turn);
+                        
+                        // LRU management for turn cache
+                        if (this.turnCache.size > this.maxTurnCacheSize) {
+                            const firstKey = this.turnCache.keys().next().value;
+                            const firstTurn = this.turnCache.get(firstKey);
+                            this.turnCache.delete(firstKey);
+                            if (firstTurn) {
+                                this.loadedTurnSet.delete(firstTurn.turn);
+                            }
+                        }
+                    }
+                }
+                
+                console.log(`Extracted ${extractedTurns.length} turns from snapshot (turn ${snapshot.metadata?.turn_count})`);
+                return extractedTurns;
+            }
+
+            async loadTurnRange(episodeId, startTurn, endTurn) {
+                console.log(`Loading turn range: ${startTurn}-${endTurn} for episode ${episodeId}`);
+                
+                // First, check what turns we already have cached
+                const neededTurns = [];
+                for (let turn = startTurn; turn <= endTurn; turn++) {
+                    if (!this.loadedTurnSet.has(turn)) {
+                        neededTurns.push(turn);
+                    }
+                }
+                
+                if (neededTurns.length === 0) {
+                    console.log(`All turns ${startTurn}-${endTurn} already cached`);
+                    return this.getCachedTurnsInRange(startTurn, endTurn);
+                }
+                
+                console.log(`Need to fetch turns: ${neededTurns.join(', ')}`);
+                
+                // Determine which snapshots to fetch
+                const snapshotsToFetch = this.determineSnapshotsNeeded(Math.min(...neededTurns), Math.max(...neededTurns));
+                
+                // Fetch snapshots in parallel
+                const snapshotPromises = snapshotsToFetch.map(turnNum =>
+                    this.fetchSnapshot(episodeId, turnNum)
+                );
+                
+                const snapshots = await Promise.allSettled(snapshotPromises);
+                const successfulSnapshots = snapshots
+                    .filter(result => result.status === 'fulfilled' && result.value !== null)
+                    .map(result => result.value);
+                
+                console.log(`Fetched ${successfulSnapshots.length}/${snapshotsToFetch.length} snapshots`);
+                
+                // Extract needed turns from all snapshots
+                const allExtractedTurns = [];
+                for (const snapshot of successfulSnapshots) {
+                    const extractedTurns = this.extractTurnsFromSnapshot(snapshot, neededTurns);
+                    allExtractedTurns.push(...extractedTurns);
+                }
+                
+                // Remove duplicates (same turn from multiple snapshots)
+                const uniqueTurns = allExtractedTurns.filter((turn, index, arr) =>
+                    arr.findIndex(t => t.turn === turn.turn) === index
+                );
+                
+                console.log(`Successfully loaded ${uniqueTurns.length} unique turns from range ${startTurn}-${endTurn}`);
+                
+                // Return all turns in the requested range (cached + newly loaded)
+                return this.getCachedTurnsInRange(startTurn, endTurn);
+            }
+
+            getCachedTurnsInRange(startTurn, endTurn) {
+                const turns = [];
+                for (let turn = startTurn; turn <= endTurn; turn++) {
+                    const turnCacheKey = `${this.episodeId}_turn_${turn}`;
+                    const cachedTurn = this.turnCache.get(turnCacheKey);
+                    if (cachedTurn) {
+                        turns.push(cachedTurn);
+                    }
+                }
+                return turns.sort((a, b) => a.turn - b.turn);
+            }
+
+            getCachedTurn(episodeId, turnNumber) {
+                const turnCacheKey = `${episodeId}_turn_${turnNumber}`;
+                return this.turnCache.get(turnCacheKey) || null;
+            }
+
+            invalidateCache() {
+                this.turnCache.clear();
+                this.snapshotCache.clear();
+                this.loadedTurnSet.clear();
+            }
+
+            getLoadedStats() {
+                return {
+                    cachedTurns: this.turnCache.size,
+                    cachedSnapshots: this.snapshotCache.size,
+                    loadedTurnCount: this.loadedTurnSet.size,
+                    loadedTurns: Array.from(this.loadedTurnSet).sort((a, b) => a - b)
+                };
+            }
+        }
+
         class ZorkGameViewer {
             constructor(stateUrl) {
                 this.stateUrl = stateUrl;
@@ -785,6 +1095,14 @@
                 this.userScrolledUp = false; // Track if user scrolled up from bottom
                 this.lastLogCount = 0; // Track log count for new message detection
                 this.scrollAnimation = null; // Track current scroll animation
+                
+                // Historical data management
+                this.historicalDataManager = null;
+                this.allLogEntries = []; // Combined current + historical
+                this.displayedLogCount = 20; // Initially show 20 entries
+                this.isLoadingHistorical = false;
+                this.earliestLoadedTurn = null;
+                
                 this.startPolling();
             }
             
@@ -1034,85 +1352,66 @@
             updateRecentLog() {
                 const logContainer = document.getElementById('recent-log');
                 const newMessagesIndicator = document.getElementById('new-messages-indicator');
-                const logs = this.currentState.recent_log || [];
                 
-                if (logs.length === 0) {
+                // Get current logs from state
+                const currentLogs = this.currentState.recent_log || [];
+                
+                if (currentLogs.length === 0) {
                     logContainer.innerHTML = '<div class="log-entry">No recent actions</div>';
                     return;
                 }
                 
+                // Merge with any loaded historical data
+                this.mergeLogEntries(currentLogs);
+                
+                // Display the requested number of entries
+                const logsToDisplay = this.allLogEntries.slice(-this.displayedLogCount);
+                
                 // Check if there are new messages
-                const currentLogCount = logs.length;
+                const currentLogCount = currentLogs.length;
                 const hasNewMessages = this.lastLogCount && currentLogCount > this.lastLogCount;
                 this.lastLogCount = currentLogCount;
                 
-                logContainer.innerHTML = logs.slice(-10).map(entry => {
-                    // Build the structured log entry
-                    let entryHtml = `<div class="log-entry">`;
+                // Add "Load Earlier Turns" button if there might be more data
+                let loadEarlierButton = '';
+                if (this.canLoadEarlierTurns()) {
+                    const stats = this.historicalDataManager ? this.historicalDataManager.getLoadedStats() : null;
+                    const statsText = stats ? ` (${stats.loadedTurnCount} cached)` : '';
                     
-                    // Turn header
-                    entryHtml += `<div class="log-turn-header">Turn ${entry.turn}</div>`;
-                    
-                    // 1. Thinking (if available)
-                    if (entry.reasoning) {
-                        entryHtml += `<div class="log-thinking">💭 <strong>Thinking:</strong> ${this.escapeHtml(entry.reasoning)}</div>`;
-                    }
-                    
-                    // 2. Proposed Action (same as action for now, but could be different if critic rejects)
-                    entryHtml += `<div class="log-proposed-action">🎯 <strong>Proposed Action:</strong> ${this.escapeHtml(entry.action)}</div>`;
-                    
-                    // 3. Rejected Actions (if any)
-                    if (entry.rejected_actions && entry.rejected_actions.length > 0) {
-                        entryHtml += `<div class="log-critic">🚫 <strong>Rejected Actions:</strong></div>`;
-                        entry.rejected_actions.forEach((rejection, index) => {
-                            entryHtml += `<div class="log-critic" style="margin-left: 20px; font-size: 0.9em;">`;
-                            entryHtml += `${index + 1}. "${this.escapeHtml(rejection.action)}" (Score: ${rejection.score.toFixed(2)})<br>`;
-                            entryHtml += `<em>"${this.escapeHtml(rejection.justification)}"</em>`;
-                            entryHtml += `</div>`;
-                        });
-                    }
-                    
-                    // 4. Final Critic Evaluation (if available)
-                    if (entry.critic_score !== undefined) {
-                        const overrideText = entry.was_overridden ? ' (Action was overridden despite rejection)' : '';
-                        const criticStatus = entry.critic_score >= 0 ? 'approved' : 'rejected';
-                        const scoreText = `(Score: ${entry.critic_score.toFixed(2)})`;
-                        
-                        let criticText = `⚖️ <strong>Final Critic Evaluation:</strong> Action ${criticStatus} ${scoreText}${overrideText}`;
-                        
-                        // Add detailed justification if available
-                        if (entry.critic_justification) {
-                            criticText += `<br><em>"${this.escapeHtml(entry.critic_justification)}"</em>`;
-                        }
-                        
-                        entryHtml += `<div class="log-critic">${criticText}</div>`;
-                    }
-                    
-                    // 4. Action Taken
-                    entryHtml += `<div class="log-action-taken">✅ <strong>Action Taken:</strong> ${this.escapeHtml(entry.action)}</div>`;
-                    
-                    // 5. Game Response
-                    entryHtml += `<div class="log-response">🎮 <strong>Game Response:</strong><br>${this.escapeHtml(entry.zork_response)}</div>`;
-                    
-                    entryHtml += `</div>`;
-                    return entryHtml;
+                    loadEarlierButton = `
+                        <div class="load-earlier-container">
+                            <button id="load-earlier-btn" class="load-earlier-btn" ${this.isLoadingHistorical ? 'disabled' : ''}>
+                                ${this.isLoadingHistorical ? '<span class="loading-spinner"></span>Loading...' : 'Load Earlier Turns'}
+                            </button>
+                            ${stats ? `<div class="historical-stats">Cache: ${stats.cachedTurns}/${stats.loadedTurnCount} turns${statsText}</div>` : ''}
+                        </div>
+                    `;
+                }
+
+                // Render log entries
+                const logHtml = loadEarlierButton + logsToDisplay.map(entry => {
+                    return this.renderLogEntry(entry);
                 }).join('');
-                
-                // Always auto-scroll to bottom unless user has manually scrolled up
+
+                logContainer.innerHTML = logHtml;
+
+                // Add event listener for load earlier button
+                const loadEarlierBtn = document.getElementById('load-earlier-btn');
+                if (loadEarlierBtn) {
+                    loadEarlierBtn.addEventListener('click', () => this.loadEarlierTurns());
+                }
+
+                // Auto-scroll logic (same as before)
                 if (!this.userScrolledUp) {
                     console.log('Auto-scrolling to bottom smoothly');
-                    // Use setTimeout to ensure DOM has updated
                     setTimeout(() => {
                         const gameLogContainer = logContainer ? logContainer.parentElement : null;
                         const scrollableContainer = gameLogContainer || logContainer;
                         
-                        // If there's already an animation running, let it complete and then start a new one
                         if (this.scrollAnimation) {
                             console.log('Animation already running, will restart after completion');
-                            // Cancel the current animation and start fresh
                             cancelAnimationFrame(this.scrollAnimation);
                             this.scrollAnimation = null;
-                            // Give a small delay to let any DOM updates settle
                             setTimeout(() => {
                                 this.smoothScrollToBottom(scrollableContainer);
                             }, 100);
@@ -1123,16 +1422,14 @@
                         if (newMessagesIndicator) {
                             newMessagesIndicator.style.display = 'none';
                         }
-                    }, 50); // Increased timeout to ensure DOM is fully updated
+                    }, 50);
                 } else if (hasNewMessages && this.userScrolledUp) {
                     console.log('User scrolled up, showing new messages indicator');
-                    // Show new messages indicator if user scrolled up and there are new messages
                     if (newMessagesIndicator) {
                         newMessagesIndicator.style.display = 'block';
                     }
                 }
                 
-                // Track that we've scrolled at least once
                 this.hasScrolled = true;
             }
             
@@ -1305,6 +1602,176 @@
                 const div = document.createElement('div');
                 div.textContent = text;
                 return div.innerHTML;
+            }
+
+            // Historical data management methods
+            mergeLogEntries(currentLogs) {
+                // Get any cached historical turns
+                const historicalTurns = [];
+                if (this.historicalDataManager) {
+                    const stats = this.historicalDataManager.getLoadedStats();
+                    for (const turn of stats.loadedTurns) {
+                        const cachedTurn = this.historicalDataManager.getCachedTurn(this.currentState.metadata.episode_id, turn);
+                        if (cachedTurn) {
+                            historicalTurns.push(cachedTurn);
+                        }
+                    }
+                }
+                
+                // Combine historical and current logs, removing duplicates
+                const allLogs = [...historicalTurns, ...currentLogs];
+                
+                // Remove duplicates by turn number (keep the most recent version)
+                const uniqueLogs = allLogs.filter((log, index, arr) =>
+                    arr.findIndex(l => l.turn === log.turn) === index
+                );
+                
+                // Sort by turn number
+                this.allLogEntries = uniqueLogs.sort((a, b) => a.turn - b.turn);
+                
+                console.log(`Merged logs: ${historicalTurns.length} historical + ${currentLogs.length} current = ${this.allLogEntries.length} total`);
+            }
+
+            canLoadEarlierTurns() {
+                // Check if we have an episode ID and turn count to potentially load earlier data
+                if (!this.currentState || !this.currentState.metadata) {
+                    return false;
+                }
+                
+                const currentTurn = this.currentState.metadata.turn_count;
+                const episodeId = this.currentState.metadata.episode_id;
+                
+                // Only show load button if we're past turn 20 and have episode info
+                return currentTurn > 20 && episodeId;
+            }
+
+            async loadEarlierTurns() {
+                if (this.isLoadingHistorical) {
+                    return;
+                }
+
+                this.isLoadingHistorical = true;
+                
+                // Update button state immediately
+                this.updateLoadEarlierButton();
+                
+                try {
+                    // Initialize historical data manager if needed
+                    if (!this.historicalDataManager) {
+                        const episodeId = this.currentState.metadata.episode_id;
+                        this.historicalDataManager = new HistoricalDataManager('./zorkgpt', episodeId);
+                    }
+
+                    // Determine range to load (20 turns before earliest loaded)
+                    const currentTurn = this.currentState.metadata.turn_count;
+                    let startTurn = Math.max(1, currentTurn - this.displayedLogCount - 20);
+                    let endTurn = Math.max(1, currentTurn - this.displayedLogCount);
+
+                    if (this.earliestLoadedTurn !== null) {
+                        endTurn = this.earliestLoadedTurn - 1;
+                        startTurn = Math.max(1, endTurn - 19);
+                    }
+
+                    console.log(`Loading historical turns ${startTurn}-${endTurn}`);
+
+                    // Load the historical data
+                    const historicalTurns = await this.historicalDataManager.loadTurnRange(
+                        this.currentState.metadata.episode_id,
+                        startTurn,
+                        endTurn
+                    );
+
+                    if (historicalTurns.length > 0) {
+                        // Update earliest loaded turn
+                        this.earliestLoadedTurn = Math.min(...historicalTurns.map(t => t.turn));
+                        
+                        // Increase displayed count
+                        this.displayedLogCount += 20;
+                        
+                        console.log(`Loaded ${historicalTurns.length} historical turns`);
+                    } else {
+                        console.log('No historical turns found in range');
+                    }
+
+                } catch (error) {
+                    console.error('Failed to load historical turns:', error);
+                } finally {
+                    this.isLoadingHistorical = false;
+                    
+                    // Always refresh the log display to update button state
+                    this.updateRecentLog();
+                }
+            }
+
+            updateLoadEarlierButton() {
+                const loadEarlierBtn = document.getElementById('load-earlier-btn');
+                if (!loadEarlierBtn) return;
+
+                const stats = this.historicalDataManager ? this.historicalDataManager.getLoadedStats() : null;
+                
+                if (this.isLoadingHistorical) {
+                    loadEarlierBtn.disabled = true;
+                    loadEarlierBtn.innerHTML = '<span class="loading-spinner"></span>Loading...';
+                } else {
+                    loadEarlierBtn.disabled = false;
+                    loadEarlierBtn.innerHTML = 'Load Earlier Turns';
+                }
+
+                // Update stats display
+                const statsElement = loadEarlierBtn.parentElement.querySelector('.historical-stats');
+                if (statsElement && stats) {
+                    const statsText = ` (${stats.loadedTurnCount} cached)`;
+                    statsElement.textContent = `Cache: ${stats.cachedTurns}/${stats.loadedTurnCount} turns${statsText}`;
+                }
+            }
+
+            renderLogEntry(entry) {
+                const isHistorical = entry._isHistorical || false;
+                const historicalClass = isHistorical ? ' historical-log-entry' : '';
+                const historicalIndicator = isHistorical ? '<span class="historical-indicator">(Historical)</span>' : '';
+
+                let html = `<div class="log-entry${historicalClass}">`;
+                
+                // Turn header
+                html += `<div class="log-turn-header">Turn ${entry.turn}${historicalIndicator}</div>`;
+                
+                // Thinking section
+                if (entry.reasoning) {
+                    html += `<div class="log-thinking">💭 Thinking: ${this.escapeHtml(entry.reasoning)}</div>`;
+                }
+                
+                // Proposed action
+                if (entry.action) {
+                    html += `<div class="log-proposed-action">🎯 Proposed Action: ${this.escapeHtml(entry.action)}</div>`;
+                }
+                
+                // Rejected actions section (if any)
+                if (entry.rejected_actions && entry.rejected_actions.length > 0) {
+                    html += `<div class="log-critic">🚫 Rejected Actions:</div>`;
+                    entry.rejected_actions.forEach((rejected, index) => {
+                        html += `<div class="log-critic" style="margin-left: 20px;">${index + 1}. "${this.escapeHtml(rejected.action)}" (Score: ${rejected.score.toFixed(2)})<br>"${this.escapeHtml(rejected.justification)}"</div>`;
+                    });
+                }
+                
+                // Final critic evaluation
+                if (entry.critic_justification) {
+                    const status = entry.was_overridden ? 'Action rejected' : 'Action approved';
+                    const score = entry.critic_score !== undefined ? entry.critic_score.toFixed(2) : 'N/A';
+                    html += `<div class="log-critic">⚖️ Final Critic Evaluation: ${status} (Score: ${score})<br>"${this.escapeHtml(entry.critic_justification)}"</div>`;
+                }
+                
+                // Action taken
+                if (entry.action) {
+                    html += `<div class="log-action-taken">✅ Action Taken: ${this.escapeHtml(entry.action)}</div>`;
+                }
+                
+                // Game response
+                if (entry.zork_response) {
+                    html += `<div class="log-response">🎮 Game Response:<br>${this.escapeHtml(entry.zork_response).replace(/\n/g, '<br>')}</div>`;
+                }
+                
+                html += '</div>';
+                return html;
             }
         }
 

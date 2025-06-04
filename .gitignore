@@ -248,7 +248,7 @@ zork_experiences.json
 zork_episode_log.txt
 
 knowledgebase.md
-current_state.json
+test_current_state.json
 test_current_state.json
 
 analysis*
@@ -257,3 +257,7 @@ analysis*
 
 game_files/
 tmp/
+
+infrastructure/cdk.out/
+
+zorkgpt/
