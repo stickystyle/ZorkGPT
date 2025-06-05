@@ -684,6 +684,155 @@
             text-align: center;
             margin: 5px 0;
         }
+
+        /* Episode Selector Styles */
+        .episode-selector-trigger {
+            cursor: pointer;
+            color: #007bff;
+            text-decoration: underline;
+            position: relative;
+        }
+
+        .episode-selector-trigger:hover {
+            color: #0056b3;
+        }
+
+        .episode-selector-dropdown {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            z-index: 1000;
+            max-height: 400px;
+            overflow: hidden;
+        }
+
+        .episode-selector-header {
+            padding: 12px 16px;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #f8f9fa;
+        }
+
+        .episode-selector-header h4 {
+            margin: 0;
+            color: #333;
+            font-size: 16px;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            font-size: 20px;
+            cursor: pointer;
+            color: #666;
+            padding: 0;
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .close-btn:hover {
+            color: #333;
+        }
+
+        .episode-selector-content {
+            max-height: 320px;
+            overflow-y: auto;
+        }
+
+        .episode-list {
+            padding: 8px;
+        }
+
+        .episode-item {
+            padding: 12px;
+            border: 1px solid #eee;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .episode-item:hover {
+            background-color: #f8f9fa;
+        }
+
+        .episode-item.current {
+            background-color: #e3f2fd;
+            border-color: #2196f3;
+        }
+
+        .episode-item-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 4px;
+        }
+
+        .episode-item-id {
+            font-weight: bold;
+            color: #333;
+            font-size: 14px;
+        }
+
+        .episode-item-status {
+            font-size: 12px;
+            padding: 2px 6px;
+            border-radius: 3px;
+            color: white;
+        }
+
+        .episode-status-completed {
+            background-color: #4caf50;
+        }
+
+        .episode-status-died {
+            background-color: #f44336;
+        }
+
+        .episode-status-ongoing {
+            background-color: #ff9800;
+        }
+
+        .episode-item-stats {
+            font-size: 12px;
+            color: #666;
+            display: flex;
+            gap: 12px;
+        }
+
+        .episode-item-stat {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        /* Mobile responsive episode selector */
+        @media (max-width: 768px) {
+            .episode-selector-dropdown {
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                max-height: none;
+                border-radius: 0;
+                border: none;
+            }
+
+            .episode-selector-content {
+                max-height: calc(100vh - 60px);
+            }
+        }
     </style>
 </head>
 <body>
@@ -704,8 +853,20 @@
                 </div>
             </div>
             <div class="info-grid">
-                <div class="info-item">
-                    <strong>Episode:</strong> <span id="episode-id">Loading...</span>
+                <div class="info-item" style="position: relative;">
+                    <strong>Episode:</strong>
+                    <span id="episode-id" class="episode-selector-trigger" title="Click to select episode">Loading...</span>
+                    <div id="episode-selector" class="episode-selector-dropdown" style="display: none;">
+                        <div class="episode-selector-header">
+                            <h4>Select Episode</h4>
+                            <button onclick="hideEpisodeSelector()" class="close-btn">&times;</button>
+                        </div>
+                        <div class="episode-selector-content">
+                            <div id="episode-list" class="episode-list">
+                                <div class="loading">Loading episodes...</div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 <div class="info-item">
                     <strong>Turn:</strong> <span id="turn-count">-</span> / <span id="max-turns">-</span>
@@ -1103,10 +1264,22 @@
                 this.isLoadingHistorical = false;
                 this.earliestLoadedTurn = null;
                 
+                // Episode management
+                this.availableEpisodes = [];
+                this.currentEpisodeId = null;
+                this.isViewingHistoricalEpisode = false;
+                
                 this.startPolling();
+                this.loadEpisodeIndex();
+                this.setupEpisodeSelector();
             }
             
             async fetchCurrentState() {
+                // Skip polling if viewing historical episode
+                if (this.isViewingHistoricalEpisode) {
+                    return;
+                }
+
                 try {
                     const response = await fetch(this.stateUrl);
                     if (response.ok) {
@@ -1116,7 +1289,7 @@
                         const isFresh = this.isTimestampFresh(newState.metadata.timestamp);
                         
                         // Only update if state actually changed
-                        if (!this.currentState || 
+                        if (!this.currentState ||
                             this.currentState.metadata.turn_count !== newState.metadata.turn_count ||
                             this.currentState.metadata.timestamp !== newState.metadata.timestamp) {
                             this.currentState = newState;
@@ -1772,6 +1945,229 @@
                 
                 html += '</div>';
                 return html;
+            }
+
+            // Episode management methods
+            async loadEpisodeIndex() {
+                try {
+                    const response = await fetch('./zorkgpt/episodes.json');
+                    if (response.ok) {
+                        const episodeIndex = await response.json();
+                        this.availableEpisodes = episodeIndex.episodes || [];
+                        console.log(`Loaded ${this.availableEpisodes.length} episodes from index`);
+                        this.updateEpisodeSelector();
+                    } else {
+                        console.warn('Episode index not found, episode selection disabled');
+                    }
+                } catch (error) {
+                    console.warn('Failed to load episode index:', error);
+                }
+            }
+
+            setupEpisodeSelector() {
+                const episodeIdElement = document.getElementById('episode-id');
+                if (episodeIdElement) {
+                    episodeIdElement.addEventListener('click', () => {
+                        if (this.availableEpisodes.length > 0) {
+                            this.showEpisodeSelector();
+                        }
+                    });
+                }
+
+                // Close episode selector when clicking outside
+                document.addEventListener('click', (event) => {
+                    const episodeSelector = document.getElementById('episode-selector');
+                    const episodeIdElement = document.getElementById('episode-id');
+                    
+                    if (episodeSelector &&
+                        !episodeSelector.contains(event.target) &&
+                        !episodeIdElement.contains(event.target)) {
+                        this.hideEpisodeSelector();
+                    }
+                });
+            }
+
+            updateEpisodeSelector() {
+                const episodeList = document.getElementById('episode-list');
+                if (!episodeList || this.availableEpisodes.length === 0) {
+                    return;
+                }
+
+                let html = '';
+                
+                for (const episode of this.availableEpisodes) {
+                    const isCurrentEpisode = this.currentState &&
+                        this.currentState.metadata.episode_id === episode.episode_id;
+                    
+                    const status = this.getEpisodeStatus(episode);
+                    const statusClass = `episode-status-${status.toLowerCase()}`;
+                    
+                    html += `
+                        <div class="episode-item ${isCurrentEpisode ? 'current' : ''}"
+                             onclick="window.zorkViewer.selectEpisode('${episode.episode_id}')">
+                            <div class="episode-item-header">
+                                <div class="episode-item-id">${episode.episode_id}</div>
+                                <div class="episode-item-status ${statusClass}">${status}</div>
+                            </div>
+                            <div class="episode-item-stats">
+                                <div class="episode-item-stat">
+                                    <span>🎯</span>
+                                    <span>${episode.total_turns} turns</span>
+                                </div>
+                                <div class="episode-item-stat">
+                                    <span>⭐</span>
+                                    <span>${episode.final_score} pts</span>
+                                </div>
+                                <div class="episode-item-stat">
+                                    <span>💀</span>
+                                    <span>${episode.death_count}</span>
+                                </div>
+                                <div class="episode-item-stat">
+                                    <span>📅</span>
+                                    <span>${this.formatDate(episode.start_time)}</span>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                episodeList.innerHTML = html;
+            }
+
+            getEpisodeStatus(episode) {
+                if (episode.game_over) {
+                    return episode.death_count > 0 ? 'Died' : 'Completed';
+                }
+                return 'Ongoing';
+            }
+
+            formatDate(dateString) {
+                try {
+                    const date = new Date(dateString);
+                    return date.toLocaleDateString();
+                } catch (error) {
+                    return dateString.split('T')[0]; // Fallback to date part
+                }
+            }
+
+            showEpisodeSelector() {
+                const episodeSelector = document.getElementById('episode-selector');
+                if (episodeSelector) {
+                    episodeSelector.style.display = 'block';
+                    this.updateEpisodeSelector(); // Refresh the list
+                }
+            }
+
+            hideEpisodeSelector() {
+                const episodeSelector = document.getElementById('episode-selector');
+                if (episodeSelector) {
+                    episodeSelector.style.display = 'none';
+                }
+            }
+
+            async selectEpisode(episodeId) {
+                console.log(`Selecting episode: ${episodeId}`);
+                this.hideEpisodeSelector();
+
+                // Check if this is the current live episode
+                const isCurrentLiveEpisode = this.currentState &&
+                    this.currentState.metadata.episode_id === episodeId;
+
+                if (isCurrentLiveEpisode && !this.isViewingHistoricalEpisode) {
+                    console.log('Already viewing current live episode');
+                    return;
+                }
+
+                // Find episode info
+                const episodeInfo = this.availableEpisodes.find(ep => ep.episode_id === episodeId);
+                if (!episodeInfo) {
+                    console.error('Episode not found:', episodeId);
+                    return;
+                }
+
+                try {
+                    // Switch to historical episode mode
+                    this.isViewingHistoricalEpisode = !isCurrentLiveEpisode;
+                    this.currentEpisodeId = episodeId;
+
+                    if (this.isViewingHistoricalEpisode) {
+                        // Load the latest snapshot for this episode
+                        await this.loadHistoricalEpisode(episodeInfo);
+                    } else {
+                        // Switch back to live mode
+                        this.resumeLiveMode();
+                    }
+
+                } catch (error) {
+                    console.error('Failed to switch episode:', error);
+                    // Reset to live mode on error
+                    this.isViewingHistoricalEpisode = false;
+                    this.currentEpisodeId = null;
+                }
+            }
+
+            async loadHistoricalEpisode(episodeInfo) {
+                console.log('Loading historical episode:', episodeInfo.episode_id);
+
+                try {
+                    // Load the final snapshot for this episode
+                    const snapshotUrl = `./zorkgpt/snapshots/${episodeInfo.episode_id}/turn_${episodeInfo.last_turn}.json`;
+                    const response = await fetch(snapshotUrl);
+
+                    if (!response.ok) {
+                        throw new Error(`Failed to load episode snapshot: ${response.status}`);
+                    }
+
+                    const historicalState = await response.json();
+                    
+                    // Update current state with historical data
+                    this.currentState = historicalState;
+                    
+                    // Reset historical data manager for this episode
+                    this.historicalDataManager = new HistoricalDataManager('./zorkgpt', episodeInfo.episode_id);
+                    this.allLogEntries = [];
+                    this.displayedLogCount = 20;
+                    this.earliestLoadedTurn = null;
+                    
+                    // Update UI
+                    this.updateUI();
+                    
+                    // Update episode ID display to show it's historical
+                    const episodeIdElement = document.getElementById('episode-id');
+                    if (episodeIdElement) {
+                        episodeIdElement.textContent = `${episodeInfo.episode_id} (Historical)`;
+                        episodeIdElement.style.color = '#ff9800'; // Orange to indicate historical
+                    }
+
+                    console.log('Historical episode loaded successfully');
+
+                } catch (error) {
+                    console.error('Failed to load historical episode:', error);
+                    throw error;
+                }
+            }
+
+            resumeLiveMode() {
+                console.log('Resuming live mode');
+                
+                this.isViewingHistoricalEpisode = false;
+                this.currentEpisodeId = null;
+                
+                // Reset episode ID display style
+                const episodeIdElement = document.getElementById('episode-id');
+                if (episodeIdElement) {
+                    episodeIdElement.style.color = '#007bff'; // Back to blue
+                }
+                
+                // Force refresh of current state
+                this.fetchCurrentState();
+            }
+        }
+
+        // Episode Selector Functions
+        function hideEpisodeSelector() {
+            if (window.zorkViewer) {
+                window.zorkViewer.hideEpisodeSelector();
             }
         }
 
