@@ -14,6 +14,8 @@ from aws_cdk import (
     aws_route53 as route53,
     aws_route53_targets as targets,
     aws_certificatemanager as acm,
+    aws_lambda as lambda_,
+    aws_apigateway as apigateway,
     Duration,
     RemovalPolicy,
     CfnOutput,
@@ -101,7 +103,6 @@ class ZorkGPTViewerStack(Stack):
                 allowed_methods=cloudfront.AllowedMethods.ALLOW_GET_HEAD,
             ),
             additional_behaviors={
-                # Cache current_state.json for 6 seconds to balance freshness with origin protection
                 "/current_state.json": cloudfront.BehaviorOptions(
                     origin=s3_origin,
                     cache_policy=cloudfront.CachePolicy(
@@ -109,8 +110,8 @@ class ZorkGPTViewerStack(Stack):
                         "StateFileCachePolicy",
                         cache_policy_name=f"ZorkGPT-State-Cache-{self.stack_name}",
                         comment="Cache policy for current_state.json - 6 second cache for real-time data",
-                        default_ttl=Duration.seconds(6),  # Cache for 6 seconds
-                        max_ttl=Duration.seconds(10),     # Max 10 seconds
+                        default_ttl=Duration.minutes(1), # We can cache longer than 6 seconds because the agent is taking on average 5 minutes to process a turn
+                        max_ttl=Duration.minutes(2), 
                         min_ttl=Duration.seconds(0),      # Allow no cache if needed
                         cookie_behavior=cloudfront.CacheCookieBehavior.none(),
                         header_behavior=cloudfront.CacheHeaderBehavior.none(),
@@ -143,6 +144,27 @@ class ZorkGPTViewerStack(Stack):
                     viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
                     allowed_methods=cloudfront.AllowedMethods.ALLOW_GET_HEAD,
                 ),
+                # API endpoints for episode index
+                "/api/*": cloudfront.BehaviorOptions(
+                    origin=api_origin,
+                    cache_policy=cloudfront.CachePolicy(
+                        self,
+                        "APICachePolicy",
+                        cache_policy_name=f"ZorkGPT-API-Cache-{self.stack_name}",
+                        comment="Cache policy for API endpoints - short cache for dynamic data",
+                        default_ttl=Duration.minutes(5),  # Short cache for API responses
+                        max_ttl=Duration.minutes(10),
+                        min_ttl=Duration.seconds(0),
+                        cookie_behavior=cloudfront.CacheCookieBehavior.none(),
+                        header_behavior=cloudfront.CacheHeaderBehavior.allow_list("Authorization"),
+                        query_string_behavior=cloudfront.CacheQueryStringBehavior.all(),
+                        enable_accept_encoding_gzip=True,
+                        enable_accept_encoding_brotli=True,
+                    ),
+                    origin_request_policy=cloudfront.OriginRequestPolicy.CORS_S3_ORIGIN,
+                    viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+                    allowed_methods=cloudfront.AllowedMethods.ALLOW_ALL,
+                ),
             },
             default_root_object="zork_viewer.html",
             price_class=cloudfront.PriceClass.PRICE_CLASS_100,  # Use only North America and Europe
@@ -155,6 +177,47 @@ class ZorkGPTViewerStack(Stack):
 
         # Grant CloudFront OAI access to the S3 bucket
         self.bucket.grant_read(oai)
+
+        # Create Lambda function for episode index API
+        episode_index_lambda = lambda_.Function(
+            self,
+            "EpisodeIndexLambda",
+            runtime=lambda_.Runtime.PYTHON_3_11,
+            handler="episode_index_lambda.lambda_handler",
+            code=lambda_.Code.from_asset("infrastructure", 
+                                       exclude=["cdk.out", "*.pyc", "__pycache__"]),
+            function_name="zorkgpt-episode-index",
+            description="API for ZorkGPT episode index generation",
+            timeout=Duration.seconds(30),
+            memory_size=256,
+            environment={
+                "BUCKET_NAME": self.bucket.bucket_name
+            }
+        )
+
+        # Grant Lambda access to read from S3 bucket
+        self.bucket.grant_read(episode_index_lambda)
+
+        # Create API Gateway for episode index
+        episode_api = apigateway.RestApi(
+            self,
+            "EpisodeIndexAPI",
+            rest_api_name="ZorkGPT Episode Index API",
+            description="API for retrieving ZorkGPT episode history",
+            default_cors_preflight_options=apigateway.CorsOptions(
+                allow_origins=apigateway.Cors.ALL_ORIGINS,
+                allow_methods=apigateway.Cors.ALL_METHODS,
+                allow_headers=["Content-Type", "Authorization"]
+            )
+        )
+
+        # Create /episodes endpoint
+        episodes_resource = episode_api.root.add_resource("episodes")
+        episodes_integration = apigateway.LambdaIntegration(episode_index_lambda)
+        episodes_resource.add_method("GET", episodes_integration)
+
+        # Add API Gateway origin to CloudFront distribution
+        api_origin = origins.RestApiOrigin(episode_api)
 
         # Create Route53 A records to point domain to CloudFront distribution
         route53.ARecord(
@@ -778,4 +841,26 @@ Status Alarm: {status_alarm.alarm_name}""",
             "CloudWatchDashboard",
             value=f"https://console.aws.amazon.com/cloudwatch/home?region={self.region}#alarmsV2:alarm/{cpu_alarm.alarm_name}",
             description="CloudWatch console URL to view alarms and metrics",
+        )
+
+        # Episode Index API outputs
+        CfnOutput(
+            self,
+            "EpisodeIndexAPIURL",
+            value=f"https://{domain_name}/api/episodes",
+            description="URL for the episode index API endpoint (via CloudFront)",
+        )
+
+        CfnOutput(
+            self,
+            "EpisodeIndexLambdaArn",
+            value=episode_index_lambda.function_arn,
+            description="ARN of the episode index Lambda function",
+        )
+
+        CfnOutput(
+            self,
+            "EpisodeAPIGatewayURL",
+            value=episode_api.url,
+            description="Direct API Gateway URL for episode index (not recommended for production use)",
         )
