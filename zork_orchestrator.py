@@ -300,6 +300,17 @@ class ZorkOrchestrator:
             )
             raise
 
+        # Enable verbose mode to get full room descriptions on every visit
+        verbose_response = zork_interface_instance.send_command("verbose")
+        self.logger.info(
+            f"Enabled verbose mode: {verbose_response}",
+            extra={
+                "event_type": "verbose_mode_enabled",
+                "episode_id": self.episode_id,
+                "verbose_response": verbose_response,
+            }
+        )
+
         # Get current score and inventory for state initialization
         current_zork_score_val, max_zork_score = zork_interface_instance.score(
             current_game_state
