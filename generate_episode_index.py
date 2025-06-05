@@ -14,6 +14,8 @@ import re
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 import argparse
+import tomllib
+from pathlib import Path
 
 # Optional S3 support
 try:
@@ -21,6 +23,19 @@ try:
     S3_AVAILABLE = True
 except ImportError:
     S3_AVAILABLE = False
+
+
+def load_config():
+    """Load configuration from pyproject.toml if available."""
+    config_file = Path("pyproject.toml")
+    if config_file.exists():
+        try:
+            with open(config_file, "rb") as f:
+                config = tomllib.load(f)
+                return config.get("tool", {}).get("zorkgpt", {}).get("aws", {})
+        except Exception as e:
+            print(f"Warning: Could not load pyproject.toml: {e}")
+    return {}
 
 
 class EpisodeIndexGenerator:
@@ -365,19 +380,39 @@ class EpisodeIndexGenerator:
 
 
 def main():
+    # Load configuration from pyproject.toml
+    config = load_config()
+    
     parser = argparse.ArgumentParser(description="Generate ZorkGPT episode index")
     parser.add_argument("--s3-bucket", help="S3 bucket name")
-    parser.add_argument("--s3-prefix", default="", help="S3 key prefix")
+    parser.add_argument("--s3-prefix", default=config.get("s3_key_prefix", ""), help="S3 key prefix")
     parser.add_argument("--local-dir", default="./zorkgpt/snapshots", help="Local snapshots directory")
     parser.add_argument("--output", default="./zorkgpt/episodes.json", help="Output file path")
     parser.add_argument("--upload-s3", action="store_true", help="Upload index to S3 after generating")
     
     args = parser.parse_args()
     
+    # Use config defaults if not provided via command line
+    s3_bucket = args.s3_bucket
+    s3_prefix = args.s3_prefix
+    
+    # Environment variables override everything
+    if 'ZORKGPT_S3_BUCKET' in os.environ:
+        s3_bucket = os.environ['ZORKGPT_S3_BUCKET']
+        print(f"Using S3 bucket from environment: {s3_bucket}")
+    
+    if 'ZORKGPT_S3_PREFIX' in os.environ:
+        s3_prefix = os.environ['ZORKGPT_S3_PREFIX']
+        print(f"Using S3 prefix from environment: {s3_prefix}")
+    elif config.get("s3_key_prefix") and args.s3_prefix == config.get("s3_key_prefix", ""):
+        print(f"Using S3 prefix from config: {s3_prefix}")
+    
+    print(f"Final S3 prefix: '{s3_prefix}'")
+    
     # Create generator
     generator = EpisodeIndexGenerator(
-        s3_bucket=args.s3_bucket,
-        s3_key_prefix=args.s3_prefix,
+        s3_bucket=s3_bucket,
+        s3_key_prefix=s3_prefix,
         local_snapshots_dir=args.local_dir
     )
     
