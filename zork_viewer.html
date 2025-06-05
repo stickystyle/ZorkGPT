@@ -2004,27 +2004,27 @@
                     
                     html += `
                         <div class="episode-item ${isCurrentEpisode ? 'current' : ''}"
-                             onclick="window.zorkViewer.selectEpisode('${episode.episode_id}')">
+                             onclick="window.zorkViewer.selectEpisode('${this.escapeHtml(episode.episode_id)}')">
                             <div class="episode-item-header">
-                                <div class="episode-item-id">${episode.episode_id}</div>
-                                <div class="episode-item-status ${statusClass}">${status}</div>
+                                <div class="episode-item-id">${this.escapeHtml(episode.episode_id)}</div>
+                                <div class="episode-item-status ${statusClass}">${this.escapeHtml(status)}</div>
                             </div>
                             <div class="episode-item-stats">
                                 <div class="episode-item-stat">
                                     <span>🎯</span>
-                                    <span>${episode.total_turns} turns</span>
+                                    <span>${this.escapeHtml(String(episode.total_turns))} turns</span>
                                 </div>
                                 <div class="episode-item-stat">
                                     <span>⭐</span>
-                                    <span>${episode.final_score} pts</span>
+                                    <span>${this.escapeHtml(String(episode.final_score))} pts</span>
                                 </div>
                                 <div class="episode-item-stat">
                                     <span>💀</span>
-                                    <span>${episode.death_count}</span>
+                                    <span>${this.escapeHtml(String(episode.death_count))}</span>
                                 </div>
                                 <div class="episode-item-stat">
                                     <span>📅</span>
-                                    <span>${this.formatDate(episode.start_time)}</span>
+                                    <span>${this.escapeHtml(this.formatDate(episode.start_time))}</span>
                                 </div>
                             </div>
                         </div>
