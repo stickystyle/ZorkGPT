@@ -8,16 +8,33 @@ index up to date with new episodes.
 
 import sys
 import os
+import tomllib
+from pathlib import Path
 from generate_episode_index import EpisodeIndexGenerator
 
+def load_config():
+    """Load configuration from pyproject.toml if available."""
+    config_file = Path("pyproject.toml")
+    if config_file.exists():
+        try:
+            with open(config_file, "rb") as f:
+                config = tomllib.load(f)
+                return config.get("tool", {}).get("zorkgpt", {}).get("aws", {})
+        except Exception as e:
+            print(f"Warning: Could not load pyproject.toml: {e}")
+    return {}
+
 def main():
+    # Load configuration from pyproject.toml
+    config = load_config()
+    
     # Configuration - adjust these as needed
     S3_BUCKET = None  # Set to your S3 bucket name if using S3
-    S3_PREFIX = ""    # Set to your S3 key prefix if using S3
+    S3_PREFIX = config.get("s3_key_prefix", "zorkgpt/")  # Default from pyproject.toml
     LOCAL_SNAPSHOTS_DIR = "./zorkgpt/snapshots"
     OUTPUT_FILE = "./zorkgpt/episodes.json"
     
-    # Check if S3 bucket is provided via environment variable
+    # Environment variables override config file settings
     if 'ZORKGPT_S3_BUCKET' in os.environ:
         S3_BUCKET = os.environ['ZORKGPT_S3_BUCKET']
         print(f"Using S3 bucket from environment: {S3_BUCKET}")
@@ -25,6 +42,8 @@ def main():
     if 'ZORKGPT_S3_PREFIX' in os.environ:
         S3_PREFIX = os.environ['ZORKGPT_S3_PREFIX']
         print(f"Using S3 prefix from environment: {S3_PREFIX}")
+    elif config.get("s3_key_prefix"):
+        print(f"Using S3 prefix from config: {S3_PREFIX}")
     
     # Create generator
     generator = EpisodeIndexGenerator(
