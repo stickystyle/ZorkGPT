@@ -20,6 +20,11 @@ class CriticResponse(BaseModel):
     confidence: float = 0.8  # Default confidence level
 
 
+class FailureDetectionResponse(BaseModel):
+    action_failed: bool
+    reason: str
+
+
 class CriticTrustTracker:
     """Tracks critic performance and adjusts trust levels accordingly."""
 
@@ -71,7 +76,7 @@ class ActionRejectionSystem:
         self.recent_critic_scores = []
 
     def should_override_rejection(
-        self, action: str, current_location: str, failed_actions: set, context: dict
+        self, action: str, current_location: str, failed_actions_by_location: Dict[str, set], context: dict
     ) -> Tuple[bool, str]:
         """
         Determine if a critic rejection should be overridden using enhanced heuristics.
@@ -82,8 +87,9 @@ class ActionRejectionSystem:
         """
 
         # 1. NEVER override if this action already failed at this location
-        if action.lower() in failed_actions:
-            return False, None
+        current_location_failed_actions = failed_actions_by_location.get(current_location, set())
+        if action.lower() in current_location_failed_actions:
+            return False, "action_failed_in_current_location"
 
         # Extract context data
         recent_locations = context.get("recent_locations", [])
@@ -101,36 +107,36 @@ class ActionRejectionSystem:
                 return True, "immediate_repetition_detected"
         
         # 4. Enhanced location-based loop detection
-            unique_recent_locations = list(set(recent_locations[-6:]))
-            if len(unique_recent_locations) <= 2:
+        unique_recent_locations = list(set(recent_locations[-6:]))
+        if len(unique_recent_locations) <= 2:
             
-                # 4a. Calculate action diversity in recent location stays
-                recent_location_actions = recent_actions[-6:] if len(recent_actions) >= 6 else recent_actions
-                action_diversity = self._calculate_action_diversity(recent_location_actions)
-                
-                # 4b. Assess whether recent actions show meaningful progress
-                is_making_progress = self._assess_exploration_progress(previous_actions_and_responses[-6:])
-                
-                # 4c. Analyze location type for exploration appropriateness
-                location_context = self._analyze_location_type(current_location)
-                
-                # 4d. Decision matrix for location-based scenarios
-                if action_diversity < 0.3 and not is_making_progress:
-                    return True, "low_diversity_no_progress_loop"
-                elif action_diversity < 0.5 and not is_making_progress and turns_without_progress >= 4:
-                    # Broader threshold for low diversity + no progress with some movement stagnation
-                    return True, "low_diversity_no_progress_loop"
-                elif location_context == "simple" and len(recent_location_actions) > 4:
-                    return True, "over_exploring_simple_location"
-                elif not is_making_progress and turns_without_progress > 10:
-                    return True, "extended_stagnation_detected"
-                elif action_diversity < 0.4 and turns_without_progress > 6:
-                    return True, "repetitive_actions_no_movement"
-                
-                # 4e. If we're in a single location with good diversity and progress, allow continued exploration
-                # This prevents productive exploration from being flagged as problematic
-                if len(unique_recent_locations) == 1 and action_diversity >= 0.5 and is_making_progress:
-                    return False, None  # Explicitly allow productive single-location exploration
+            # 4a. Calculate action diversity in recent location stays
+            recent_location_actions = recent_actions[-6:] if len(recent_actions) >= 6 else recent_actions
+            action_diversity = self._calculate_action_diversity(recent_location_actions)
+            
+            # 4b. Assess whether recent actions show meaningful progress
+            is_making_progress = self._assess_exploration_progress(previous_actions_and_responses[-6:])
+            
+            # 4c. Analyze location type for exploration appropriateness
+            location_context = self._analyze_location_type(current_location)
+            
+            # 4d. Decision matrix for location-based scenarios
+            if action_diversity < 0.3 and not is_making_progress:
+                return True, "low_diversity_no_progress_loop"
+            elif action_diversity < 0.5 and not is_making_progress and turns_without_progress >= 4:
+                # Broader threshold for low diversity + no progress with some movement stagnation
+                return True, "low_diversity_no_progress_loop"
+            elif location_context == "simple" and len(recent_location_actions) > 4:
+                return True, "over_exploring_simple_location"
+            elif not is_making_progress and turns_without_progress > 10:
+                return True, "extended_stagnation_detected"
+            elif action_diversity < 0.4 and turns_without_progress > 6:
+                return True, "repetitive_actions_no_movement"
+            
+            # 4e. If we're in a single location with good diversity and progress, allow continued exploration
+            # This prevents productive exploration from being flagged as problematic
+            if len(unique_recent_locations) == 1 and action_diversity >= 0.5 and is_making_progress:
+                return False, None  # Explicitly allow productive single-location exploration
         
         # 5. Action cycling detection (bouncing between small set of actions)
         if len(recent_actions) >= 8:
@@ -310,8 +316,12 @@ class ActionRejectionSystem:
                 return True, "exploration_stuck"
 
         # Override for novel non-movement actions (MUCH more restrictive)
-        failed_actions = context.get("failed_actions", set())
-        if action.lower() not in failed_actions:
+        # Check if action failed in current location specifically
+        current_location = context.get("current_location", "")
+        failed_actions_by_location = context.get("failed_actions_by_location", {})
+        current_location_failed_actions = failed_actions_by_location.get(current_location, set())
+        
+        if action.lower() not in current_location_failed_actions:
             # Only override if critic confidence is low (if available)
             critic_confidence = context.get("critic_confidence", 0.5)  # Default to low confidence
             if critic_confidence >= 0.8:  # Don't override confident rejections
@@ -448,6 +458,8 @@ class ZorkCritic:
         available_exits: Optional[List[str]] = None,
         action_counts: Optional[Counter] = None,
         previous_actions_and_responses: Optional[List[Tuple[str, str]]] = None,
+        current_location_name: Optional[str] = None,
+        failed_actions_by_location: Optional[Dict[str, set]] = None,
     ) -> CriticResponse:
         """
         Get an evaluation from the Critic LM.
@@ -458,14 +470,41 @@ class ZorkCritic:
             available_exits: List of valid exits from current location for spatial awareness
             action_counts: Counter of action frequencies
             previous_actions_and_responses: Recent action history
+            current_location_name: Name of the current location
+            failed_actions_by_location: Dict mapping location names to sets of failed actions
 
         Returns:
             CriticResponse with score and justification
         """
         # Prepare context about repetitive actions for the critic
         repetition_context = ""
+        repetition_details = []
+        
+        # Global count context (useful for overall action frequency)
         if action_counts and action_counts[proposed_action] > 2:
-            repetition_context = f"\nThis action '{proposed_action}' has been tried {action_counts[proposed_action]} times already."
+            global_count = action_counts[proposed_action]
+            repetition_details.append(f"Globally, '{proposed_action}' has been tried {global_count} times.")
+        
+        # Location-specific failure context
+        if current_location_name and failed_actions_by_location:
+            current_location_failed_actions = failed_actions_by_location.get(current_location_name, set())
+            if proposed_action.lower() in current_location_failed_actions:
+                repetition_details.append(f"IMPORTANT: The action '{proposed_action}' has previously FAILED in this specific location ('{current_location_name}').")
+            
+            # Context about failures in other locations (if useful)
+            other_failed_locations = []
+            for loc, failed_set in failed_actions_by_location.items():
+                if loc != current_location_name and proposed_action.lower() in failed_set:
+                    other_failed_locations.append(loc)
+            
+            if other_failed_locations:
+                if len(other_failed_locations) == 1:
+                    repetition_details.append(f"Note: '{proposed_action}' also failed in a different location: '{other_failed_locations[0]}'.")
+                else:
+                    repetition_details.append(f"Note: '{proposed_action}' also failed in {len(other_failed_locations)} other locations.")
+        
+        if repetition_details:
+            repetition_context = "\n" + "\n".join(repetition_details)
 
         # Add context about the last few actions and responses
         recent_context = ""
@@ -575,6 +614,8 @@ Evaluate this action based on your criteria. Respond with ONLY a JSON object in 
         available_exits: Optional[List[str]] = None,
         action_counts: Optional[Counter] = None,
         previous_actions_and_responses: Optional[List[Tuple[str, str]]] = None,
+        current_location_name: Optional[str] = None,
+        failed_actions_by_location: Optional[Dict[str, set]] = None,
         max_attempts: int = 3,
     ) -> CriticResponse:
         """
@@ -586,6 +627,8 @@ Evaluate this action based on your criteria. Respond with ONLY a JSON object in 
             available_exits: List of valid exits from current location for spatial awareness
             action_counts: Counter of action frequencies
             previous_actions_and_responses: Recent action history
+            current_location_name: Name of the current location
+            failed_actions_by_location: Dict mapping location names to sets of failed actions
             max_attempts: Maximum number of evaluation attempts for consensus
 
         Returns:
@@ -600,6 +643,8 @@ Evaluate this action based on your criteria. Respond with ONLY a JSON object in 
                 available_exits,
                 action_counts,
                 previous_actions_and_responses,
+                current_location_name,
+                failed_actions_by_location,
             )
             evaluations.append(evaluation)
 
@@ -677,6 +722,89 @@ Evaluate this action based on your criteria. Respond with ONLY a JSON object in 
             # This is more complex - we'll be conservative and not penalize the critic
             # unless we have strong evidence the rejection was wrong
             pass
+
+    def detect_action_failure(self, action: str, game_response: str) -> FailureDetectionResponse:
+        """
+        Use LLM to determine if an action failed based on the game response.
+        
+        Args:
+            action: The action that was attempted
+            game_response: The response from the game
+            
+        Returns:
+            FailureDetectionResponse indicating if the action failed and why
+        """
+        user_prompt = f"""Analyze this action and game response to determine if the action failed:
+
+Action attempted: {action}
+Game response: {game_response}
+
+An action is considered "failed" if:
+- The parser didn't understand the command ("I don't understand", "There was no verb in that sentence")
+- The action was explicitly rejected ("You can't do that", "You can't go that way", "Nothing happens")
+- The action was impossible ("There is a wall", "You can't see any such thing", "It's too narrow")
+- The response indicates the action didn't work as intended
+
+An action is NOT failed if:
+- It provided useful information (descriptions, examinations)
+- It worked but had unexpected consequences
+- It moved the game state forward in any way
+- The response is descriptive rather than rejective
+
+Respond with ONLY a JSON object in this exact format:
+{{"action_failed": true/false, "reason": "Brief explanation of why it failed or succeeded"}}
+"""
+
+        messages = [
+            {"role": "user", "content": user_prompt}
+        ]
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                temperature=0.1,  # Low temperature for consistent analysis
+                max_tokens=100,
+                response_format=create_json_schema(FailureDetectionResponse),
+            )
+
+            response_content = response.content
+            try:
+                # Clean and parse JSON response
+                if "```json" in response_content:
+                    start_marker = "```json"
+                    end_marker = "```"
+                    start_idx = response_content.find(start_marker) + len(start_marker)
+                    end_idx = response_content.find(end_marker, start_idx)
+                    if end_idx != -1:
+                        json_content = response_content[start_idx:end_idx].strip()
+                    else:
+                        json_content = response_content[start_idx:].strip()
+                else:
+                    json_content = response_content.strip()
+
+                parsed_data = json.loads(json_content)
+                return FailureDetectionResponse(**parsed_data)
+            except Exception as e:
+                if self.logger:
+                    self.logger.error(f"Error parsing failure detection response: {e}", extra={
+                        "episode_id": self.episode_id
+                    })
+                # Default to action succeeded if we can't parse
+                return FailureDetectionResponse(
+                    action_failed=False, 
+                    reason="Error parsing failure detection response"
+                )
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"Error in failure detection: {e}", extra={
+                    "episode_id": self.episode_id
+                })
+            # Default to action succeeded if LLM call fails
+            return FailureDetectionResponse(
+                action_failed=False, 
+                reason="Error in failure detection API call"
+            )
 
     def update_episode_id(self, episode_id: str) -> None:
         """Update the episode ID for logging purposes."""

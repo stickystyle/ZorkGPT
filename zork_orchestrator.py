@@ -226,7 +226,7 @@ class ZorkOrchestrator:
         self.memory_log_history = []
         self.visited_locations = set()
         self.failed_actions_by_location = {}
-        self.episode_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.episode_id = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
         self.previous_zork_score = 0
         self.turn_count = 0
         self.game_over_flag = False  # Track game over state for state export
@@ -551,6 +551,8 @@ class ZorkOrchestrator:
                 previous_actions_and_responses=self.action_history[
                     -3:
                 ],  # Last 3 actions
+                current_location_name=self.current_room_name_for_map,
+                failed_actions_by_location=self.failed_actions_by_location,
             )
 
             critic_score_val = critic_response.score
@@ -574,14 +576,14 @@ class ZorkOrchestrator:
                     self.critic.rejection_system.should_override_rejection(
                         agent_action,
                         self.current_room_name_for_map,
-                        self.failed_actions_by_location.get(
-                            self.current_room_name_for_map, set()
-                        ),
+                        self.failed_actions_by_location,
                         {
                             "turns_since_movement": getattr(
                                 self, "turns_since_movement", 0
                             ),
                             "critic_confidence": critic_confidence,
+                            "current_location": self.current_room_name_for_map,
+                            "failed_actions_by_location": self.failed_actions_by_location,
                             "recent_locations": [
                                 getattr(entry, "current_location_name", "")
                                 for entry in self.memory_log_history[-10:]
@@ -675,6 +677,8 @@ class ZorkOrchestrator:
                     available_exits=current_exits,
                     action_counts=self.action_counts,
                     previous_actions_and_responses=self.action_history[-3:],
+                    current_location_name=self.current_room_name_for_map,
+                    failed_actions_by_location=self.failed_actions_by_location,
                 )
                 critic_score_val = critic_response.score
                 critic_justification = critic_response.justification
@@ -885,6 +889,11 @@ class ZorkOrchestrator:
                 )
                 self._update_movement_tracking(
                     action_taken, room_before_action, final_current_room_name
+                )
+                
+                # Track all failed actions using LLM-based detection
+                self._update_failed_actions_tracking(
+                    action_taken, next_game_state, final_current_room_name
                 )
 
                 # Create stable location identifiers using exit-based unique ID system
@@ -1772,6 +1781,37 @@ class ZorkOrchestrator:
         self.prev_room_for_prompt_context = from_room
         self.action_leading_to_current_room_for_prompt_context = action
 
+    def _update_failed_actions_tracking(
+        self, action: str, game_response: str, current_location: str
+    ) -> None:
+        """
+        Update failed actions tracking using LLM-based failure detection.
+        This tracks all types of failed actions, not just movement.
+        """
+        # Use the critic's LLM-based failure detection
+        failure_detection = self.critic.detect_action_failure(action, game_response)
+        
+        if failure_detection.action_failed:
+            # Initialize location tracking if needed
+            if current_location not in self.failed_actions_by_location:
+                self.failed_actions_by_location[current_location] = set()
+            
+            # Add the failed action to this location's set
+            self.failed_actions_by_location[current_location].add(action.lower())
+            
+            # Log the failure detection
+            self.logger.info(
+                f"Action failed in {current_location}: {action}",
+                extra={
+                    "event_type": "action_failure_detected", 
+                    "episode_id": self.episode_id,
+                    "turn": self.turn_count,
+                    "location": current_location,
+                    "failed_action": action,
+                    "failure_reason": failure_detection.reason,
+                }
+            )
+
     def get_current_state(self) -> Dict[str, Any]:
         """Get comprehensive current state for export."""
         
@@ -2175,6 +2215,27 @@ class ZorkOrchestrator:
         # Prepare summary prompt
         recent_turns = self.memory_log_history[-50:] if len(self.memory_log_history) > 50 else self.memory_log_history
         
+        # Convert ExtractorResponse objects to serializable format
+        serializable_turns = []
+        for turn in recent_turns:
+            if hasattr(turn, "model_dump"):
+                # Pydantic model - convert to dict
+                serializable_turns.append(turn.model_dump())
+            elif isinstance(turn, dict):
+                # Already a dict (like summary entries)
+                serializable_turns.append(turn)
+            else:
+                # Fallback for other objects
+                serializable_turns.append({
+                    "current_location_name": getattr(turn, "current_location_name", "Unknown"),
+                    "exits": getattr(turn, "exits", []),
+                    "visible_objects": getattr(turn, "visible_objects", []),
+                    "important_messages": getattr(turn, "important_messages", []),
+                    "in_combat": getattr(turn, "in_combat", False),
+                    "score": getattr(turn, "score", None),
+                    "moves": getattr(turn, "moves", None),
+                })
+        
         summary_prompt = f"""Analyze the following Zork gameplay session and provide a comprehensive summary:
 
 EPISODE ID: {self.episode_id}
@@ -2183,7 +2244,7 @@ CURRENT SCORE: {self.previous_zork_score}
 DEATH COUNT: {self.death_count}
 
 RECENT GAMEPLAY DATA:
-{json.dumps(recent_turns, indent=2)}
+{json.dumps(serializable_turns, indent=2)}
 
 CURRENT MAP STATE:
 {self.game_map.generate_mermaid_diagram()}

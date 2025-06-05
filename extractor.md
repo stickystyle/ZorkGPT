@@ -190,4 +190,6 @@ Output:
 - No explanatory text before or after
 - Ensure all required fields are present
 - Use consistent location naming for map coherence 
-- Include ALL potential exits and passages (comprehensive detection) 
+- Include ALL potential exits and passages (comprehensive detection)
+- Arrays should contain only non-empty, meaningful values (never fill arrays with empty strings)
+- If no items exist for an array field, use an empty array [] 

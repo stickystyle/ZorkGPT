@@ -452,6 +452,9 @@ Respond only with the JSON, no other text."""
             else:
                 json_content = llm_response.strip()
 
+            # Clean up malformed arrays BEFORE attempting to parse JSON
+            json_content = self._clean_malformed_arrays(json_content)
+
             parsed_data = json.loads(json_content)
             return ExtractorResponse(**parsed_data)
 
@@ -461,6 +464,171 @@ Respond only with the JSON, no other text."""
                     "episode_id": self.episode_id
                 })
                 self.logger.error(f"Response content: {llm_response}", extra={
+                    "episode_id": self.episode_id
+                })
+                
+                # Try more aggressive cleanup if first attempt failed
+                try:
+                    json_content = llm_response.strip()
+                    aggressively_cleaned = self._aggressive_json_cleanup(json_content)
+                    parsed_data = json.loads(aggressively_cleaned)
+                    if self.logger:
+                        self.logger.info(f"Successfully parsed after aggressive cleanup", extra={
+                            "episode_id": self.episode_id
+                        })
+                    return ExtractorResponse(**parsed_data)
+                except Exception as cleanup_error:
+                    if self.logger:
+                        self.logger.error(f"Aggressive cleanup also failed: {cleanup_error}", extra={
+                            "episode_id": self.episode_id
+                        })
+                        
+                        # Last resort: try to extract partial information and create a minimal response
+                        try:
+                            partial_response = self._extract_partial_info_from_malformed_json(llm_response, previous_location, structured_info)
+                            if partial_response:
+                                self.logger.info(f"Created partial response from malformed JSON", extra={
+                                    "episode_id": self.episode_id
+                                })
+                                return partial_response
+                        except Exception as partial_error:
+                            self.logger.error(f"Partial extraction also failed: {partial_error}", extra={
+                                "episode_id": self.episode_id
+                            })
+            return None
+
+    def _clean_malformed_arrays(self, json_content: str) -> str:
+        """Clean up malformed arrays in JSON content, particularly arrays with many empty strings."""
+        try:
+            # Parse the JSON first to check if it's valid
+            parsed = json.loads(json_content)
+            
+            # Clean up arrays with excessive empty strings
+            if isinstance(parsed, dict):
+                for key, value in parsed.items():
+                    if isinstance(value, list):
+                        # Filter out empty strings and limit array size
+                        cleaned_array = [item for item in value if item and str(item).strip()]
+                        # Limit array size to prevent excessive data
+                        if len(cleaned_array) > 50:
+                            cleaned_array = cleaned_array[:50]
+                        parsed[key] = cleaned_array
+            
+            return json.dumps(parsed)
+            
+        except json.JSONDecodeError:
+            # If JSON is malformed, try regex-based cleanup for array issues
+            import re
+            
+            # More comprehensive patterns to catch different types of malformed arrays
+            
+            # Pattern 1: Arrays with many empty strings: ["", "", "", ...]
+            empty_string_pattern = r'\[\s*(?:"\s*",?\s*){10,}\]'
+            
+            # Pattern 2: Arrays with excessive newlines and whitespace: [\n  \n  \n  ...]
+            excessive_whitespace_pattern = r'\[\s*(?:\n\s*){5,}\]'
+            
+            # Pattern 3: Arrays with mix of empty elements and whitespace
+            mixed_empty_pattern = r'\[\s*(?:(?:"\s*"|null|)\s*,?\s*\n?\s*){5,}\]'
+            
+            # Apply all cleanup patterns
+            cleaned = json_content
+            cleaned = re.sub(empty_string_pattern, '[]', cleaned)
+            cleaned = re.sub(excessive_whitespace_pattern, '[]', cleaned)
+            cleaned = re.sub(mixed_empty_pattern, '[]', cleaned)
+            
+            # Additional cleanup for arrays that start with [ and have excessive whitespace
+            malformed_array_start_pattern = r'\[\s*\n\s*\n[\s\n]*\]'
+            cleaned = re.sub(malformed_array_start_pattern, '[]', cleaned)
+            
+            return cleaned
+
+    def _aggressive_json_cleanup(self, json_content: str) -> str:
+        """More aggressive JSON cleanup for severely malformed arrays."""
+        import re
+        
+        # First apply the regular cleanup
+        cleaned = self._clean_malformed_arrays(json_content)
+        
+        # Additional aggressive patterns for arrays that are completely malformed
+        # Pattern to find arrays with trailing commas or incomplete structures
+        trailing_comma_pattern = r',\s*\]'
+        cleaned = re.sub(trailing_comma_pattern, ']', cleaned)
+        
+        # Pattern to handle arrays with only whitespace/newlines between brackets
+        whitespace_only_array_pattern = r'\[\s*\n\s*\]'
+        cleaned = re.sub(whitespace_only_array_pattern, '[]', cleaned)
+        
+        # Pattern to handle arrays that got cut off mid-structure
+        incomplete_array_pattern = r'\[\s*\n[\s\n]*$'
+        cleaned = re.sub(incomplete_array_pattern, '[]', cleaned, flags=re.MULTILINE)
+        
+        # Pattern to handle arrays that end with a quote instead of closing bracket
+        # This fixes: ["visible_characters": [\n  \n  \n  "
+        array_ending_with_quote_pattern = r'\[\s*(?:\n\s*)*"(?:\s*,\s*[}\]]|$)'
+        cleaned = re.sub(array_ending_with_quote_pattern, ']', cleaned)
+        
+        # Pattern to handle arrays that have many newlines followed by a quote
+        malformed_array_with_quote_pattern = r'\[\s*(?:\n\s*){5,}"'
+        cleaned = re.sub(malformed_array_with_quote_pattern, '[]', cleaned)
+        
+        # Fix any trailing commas in the main JSON structure
+        trailing_comma_in_object = r',(\s*[}\]])'
+        cleaned = re.sub(trailing_comma_in_object, r'\1', cleaned)
+        
+        return cleaned
+
+    def _extract_partial_info_from_malformed_json(self, llm_response: str, previous_location: str, structured_info: Dict) -> Optional[ExtractorResponse]:
+        """Extract partial information from malformed JSON using regex patterns."""
+        import re
+        
+        try:
+            # Try to extract individual fields using regex patterns
+            location_match = re.search(r'"current_location_name":\s*"([^"]*)"', llm_response)
+            current_location = location_match.group(1) if location_match else (structured_info.get("current_location_name") or previous_location or "Unknown Location")
+            
+            # Try to extract exits array
+            exits = []
+            exits_match = re.search(r'"exits":\s*\[(.*?)\]', llm_response, re.DOTALL)
+            if exits_match:
+                exits_content = exits_match.group(1)
+                # Extract quoted strings from the exits content
+                exit_matches = re.findall(r'"([^"]*)"', exits_content)
+                exits = [exit_name for exit_name in exit_matches if exit_name.strip()]
+            
+            # Try to extract visible objects
+            objects = []
+            objects_match = re.search(r'"visible_objects":\s*\[(.*?)\]', llm_response, re.DOTALL)
+            if objects_match:
+                objects_content = objects_match.group(1)
+                object_matches = re.findall(r'"([^"]*)"', objects_content)
+                objects = [obj for obj in object_matches if obj.strip()]
+            
+            # Try to extract visible characters (usually empty, so default to empty)
+            characters = []
+            
+            # Try to extract important messages
+            messages = structured_info.get("important_messages", [])
+            
+            # Try to extract combat state
+            combat_match = re.search(r'"in_combat":\s*(true|false)', llm_response)
+            in_combat = combat_match.group(1) == "true" if combat_match else False
+            
+            # Create a valid ExtractorResponse with whatever we could extract
+            return ExtractorResponse(
+                current_location_name=current_location,
+                exits=exits[:10],  # Limit to prevent excessive data
+                visible_objects=objects[:20],  # Limit to prevent excessive data  
+                visible_characters=characters,
+                important_messages=messages,
+                in_combat=in_combat,
+                score=structured_info.get("score"),
+                moves=structured_info.get("moves")
+            )
+            
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"Failed to extract partial info: {e}", extra={
                     "episode_id": self.episode_id
                 })
             return None
