@@ -48,6 +48,7 @@ def main():
         print(f"Using S3 prefix from config: {S3_PREFIX}")
     
     # Create generator
+    print(f"Initializing generator with S3 prefix: '{S3_PREFIX}'")
     generator = EpisodeIndexGenerator(
         s3_bucket=S3_BUCKET,
         s3_key_prefix=S3_PREFIX,

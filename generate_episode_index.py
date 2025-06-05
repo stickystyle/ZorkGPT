@@ -341,6 +341,9 @@ class EpisodeIndexGenerator:
         try:
             # Prepare the full S3 key
             full_s3_key = f"{self.s3_key_prefix}{s3_key}"
+            print(f"S3 key prefix: '{self.s3_key_prefix}'")
+            print(f"S3 key: '{s3_key}'")
+            print(f"Full S3 key: '{full_s3_key}'")
             
             # Convert index to JSON string
             index_json = json.dumps(index, indent=2, default=str)
