@@ -684,6 +684,24 @@
             text-align: center;
             margin: 5px 0;
         }
+
+        /* Style for the episode dropdown itself */
+        #episode-dropdown {
+            min-width: 200px; /* Ensure it's wide enough */
+            box-shadow: 0 2px 5px rgba(0,0,0,0.15);
+            border-radius: 4px;
+        }
+
+        #episode-dropdown a {
+            white-space: nowrap;
+        }
+
+        #episode-dropdown span { /* For messages like 'Loading...' or 'No episodes' */
+            display: block;
+            padding: 5px;
+            color: #777;
+            font-style: italic;
+        }
     </style>
 </head>
 <body>
@@ -705,7 +723,11 @@
             </div>
             <div class="info-grid">
                 <div class="info-item">
-                    <strong>Episode:</strong> <span id="episode-id">Loading...</span>
+                    <strong>Episode:</strong>
+                    <span id="episode-id" style="cursor: pointer; text-decoration: underline; color: #007bff;">Loading...</span>
+                    <div id="episode-dropdown" style="display: none; position: absolute; background-color: white; border: 1px solid #ccc; padding: 10px; z-index: 100; max-height: 200px; overflow-y: auto;">
+                        <!-- Episode links will be populated here -->
+                    </div>
                 </div>
                 <div class="info-item">
                     <strong>Turn:</strong> <span id="turn-count">-</span> / <span id="max-turns">-</span>
@@ -858,6 +880,9 @@
                 htmlLabels: true
             }
         });
+
+        // Configuration
+        const LIST_EPISODES_API_ENDPOINT = 'https://abcdef1234.execute-api.us-east-1.amazonaws.com/prod/episodes';
 
         // Historical Data Manager for lazy-loading turn snapshots
         // IMPORTANT: Each turn_X.json contains a complete snapshot with recent_log containing multiple turns
@@ -1102,12 +1127,205 @@
                 this.displayedLogCount = 20; // Initially show 20 entries
                 this.isLoadingHistorical = false;
                 this.earliestLoadedTurn = null;
+
+                // S3 and API endpoint configurations
+                this.s3BaseUrl = 'https://my-zorkgpt-data-bucket.s3.us-east-1.amazonaws.com';
+                this.s3KeyPrefix = 'zorkgpt_data/'; // Should match orchestrator and lambda
+
+                // New properties for episode selection
+                this.listEpisodesApiEndpoint = LIST_EPISODES_API_ENDPOINT; // Use the constant
+                this.allEpisodeIds = [];
+                this.currentSelectedEpisodeId = null; // To track which episode's data is loaded
+                this.liveEpisodeId = null; // To store the ID of the initially loaded live episode
+
+                this.startPolling(); // Existing call
+                this.silentlyFetchInitialEpisodeList(); // New call
+                this.setupEpisodeSelection(); // New call
+            }
+
+            async silentlyFetchInitialEpisodeList() {
+                try {
+                    const response = await fetch(this.listEpisodesApiEndpoint);
+                    if (!response.ok) {
+                        console.warn('Silently failed to fetch initial episode list:', response.status);
+                        // Optionally update a status somewhere or just fail silently
+                        const dropdown = document.getElementById('episode-dropdown');
+                        if(dropdown) dropdown.innerHTML = '<span>Failed to load episode list. Click Episode ID to retry.</span>';
+                        return;
+                    }
+                    const data = await response.json();
+                    this.allEpisodeIds = data.episodes || [];
+                    this.allEpisodeIds.sort().reverse(); // Sort, newest first
+                    console.log('Initial episode list fetched:', this.allEpisodeIds);
+                } catch (error) {
+                    console.warn('Error silently fetching initial episode list:', error);
+                    const dropdown = document.getElementById('episode-dropdown');
+                    if(dropdown) dropdown.innerHTML = '<span>Error fetching episodes. Click Episode ID to retry.</span>';
+                }
+            }
+
+            async fetchEpisodeListAndDisplayDropdown() {
+                const dropdown = document.getElementById('episode-dropdown');
+                if (!dropdown) return;
+                dropdown.innerHTML = '<span>Loading episodes...</span>'; // Loading indicator
+
+                try {
+                    const response = await fetch(this.listEpisodesApiEndpoint);
+                    if (!response.ok) {
+                        console.error('Failed to fetch episode list:', response.status);
+                        if(dropdown) dropdown.innerHTML = '<span>Error loading episodes.</span>';
+                        return;
+                    }
+                    const data = await response.json();
+                    this.allEpisodeIds = data.episodes || [];
+                    this.allEpisodeIds.sort().reverse(); // Sort, newest first
+                    this.populateEpisodeDropdown(this.allEpisodeIds);
+                } catch (error) {
+                    console.error('Error fetching episode list:', error);
+                    if(dropdown) dropdown.innerHTML = '<span>Error loading episodes.</span>';
+                }
+            }
+
+            populateEpisodeDropdown(episodeIds) {
+                const dropdown = document.getElementById('episode-dropdown');
+                if (!dropdown) return;
+                dropdown.innerHTML = ''; // Clear existing items
+
+                if (episodeIds.length === 0) {
+                    dropdown.innerHTML = '<span>No other episodes found.</span>';
+                    return;
+                }
+
+                // Ensure liveEpisodeId is set if not already
+                if (!this.liveEpisodeId && this.currentState && this.currentState.metadata) {
+                   this.liveEpisodeId = this.currentState.metadata.episode_id;
+                }
+
+
+                episodeIds.forEach(id => {
+                    const link = document.createElement('a');
+                    link.href = '#';
+                    let label = id;
+                    if (id === this.liveEpisodeId) {
+                        label += ' (Live)';
+                    } else if (id === this.currentSelectedEpisodeId) {
+                        label += ' (Current)';
+                    }
+
+                    link.textContent = label;
+                    link.style.display = 'block';
+                    link.style.padding = '5px';
+                    link.style.textDecoration = 'none';
+                    link.style.color = '#333';
+                    link.onmouseover = () => link.style.backgroundColor = '#f0f0f0';
+                    link.onmouseout = () => link.style.backgroundColor = 'white';
+                    link.onclick = (e) => {
+                        e.preventDefault();
+                        // Only load if different from the currently displayed episode data source
+                        if (id !== this.currentSelectedEpisodeId) {
+                            this.loadEpisode(id);
+                        }
+                        dropdown.style.display = 'none';
+                    };
+                    dropdown.appendChild(link);
+                });
+            }
+
+            setupEpisodeSelection() {
+                const episodeIdElement = document.getElementById('episode-id');
+                const episodeDropdownElement = document.getElementById('episode-dropdown');
+
+                if (episodeIdElement && episodeDropdownElement) {
+                    episodeIdElement.addEventListener('click', () => {
+                        if (episodeDropdownElement.style.display === 'none') {
+                            this.fetchEpisodeListAndDisplayDropdown();
+                            episodeDropdownElement.style.display = 'block';
+                        } else {
+                            episodeDropdownElement.style.display = 'none';
+                        }
+                    });
+
+                    document.addEventListener('click', (event) => {
+                        if (!episodeIdElement.contains(event.target) && !episodeDropdownElement.contains(event.target)) {
+                            episodeDropdownElement.style.display = 'none';
+                        }
+                    });
+                }
+            }
+
+            async loadEpisode(episodeId) {
+                console.log(`Attempting to load episode: ${episodeId}`);
+                document.getElementById('episode-id').textContent = episodeId + " (Loading...)";
+
+                // 1. Clear Current State & UI
+                this.currentState = null;
+                this.allLogEntries = []; // Will be repopulated by historical data manager
+                this.displayedLogCount = 20;
+                this.earliestLoadedTurn = null; // Reset for historical manager
+                this.lastLogCount = 0;
+                // Any other specific state tied to a single episode view
                 
-                this.startPolling();
+                const logContainer = document.getElementById('recent-log');
+                if (logContainer) logContainer.innerHTML = '<div class="loading">Loading episode log...</div>';
+                const mapContainer = document.getElementById('map-diagram');
+                if (mapContainer) mapContainer.innerHTML = '<div class="loading">Loading map...</div>';
+                const objectivesContainer = document.getElementById('objectives-content');
+                if (objectivesContainer) objectivesContainer.innerHTML = '<div class="loading">Loading objectives...</div>';
+                const knowledgeContainer = document.getElementById('knowledge-content');
+                if (knowledgeContainer) knowledgeContainer.innerHTML = '<div class="loading">Loading knowledge base...</div>';
+                // Reset info fields that are not episode ID
+                document.getElementById('turn-count').textContent = "-";
+                document.getElementById('max-turns').textContent = "-";
+                document.getElementById('score').textContent = "-";
+                document.getElementById('location').textContent = "-";
+                document.getElementById('inventory').textContent = "-";
+                document.getElementById('death-count').textContent = "0";
+
+
+                // 2. Update Episode ID Tracking
+                this.currentSelectedEpisodeId = episodeId;
+
+                // 3. Initialize HistoricalDataManager for the new episode
+                const s3FullPath = this.s3BaseUrl.endsWith('/') ? this.s3BaseUrl + this.s3KeyPrefix : this.s3BaseUrl + '/' + this.s3KeyPrefix;
+                this.historicalDataManager = new HistoricalDataManager(s3FullPath, episodeId);
+                this.historicalDataManager.invalidateCache(); // Clear any cache from previous episode
+
+                // 4. Fetch Initial State for Selected Episode (e.g., a very early turn snapshot)
+                try {
+                    // Attempt to load turn 1 (or a known early turn) to get initial metadata and state
+                    let initialSnapshot = await this.historicalDataManager.fetchSnapshot(episodeId, 1);
+
+                    if (!initialSnapshot) {
+                        console.warn(`Snapshot turn_1 not found for ${episodeId}.`);
+                         throw new Error("Could not load initial snapshot for episode (turn_1 missing).");
+                    }
+
+                    this.currentState = initialSnapshot;
+
+                    if (this.currentState.recent_log) {
+                         this.historicalDataManager.extractTurnsFromSnapshot(this.currentState, this.currentState.recent_log.map(entry => entry.turn));
+                    }
+
+                    this.updateUI();
+                    this.updateGameInfo();
+                    this.updateRecentLog();
+
+                } catch (error) {
+                    console.error(`Failed to load episode ${episodeId}:`, error);
+                    document.getElementById('episode-id').textContent = episodeId + " (Error)";
+                    if (logContainer) logContainer.innerHTML = `<div class="error-message">Error loading episode ${episodeId}: ${error.message}</div>`;
+                }
             }
             
             async fetchCurrentState() {
                 try {
+                    // If a historical episode is selected, don't poll for live state.
+                    // The only exception is if the user selects the "live" episode again.
+                    if (this.currentSelectedEpisodeId && this.currentSelectedEpisodeId !== this.liveEpisodeId) {
+                        // console.log(`Polling skipped for historical episode: ${this.currentSelectedEpisodeId}`);
+                        return;
+                    }
+
                     const response = await fetch(this.stateUrl);
                     if (response.ok) {
                         const newState = await response.json();
@@ -1119,7 +1337,17 @@
                         if (!this.currentState || 
                             this.currentState.metadata.turn_count !== newState.metadata.turn_count ||
                             this.currentState.metadata.timestamp !== newState.metadata.timestamp) {
+
                             this.currentState = newState;
+
+                            // Store the live episode ID when it's first loaded
+                            if (!this.liveEpisodeId) {
+                                this.liveEpisodeId = newState.metadata.episode_id;
+                                // If currentSelectedEpisodeId hasn't been set by user action, it's the live one
+                                if (!this.currentSelectedEpisodeId) {
+                                    this.currentSelectedEpisodeId = this.liveEpisodeId;
+                                }
+                            }
                             this.updateUI();
                         }
                         
@@ -1234,7 +1462,21 @@
                 const meta = this.currentState.metadata;
                 const current = this.currentState.current_state;
                 
-                document.getElementById('episode-id').textContent = meta.episode_id;
+                // Update episode ID display, potentially indicating if it's live or selected historical
+                let episodeDisplayText = meta.episode_id || 'N/A';
+                if (this.currentSelectedEpisodeId) {
+                    episodeDisplayText = this.currentSelectedEpisodeId;
+                    if (this.liveEpisodeId && this.currentSelectedEpisodeId === this.liveEpisodeId) {
+                        episodeDisplayText += " (Live)";
+                    } else if (this.liveEpisodeId && this.currentSelectedEpisodeId !== this.liveEpisodeId) {
+                         episodeDisplayText += " (Historical)";
+                    }
+                }
+                document.getElementById('episode-id').style.color = '#007bff'; // Ensure clickable style if not already set
+                document.getElementById('episode-id').style.textDecoration = 'underline';
+                document.getElementById('episode-id').style.cursor = 'pointer';
+                document.getElementById('episode-id').textContent = episodeDisplayText;
+
                 document.getElementById('turn-count').textContent = meta.turn_count;
                 document.getElementById('max-turns').textContent = meta.max_turns;
                 document.getElementById('score').textContent = meta.score;

@@ -14,6 +14,8 @@ from aws_cdk import (
     aws_route53 as route53,
     aws_route53_targets as targets,
     aws_certificatemanager as acm,
+    aws_lambda as _lambda,
+    aws_apigateway as apigw,
     Duration,
     RemovalPolicy,
     CfnOutput,
@@ -56,8 +58,8 @@ class ZorkGPTViewerStack(Stack):
             cors=[
                 s3.CorsRule(
                     allowed_methods=[s3.HttpMethods.GET, s3.HttpMethods.HEAD],
-                    allowed_origins=["*"],
-                    allowed_headers=["*"],
+                    allowed_origins=["https://zorkgpt.com", "https://www.zorkgpt.com"],
+                    allowed_headers=["*"], # Consider restricting if specific headers are known
                     max_age=3600,
                 )
             ],
@@ -778,4 +780,61 @@ Status Alarm: {status_alarm.alarm_name}""",
             "CloudWatchDashboard",
             value=f"https://console.aws.amazon.com/cloudwatch/home?region={self.region}#alarmsV2:alarm/{cpu_alarm.alarm_name}",
             description="CloudWatch console URL to view alarms and metrics",
+        )
+
+        # Lambda function and API Gateway for listing episodes
+
+        # Define the S3 key prefix for ZorkGPT data, if not defined elsewhere
+        # The Lambda will append 'snapshots/' to this prefix
+        s3_key_prefix = "zorkgpt_data/" # Or fetch from context/config if preferred
+
+        list_episodes_lambda = _lambda.Function(
+            self,
+            "ListEpisodesFunction",
+            runtime=_lambda.Runtime.PYTHON_3_9,
+            code=_lambda.Code.from_asset("infrastructure/lambda"),
+            handler="list_episodes.handler",
+            environment={
+                "S3_BUCKET_NAME": self.bucket.bucket_name,
+                "S3_KEY_PREFIX": s3_key_prefix  # Pass the base prefix
+            },
+            timeout=Duration.seconds(30)
+        )
+
+        # Grant the Lambda function permissions to list parts of the bucket
+        # s3:ListBucket is required on the bucket resource, with prefix condition
+        list_episodes_lambda.add_to_role_policy(iam.PolicyStatement(
+            actions=["s3:ListBucket"],
+            resources=[self.bucket.bucket_arn],
+            conditions={
+                "StringLike": {"s3:prefix": [f"{s3_key_prefix}snapshots/", f"{s3_key_prefix}snapshots/*"]}
+            }
+        ))
+        # If objects themselves were to be read, grant_read on specific objects:
+        # self.bucket.grant_read(list_episodes_lambda, objects_key_pattern=f"{s3_key_prefix}snapshots/*")
+
+
+        api = apigw.LambdaRestApi(
+            self,
+            "ListEpisodesApi",
+            handler=list_episodes_lambda,
+            proxy=False,
+            default_cors_preflight_options=apigw.CorsOptions(
+                allow_origins=["https://zorkgpt.com", "https://www.zorkgpt.com"], # MODIFIED LINE
+                allow_methods=apigw.Cors.ALL_METHODS, # Or be more specific like [apigw.HttpMethod.GET, apigw.HttpMethod.OPTIONS]
+                allow_headers=['Content-Type', 'X-Amz-Date', 'Authorization', 'X-Api-Key', 'X-Amz-Security-Token'] # Consider if all are needed
+            )
+        )
+
+        episodes_resource = api.root.add_resource("episodes")
+        episodes_resource.add_method(
+            "GET",
+            # Add authorizer if needed later
+        )
+
+        CfnOutput(
+            self,
+            "ListEpisodesApiEndpoint",
+            value=api.url,
+            description="API Gateway endpoint for listing ZorkGPT episodes"
         )
