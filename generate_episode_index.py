@@ -32,12 +32,20 @@ class EpisodeIndexGenerator:
         self.local_snapshots_dir = local_snapshots_dir
         self.s3_client = None
         
+        print(f"S3_AVAILABLE: {S3_AVAILABLE}")
+        print(f"s3_bucket provided: {s3_bucket}")
+        
         if S3_AVAILABLE and s3_bucket:
             try:
                 self.s3_client = boto3.client("s3")
                 print(f"S3 client initialized for bucket: {s3_bucket}")
             except Exception as e:
                 print(f"Failed to initialize S3 client: {e}")
+        else:
+            if not S3_AVAILABLE:
+                print("boto3 not available - S3 scanning disabled")
+            if not s3_bucket:
+                print("No S3 bucket specified - S3 scanning disabled")
     
     def generate_index(self) -> Dict[str, Any]:
         """Generate episode index from available sources."""
@@ -63,6 +71,10 @@ class EpisodeIndexGenerator:
         unique_episodes = self._deduplicate_episodes(episodes)
         unique_episodes.sort(key=lambda x: x['start_time'], reverse=True)
         
+        # Mark only the most recent episode as not game over (current episode)
+        if unique_episodes:
+            unique_episodes[0]['game_over'] = False
+        
         # Generate index
         index = {
             "generated_at": datetime.now().isoformat(),
@@ -80,15 +92,22 @@ class EpisodeIndexGenerator:
         try:
             # List objects in the snapshots prefix
             snapshots_prefix = f"{self.s3_key_prefix}snapshots/"
+            print(f"Scanning S3 with prefix: {snapshots_prefix}")
             
             paginator = self.s3_client.get_paginator('list_objects_v2')
             pages = paginator.paginate(Bucket=self.s3_bucket, Prefix=snapshots_prefix)
             
             episode_dirs = set()
+            total_objects = 0
             
             for page in pages:
                 if 'Contents' not in page:
+                    print("No contents in this page")
                     continue
+                
+                page_objects = len(page['Contents'])
+                total_objects += page_objects
+                print(f"Processing page with {page_objects} objects")
                     
                 for obj in page['Contents']:
                     key = obj['Key']
@@ -99,12 +118,20 @@ class EpisodeIndexGenerator:
                         episode_id = match.group(1)
                         turn_num = int(match.group(2))
                         episode_dirs.add(episode_id)
+                        print(f"Found episode: {episode_id}, turn: {turn_num}")
+            
+            print(f"Total objects scanned: {total_objects}")
+            print(f"Episode directories found: {len(episode_dirs)}")
             
             # For each episode, get metadata from the first and last snapshots
             for episode_id in episode_dirs:
+                print(f"Getting info for episode: {episode_id}")
                 episode_info = self._get_s3_episode_info(episode_id)
                 if episode_info:
                     episodes.append(episode_info)
+                    print(f"Successfully added episode: {episode_id}")
+                else:
+                    print(f"Failed to get info for episode: {episode_id}")
                     
         except Exception as e:
             print(f"Error scanning S3 episodes: {e}")
@@ -116,27 +143,26 @@ class EpisodeIndexGenerator:
         try:
             episode_prefix = f"{self.s3_key_prefix}snapshots/{episode_id}/"
             
-            # List all snapshots for this episode
-            response = self.s3_client.list_objects_v2(
-                Bucket=self.s3_bucket,
-                Prefix=episode_prefix
-            )
-            
-            if 'Contents' not in response:
-                return None
+            # List all snapshots for this episode using pagination
+            paginator = self.s3_client.get_paginator('list_objects_v2')
+            pages = paginator.paginate(Bucket=self.s3_bucket, Prefix=episode_prefix)
             
             # Find turn files and extract turn numbers
             turn_files = []
-            for obj in response['Contents']:
-                key = obj['Key']
-                match = re.search(r'turn_(\d+)\.json$', key)
-                if match:
-                    turn_num = int(match.group(1))
-                    turn_files.append({
-                        'turn': turn_num,
-                        'key': key,
-                        'last_modified': obj['LastModified']
-                    })
+            for page in pages:
+                if 'Contents' not in page:
+                    continue
+                    
+                for obj in page['Contents']:
+                    key = obj['Key']
+                    match = re.search(r'turn_(\d+)\.json$', key)
+                    if match:
+                        turn_num = int(match.group(1))
+                        turn_files.append({
+                            'turn': turn_num,
+                            'key': key,
+                            'last_modified': obj['LastModified']
+                        })
             
             if not turn_files:
                 return None
@@ -163,7 +189,7 @@ class EpisodeIndexGenerator:
                 "end_time": last_snapshot.get('metadata', {}).get('timestamp', ''),
                 "total_turns": last_snapshot.get('metadata', {}).get('turn_count', len(turn_files)),
                 "final_score": last_snapshot.get('metadata', {}).get('score', 0),
-                "game_over": last_snapshot.get('metadata', {}).get('game_over', False),
+                "game_over": True,  # Will be set to False for current episode later
                 "death_count": last_snapshot.get('current_state', {}).get('death_count', 0),
                 "models": last_snapshot.get('metadata', {}).get('models', {}),
                 "snapshot_count": len(turn_files),
@@ -246,7 +272,7 @@ class EpisodeIndexGenerator:
                 "end_time": last_snapshot.get('metadata', {}).get('timestamp', ''),
                 "total_turns": last_snapshot.get('metadata', {}).get('turn_count', len(turn_info)),
                 "final_score": last_snapshot.get('metadata', {}).get('score', 0),
-                "game_over": last_snapshot.get('metadata', {}).get('game_over', False),
+                "game_over": True,  # Will be set to False for current episode later
                 "death_count": last_snapshot.get('current_state', {}).get('death_count', 0),
                 "models": last_snapshot.get('metadata', {}).get('models', {}),
                 "snapshot_count": len(turn_info),
