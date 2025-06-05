@@ -1407,7 +1407,15 @@
                 const meta = this.currentState.metadata;
                 const current = this.currentState.current_state;
                 
-                document.getElementById('episode-id').textContent = meta.episode_id;
+                // Update episode ID display - only add "Historical" suffix if we're actually viewing a historical episode
+                const episodeIdElement = document.getElementById('episode-id');
+                if (this.isViewingHistoricalEpisode) {
+                    episodeIdElement.textContent = `${meta.episode_id} (Historical)`;
+                    episodeIdElement.style.color = '#ff9800'; // Orange for historical
+                } else {
+                    episodeIdElement.textContent = meta.episode_id;
+                    episodeIdElement.style.color = '#007bff'; // Blue for live
+                }
                 document.getElementById('turn-count').textContent = meta.turn_count;
                 document.getElementById('max-turns').textContent = meta.max_turns;
                 document.getElementById('score').textContent = meta.score;
@@ -2130,13 +2138,6 @@
                     
                     // Update UI
                     this.updateUI();
-                    
-                    // Update episode ID display to show it's historical
-                    const episodeIdElement = document.getElementById('episode-id');
-                    if (episodeIdElement) {
-                        episodeIdElement.textContent = `${episodeInfo.episode_id} (Historical)`;
-                        episodeIdElement.style.color = '#ff9800'; // Orange to indicate historical
-                    }
 
                     console.log('Historical episode loaded successfully');
 
@@ -2152,10 +2153,17 @@
                 this.isViewingHistoricalEpisode = false;
                 this.currentEpisodeId = null;
                 
-                // Reset episode ID display style
+                // Reset historical data
+                this.historicalDataManager = null;
+                this.allLogEntries = [];
+                this.displayedLogCount = 20;
+                this.earliestLoadedTurn = null;
+                
+                // Reset episode ID display style and text
                 const episodeIdElement = document.getElementById('episode-id');
                 if (episodeIdElement) {
                     episodeIdElement.style.color = '#007bff'; // Back to blue
+                    episodeIdElement.textContent = 'Loading...'; // Reset text, will be updated by fetchCurrentState
                 }
                 
                 // Force refresh of current state
