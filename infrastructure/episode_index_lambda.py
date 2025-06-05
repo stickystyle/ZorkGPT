@@ -31,9 +31,12 @@ def lambda_handler(event, context):
         # Get bucket name from environment or event
         bucket_name = event.get('queryStringParameters', {}).get('bucket') if event.get('queryStringParameters') else None
         if not bucket_name:
-            bucket_name = context.get('bucket_name') or 'zorkgpt-viewer-bucket'
+            bucket_name = os.environ.get('BUCKET_NAME', 'zorkgpt-viewer-bucket')
         
         logger.info(f"Generating episode index for bucket: {bucket_name}")
+        
+        # Determine allowed origin based on request
+        allowed_origin = get_allowed_origin(event)
         
         # Get episode list from S3
         episodes = get_episode_list(bucket_name)
@@ -49,7 +52,9 @@ def lambda_handler(event, context):
             'statusCode': 200,
             'headers': {
                 'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Origin': allowed_origin,
+                'Access-Control-Allow-Methods': 'GET, OPTIONS',
+                'Access-Control-Allow-Headers': 'Content-Type, Authorization, Cache-Control',
                 'Cache-Control': 'max-age=300'  # Cache for 5 minutes
             },
             'body': json.dumps(response_body)
@@ -57,17 +62,60 @@ def lambda_handler(event, context):
         
     except Exception as e:
         logger.error(f"Error generating episode index: {str(e)}")
+        allowed_origin = get_allowed_origin(event)
         return {
             'statusCode': 500,
             'headers': {
                 'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*'
+                'Access-Control-Allow-Origin': allowed_origin,
+                'Access-Control-Allow-Methods': 'GET, OPTIONS',
+                'Access-Control-Allow-Headers': 'Content-Type, Authorization, Cache-Control'
             },
             'body': json.dumps({
                 'error': 'Internal server error',
                 'message': str(e)
             })
         }
+
+
+def get_allowed_origin(event):
+    """
+    Determine the allowed CORS origin based on the request.
+    
+    Args:
+        event: Lambda event object
+        
+    Returns:
+        str: Allowed origin URL or '*' as fallback
+    """
+    # Get the origin from the request headers
+    headers = event.get('headers', {})
+    origin = headers.get('Origin') or headers.get('origin')
+    
+    # Define allowed origins
+    allowed_origins = [
+        'https://zorkgpt.com',
+        'https://www.zorkgpt.com',
+        # CloudFront distribution domain will be dynamically determined
+        # or we can add it via environment variable if needed
+    ]
+    
+    # Add CloudFront distribution domain from environment if available
+    cloudfront_domain = os.environ.get('CLOUDFRONT_DOMAIN')
+    if cloudfront_domain:
+        allowed_origins.append(f'https://{cloudfront_domain}')
+    
+    # Check if the origin is in our allowed list
+    if origin and origin in allowed_origins:
+        return origin
+    
+    # For development/testing, allow localhost
+    if origin and ('localhost' in origin or '127.0.0.1' in origin):
+        logger.info(f"Allowing localhost origin for development: {origin}")
+        return origin
+    
+    # Default to the primary domain
+    return 'https://zorkgpt.com'
 
 
 def get_episode_list(bucket_name: str) -> List[Dict[str, Any]]:

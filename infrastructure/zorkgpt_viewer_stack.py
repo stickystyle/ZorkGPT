@@ -191,7 +191,8 @@ class ZorkGPTViewerStack(Stack):
             timeout=Duration.seconds(30),
             memory_size=256,
             environment={
-                "BUCKET_NAME": self.bucket.bucket_name
+                "BUCKET_NAME": self.bucket.bucket_name,
+                "CLOUDFRONT_DOMAIN": self.distribution.distribution_domain_name
             }
         )
 
@@ -205,9 +206,13 @@ class ZorkGPTViewerStack(Stack):
             rest_api_name="ZorkGPT Episode Index API",
             description="API for retrieving ZorkGPT episode history",
             default_cors_preflight_options=apigateway.CorsOptions(
-                allow_origins=apigateway.Cors.ALL_ORIGINS,
-                allow_methods=apigateway.Cors.ALL_METHODS,
-                allow_headers=["Content-Type", "Authorization"]
+                allow_origins=[
+                    f"https://{domain_name}",
+                    f"https://www.{domain_name}",
+                    f"https://{self.distribution.distribution_domain_name}"
+                ],
+                allow_methods=["GET", "OPTIONS"],
+                allow_headers=["Content-Type", "Authorization", "Cache-Control"]
             )
         )
 
