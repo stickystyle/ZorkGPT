@@ -63,7 +63,7 @@ class CriticTrustTracker:
 
 
 class ActionRejectionSystem:
-    """Handles action rejection with override mechanisms."""
+    """Handles action rejection with enhanced override mechanisms using combined heuristics."""
 
     def __init__(self):
         self.rejected_actions_this_turn = []
@@ -73,26 +73,219 @@ class ActionRejectionSystem:
     def should_override_rejection(
         self, action: str, current_location: str, failed_actions: set, context: dict
     ) -> Tuple[bool, str]:
-        """Determine if a critic rejection should be overridden."""
+        """
+        Determine if a critic rejection should be overridden using enhanced heuristics.
+        
+        This method combines multiple signals to distinguish between:
+        - Productive exploration (allow to continue)
+        - True loops/stagnation (trigger override)
+        """
 
-        # NEVER override if this action already failed at this location
+        # 1. NEVER override if this action already failed at this location
         if action.lower() in failed_actions:
             return False, None
 
-        # Detect location-specific loops (like up/down tree pattern)
-        # recent_locations = context.get("recent_locations", [])
-        # if len(recent_locations) >= 6:
-        #     # Check for alternating between 2 locations (like "Forest Path" <-> "Up A Tree")
-        #     unique_recent_locations = list(set(recent_locations[-6:]))
-        #     if len(unique_recent_locations) <= 2:
-        #         # Agent is stuck bouncing between 1-2 locations
-        #         return True, "location_loop_detected"
-        
-        # Enhanced stuck detection: lower threshold for override when in specific problem patterns
-        turns_without_progress = context.get("turns_since_movement", 0)
+        # Extract context data
+        recent_locations = context.get("recent_locations", [])
         recent_actions = context.get("recent_actions", [])
+        previous_actions_and_responses = context.get("previous_actions_and_responses", [])
+        turns_without_progress = context.get("turns_since_movement", 0)
+        
+        # 2. Quick check: not enough data for meaningful analysis
+        if len(recent_locations) < 6:
+            return self._check_other_override_conditions(action, context)
+            
+        # 3. Immediate action repetition (high priority detection)
+        if len(recent_actions) >= 3:
+            if len(set(recent_actions[-3:])) == 1:
+                return True, "immediate_repetition_detected"
+        
+        # 4. Enhanced location-based loop detection
+            unique_recent_locations = list(set(recent_locations[-6:]))
+            if len(unique_recent_locations) <= 2:
+            
+                # 4a. Calculate action diversity in recent location stays
+                recent_location_actions = recent_actions[-6:] if len(recent_actions) >= 6 else recent_actions
+                action_diversity = self._calculate_action_diversity(recent_location_actions)
+                
+                # 4b. Assess whether recent actions show meaningful progress
+                is_making_progress = self._assess_exploration_progress(previous_actions_and_responses[-6:])
+                
+                # 4c. Analyze location type for exploration appropriateness
+                location_context = self._analyze_location_type(current_location)
+                
+                # 4d. Decision matrix for location-based scenarios
+                if action_diversity < 0.3 and not is_making_progress:
+                    return True, "low_diversity_no_progress_loop"
+                elif action_diversity < 0.5 and not is_making_progress and turns_without_progress >= 4:
+                    # Broader threshold for low diversity + no progress with some movement stagnation
+                    return True, "low_diversity_no_progress_loop"
+                elif location_context == "simple" and len(recent_location_actions) > 4:
+                    return True, "over_exploring_simple_location"
+                elif not is_making_progress and turns_without_progress > 10:
+                    return True, "extended_stagnation_detected"
+                elif action_diversity < 0.4 and turns_without_progress > 6:
+                    return True, "repetitive_actions_no_movement"
+                
+                # 4e. If we're in a single location with good diversity and progress, allow continued exploration
+                # This prevents productive exploration from being flagged as problematic
+                if len(unique_recent_locations) == 1 and action_diversity >= 0.5 and is_making_progress:
+                    return False, None  # Explicitly allow productive single-location exploration
+        
+        # 5. Action cycling detection (bouncing between small set of actions)
+        if len(recent_actions) >= 8:
+            cycling_detected = self._detect_action_cycling(recent_actions[-8:])
+            if cycling_detected:
+                return True, "action_cycling_detected"
+        
+        # 6. Fall back to other override conditions for non-loop scenarios
+        return self._check_other_override_conditions(action, context)
 
-        # NEW: Override for systematic exploration of standard directions - RESTRICTIVE BUT TARGETED
+    def _calculate_action_diversity(self, actions: List[str]) -> float:
+        """
+        Calculate action diversity score based on variety of verbs and action categories.
+        
+        Returns:
+            float: Diversity score between 0.0 (no diversity) and 1.0 (high diversity)
+        """
+        if not actions:
+            return 1.0  # Default to high diversity with no data
+        
+        # Extract unique action verbs (first word of each action)
+        unique_verbs = set()
+        for action in actions:
+            verb = action.lower().split()[0] if action.strip() else ""
+            if verb:
+                unique_verbs.add(verb)
+        
+        # Calculate basic diversity ratio
+        verb_diversity = len(unique_verbs) / len(actions)
+        
+        # Bonus for using different categories of actions
+        exploration_verbs = {"look", "examine", "search", "inspect", "take", "get", "read"}
+        interaction_verbs = {"open", "close", "push", "pull", "touch", "use", "move", "turn"}
+        movement_verbs = {"go", "north", "south", "east", "west", "up", "down", "enter", "exit", "climb"}
+        
+        categories_used = set()
+        if any(verb in unique_verbs for verb in exploration_verbs):
+            categories_used.add("exploration")
+        if any(verb in unique_verbs for verb in interaction_verbs):
+            categories_used.add("interaction") 
+        if any(verb in unique_verbs for verb in movement_verbs):
+            categories_used.add("movement")
+        
+        # Category diversity bonus (up to 0.3 additional points)
+        category_bonus = len(categories_used) * 0.1
+        
+        return min(1.0, verb_diversity + category_bonus)
+
+    def _assess_exploration_progress(self, action_response_pairs: List[Tuple[str, str]]) -> bool:
+        """
+        Determine if recent actions show meaningful progress or discovery.
+        
+        Returns:
+            bool: True if making progress, False if stagnating
+        """
+        if len(action_response_pairs) < 2:
+            return True  # Assume progress with limited data
+        
+        recent_responses = [resp for _, resp in action_response_pairs]
+        
+        # Signs of meaningful progress/discovery
+        progress_indicators = [
+            "taken", "opened", "closed", "found", "see", "hear", "notice",
+            "score", "points", "new", "different", "reveals", "discover",
+            "inside", "contains", "appears", "seems", "looks like",
+            "successful", "works", "activates", "changes"
+        ]
+        
+        # Signs of stagnation or failure
+        stagnation_indicators = [
+            "can't go that way", "don't understand", "nothing happens",
+            "already", "can't see", "not here", "doesn't work",
+            "no way", "impossible", "can't do that", "too narrow",
+            "there is a wall", "blocked", "locked", "won't budge"
+        ]
+        
+        progress_count = 0
+        stagnation_count = 0
+        
+        for response in recent_responses:
+            response_lower = response.lower()
+            if any(indicator in response_lower for indicator in progress_indicators):
+                progress_count += 1
+            if any(indicator in response_lower for indicator in stagnation_indicators):
+                stagnation_count += 1
+        
+        # Consider progress if we have more positive than negative signals,
+        # or if we have any progress signals without excessive stagnation
+        return progress_count > stagnation_count or (progress_count > 0 and stagnation_count < len(recent_responses) * 0.7)
+
+    def _analyze_location_type(self, location_name: str) -> str:
+        """
+        Analyze location type to determine appropriate exploration duration.
+        
+        Returns:
+            str: "rich", "simple", or "neutral" indicating exploration appropriateness
+        """
+        if not location_name:
+            return "neutral"
+            
+        location_lower = location_name.lower()
+        
+        # Rich locations that merit extensive exploration
+        rich_indicators = [
+            "treasure", "chest", "vault", "chamber", "room", "office", "study", 
+            "kitchen", "bedroom", "library", "attic", "basement", "cellar",
+            "shop", "store", "museum", "gallery", "tower", "temple", "shrine"
+        ]
+        
+        # Simple locations that need minimal exploration
+        simple_indicators = [
+            "path", "trail", "road", "hallway", "corridor", "passage", 
+            "tunnel", "bridge", "stairs", "steps", "landing", "junction",
+            "crossroads", "intersection", "clearing", "field", "meadow"
+        ]
+        
+        if any(indicator in location_lower for indicator in rich_indicators):
+            return "rich"
+        elif any(indicator in location_lower for indicator in simple_indicators):
+            return "simple"
+        else:
+            return "neutral"
+
+    def _detect_action_cycling(self, recent_actions: List[str]) -> bool:
+        """
+        Detect if the agent is cycling between a small set of actions.
+        
+        Returns:
+            bool: True if cycling detected, False otherwise
+        """
+        if len(recent_actions) < 6:
+            return False
+            
+        # Check for alternating patterns (like A-B-A-B-A-B)
+        unique_actions = list(set(recent_actions))
+        
+        # Cycling: using only 2-3 unique actions across 6+ turns
+        if len(unique_actions) <= 3 and len(recent_actions) >= 6:
+            # Verify this is actually repetitive (not just similar actions with variety)
+            action_counts = {action: recent_actions.count(action) for action in unique_actions}
+            max_count = max(action_counts.values())
+            
+            # If any action appears more than half the time, it's likely cycling
+            if max_count > len(recent_actions) * 0.4:
+                return True
+                
+        return False
+
+    def _check_other_override_conditions(self, action: str, context: dict) -> Tuple[bool, str]:
+        """
+        Check non-loop override conditions (existing logic preserved).
+        """
+        turns_without_progress = context.get("turns_since_movement", 0)
+
+        # Override for systematic exploration of standard directions - RESTRICTIVE BUT TARGETED
         standard_directions = {
             "north", "south", "east", "west", "up", "down", 
             "northeast", "northwest", "southeast", "southwest", 
@@ -117,8 +310,9 @@ class ActionRejectionSystem:
                 return True, "exploration_stuck"
 
         # Override for novel non-movement actions (MUCH more restrictive)
+        failed_actions = context.get("failed_actions", set())
         if action.lower() not in failed_actions:
-            # NEW: Only override if critic confidence is low (if available)
+            # Only override if critic confidence is low (if available)
             critic_confidence = context.get("critic_confidence", 0.5)  # Default to low confidence
             if critic_confidence >= 0.8:  # Don't override confident rejections
                 return False, None
@@ -231,7 +425,9 @@ class ZorkCritic:
                     f.write("\n\n")
         except Exception as e:
             if self.logger:
-                self.logger.warning(f"Failed to log prompt to {filename}: {e}")
+                self.logger.warning(f"Failed to log prompt to {filename}: {e}", extra={
+                    "episode_id": self.episode_id
+                })
 
     def _load_system_prompt(self) -> None:
         """Load critic system prompt from markdown file."""
@@ -240,7 +436,9 @@ class ZorkCritic:
                 self.system_prompt = fh.read()
         except FileNotFoundError as e:
             if self.logger:
-                self.logger.error(f"Failed to load critic prompt file: {e}")
+                self.logger.error(f"Failed to load critic prompt file: {e}", extra={
+                    "episode_id": self.episode_id
+                })
             raise
 
     def evaluate_action(
@@ -352,14 +550,20 @@ Evaluate this action based on your criteria. Respond with ONLY a JSON object in 
                 return CriticResponse(**parsed_data)
             except Exception as e:
                 if self.logger:
-                    self.logger.error(f"Error parsing critic response: {e}")
-                    self.logger.error(f"Response content: {response_content}")
+                    self.logger.error(f"Error parsing critic response: {e}", extra={
+                        "episode_id": self.episode_id
+                    })
+                    self.logger.error(f"Response content: {response_content}", extra={
+                        "episode_id": self.episode_id
+                    })
                 return CriticResponse(
                     score=0.0, justification="Critic evaluation error (parsing)."
                 )
         except Exception as e:
             if self.logger:
-                self.logger.error(f"Error getting critic evaluation: {e}")
+                self.logger.error(f"Error getting critic evaluation: {e}", extra={
+                    "episode_id": self.episode_id
+                })
             return CriticResponse(
                 score=0.0, justification="Critic evaluation error (API)."
             )
@@ -415,12 +619,10 @@ Evaluate this action based on your criteria. Respond with ONLY a JSON object in 
                     self.logger.info(
                         f"High disagreement in critic evaluations (range: {score_range:.2f}), using most confident",
                         extra={
-                            "extras": {
-                                "event_type": "critic_consensus",
-                                "episode_id": self.episode_id,
-                                "score_range": score_range,
-                                "selected_confidence": best_eval.confidence,
-                            }
+                            "event_type": "critic_consensus",
+                            "episode_id": self.episode_id,
+                            "score_range": score_range,
+                            "selected_confidence": best_eval.confidence,
                         },
                     )
                 return best_eval

@@ -15,9 +15,18 @@ class JSONFormatter(logging.Formatter):
             "message": record.getMessage(),
         }
 
-        # Add extra fields if they exist
-        if hasattr(record, "extras"):
-            log_data.update(record.extras)
+        # Add any extra attributes that were passed via extra={}
+        # This excludes standard logging attributes
+        standard_attrs = {
+            'name', 'msg', 'args', 'levelname', 'levelno', 'pathname', 'filename',
+            'module', 'lineno', 'funcName', 'created', 'msecs', 'relativeCreated',
+            'thread', 'threadName', 'processName', 'process', 'message', 'exc_info',
+            'exc_text', 'stack_info', 'getMessage'
+        }
+        
+        for attr_name, attr_value in record.__dict__.items():
+            if attr_name not in standard_attrs and not attr_name.startswith('_'):
+                log_data[attr_name] = attr_value
 
         return json.dumps(log_data)
 
@@ -28,21 +37,21 @@ class HumanReadableFormatter(logging.Formatter):
     def format(self, record):
         message = record.getMessage()
 
-        # Format differently based on log extras
-        if hasattr(record, "extras"):
-            extras = record.extras
-            if "turn" in extras:
-                return f"\n--- Turn {extras['turn']} ---\n{message}"
-            elif "agent_action" in extras:
-                return f"Agent proposes: {extras['agent_action']}"
-            elif "critic_score" in extras and "critic_justification" in extras:
-                return f"Critic evaluation: Score={extras['critic_score']:.2f}, Justification='{extras['critic_justification']}'"
-            elif "zork_response" in extras:
-                return f"Zork response:\n{extras['zork_response']}"
-            elif "reward" in extras and "total_reward" in extras:
-                return f"Turn reward: {extras['reward']:.2f}, Total episode reward: {extras['total_reward']:.2f}"
-            elif "extracted_info" in extras:
-                info = extras["extracted_info"]
+        # Check for structured event types and format accordingly
+        if hasattr(record, "event_type"):
+            event_type = record.event_type
+            if event_type == "turn_start" and hasattr(record, "turn"):
+                return f"\n--- Turn {record.turn} ---\n{message}"
+            elif event_type == "agent_action" and hasattr(record, "agent_action"):
+                return f"Agent proposes: {record.agent_action}"
+            elif event_type == "critic_evaluation" and hasattr(record, "critic_score") and hasattr(record, "critic_justification"):
+                return f"Critic evaluation: Score={record.critic_score:.2f}, Justification='{record.critic_justification}'"
+            elif event_type == "zork_response" and hasattr(record, "zork_response"):
+                return f"Zork response:\n{record.zork_response}"
+            elif event_type == "reward" and hasattr(record, "reward") and hasattr(record, "total_reward"):
+                return f"Turn reward: {record.reward:.2f}, Total episode reward: {record.total_reward:.2f}"
+            elif event_type == "extracted_info" and hasattr(record, "extracted_info"):
+                info = record.extracted_info
                 return (
                     f"Extracted Info: Current Location='{info.get('current_location_name', 'Unknown')}' "
                     f"Exits='{', '.join(info.get('exits', []))}', "
@@ -50,6 +59,17 @@ class HumanReadableFormatter(logging.Formatter):
                     f"Visible Characters='{', '.join(info.get('visible_characters', []))}', "
                     f"Important Messages='{', '.join(info.get('important_messages', []))}'"
                 )
+
+        # Add episode_id and turn prefix if available as direct attributes
+        prefix_parts = []
+        if hasattr(record, "episode_id"):
+            prefix_parts.append(f"[{record.episode_id}]")
+        if hasattr(record, "turn"):
+            prefix_parts.append(f"Turn {record.turn}")
+        
+        if prefix_parts:
+            prefix = " ".join(prefix_parts) + ": "
+            return f"{prefix}{message}"
 
         # Default formatting
         return message

@@ -96,7 +96,9 @@ class ZorkAgent:
                     f.write("\n\n")
         except Exception as e:
             if self.logger:
-                self.logger.warning(f"Failed to log prompt to {filename}: {e}")
+                self.logger.warning(f"Failed to log prompt to {filename}: {e}", extra={
+                    "episode_id": self.episode_id
+                })
 
     def _load_system_prompt(self) -> None:
         """Load agent system prompt from markdown files and enhance with knowledge."""
@@ -110,7 +112,9 @@ class ZorkAgent:
 
         except FileNotFoundError as e:
             if self.logger:
-                self.logger.error(f"Failed to load agent prompt file: {e}")
+                self.logger.error(f"Failed to load agent prompt file: {e}", extra={
+                    "episode_id": self.episode_id
+                })
             raise
 
     def _enhance_prompt_with_knowledge(self, base_prompt: str) -> str:
@@ -219,52 +223,61 @@ The following strategic guide has been compiled from analyzing previous episodes
         messages.append({"role": "user", "content": user_content})
 
         try:
-            client_args = dict(
+            llm_response = self.client.chat.completions.create(
                 model=self.model,
                 messages=messages,
-                stop=None,
-                temperature=self.temperature,
-                top_p=self.top_p,
-                top_k=self.top_k,
-                min_p=self.min_p,
-                max_tokens=self.max_tokens,
+                **self.sampling_params.model_dump(exclude_unset=True),
+            )
+            action_response = llm_response.choices[0].message.content
+
+            # Log the response for debugging
+            self.logger.info(
+                f"Agent LLM response: {action_response}",
+                extra={
+                    "event_type": "agent_llm_response",
+                    "episode_id": self.episode_id,
+                    "llm_response": action_response,
+                    "model": self.model,
+                },
             )
 
-            response = self.client.chat.completions.create(**client_args)
-            action = response.content.strip()
+            # Simple parsing: extract action and reasoning from response
+            action, reasoning = self._parse_action_response(action_response)
 
-            # Clean up the action: remove any thinking
-            action = re.sub(r"<think>.*?</think>\s*", "", action, flags=re.DOTALL)
-            action = re.sub(r"<thinking>.*?</thinking>\s*", "", action, flags=re.DOTALL)
-            action = re.sub(
-                r"<reflection>.*?</reflection>\s*", "", action, flags=re.DOTALL
+            # Store the parsed response for evaluation
+            parsed_response = {"action": action, "reasoning": reasoning}
+
+            # Log the final parsed action
+            self.logger.info(
+                f"Agent action parsed: {action}",
+                extra={
+                    "event_type": "agent_action_parsed",
+                    "episode_id": self.episode_id,
+                    "action": action,
+                    "reasoning": reasoning,
+                },
             )
-            
-            # Remove any remaining markup tags (like <s>, </s>, etc.)
-            action = re.sub(r"<[^>]*>", "", action)
-            
-            # Remove backticks and other formatting
-            action = re.sub(r"`([^`]*)`", r"\1", action)  # Remove backticks but keep content
-            action = re.sub(r"```[^`]*```", "", action, flags=re.DOTALL)  # Remove code blocks
-            
-            # Basic cleaning: Zork commands are usually lowercase
-            action = action.lower().strip()
-            
-            # Remove any leading/trailing punctuation that might interfere
-            action = action.strip(".,!?;:")
 
-            # Validate action is not empty
-            if not action or action.isspace():
-                if self.logger:
-                    self.logger.warning(
-                        "Agent returned empty action, using 'look' as fallback"
-                    )
-                action = "look"
-            return action
+            # Store the full chain for token analysis
+            self.last_response_data = {
+                "messages": messages,
+                "response": action_response,
+                "parsed": parsed_response,
+            }
+
+            return parsed_response
+
         except Exception as e:
-            if self.logger:
-                self.logger.error(f"Error getting agent action: {e}")
-            return "look"  # Default safe action on error
+            self.logger.error(
+                f"Error getting agent action: {e}",
+                extra={
+                    "event_type": "agent_error",
+                    "episode_id": self.episode_id,
+                    "error": str(e),
+                },
+            )
+            # Return a fallback action - let the critic evaluate it
+            return {"action": "look", "reasoning": f"Error in action generation: {e}"}
 
     def get_action_with_reasoning(
         self,
@@ -345,13 +358,11 @@ The following strategic guide has been compiled from analyzing previous episodes
                 self.logger.info(
                     f"[DEBUG] Raw agent response:",
                     extra={
-                        "extras": {
-                            "event_type": "agent_raw_response_debug",
-                            "episode_id": self.episode_id,
-                            "model": self.model,
-                            "raw_response": raw_response,
-                            "raw_response_length": len(raw_response),
-                        }
+                        "event_type": "agent_raw_response_debug",
+                        "episode_id": self.episode_id,
+                        "model": self.model,
+                        "raw_response": raw_response,
+                        "raw_response_length": len(raw_response),
                     }
                 )
 
@@ -381,17 +392,15 @@ The following strategic guide has been compiled from analyzing previous episodes
                 self.logger.info(
                     f"[DEBUG] Reasoning extraction results:",
                     extra={
-                        "extras": {
-                            "event_type": "reasoning_extraction_debug",
-                            "episode_id": self.episode_id,
-                            "think_matches_count": len(think_matches),
-                            "thinking_matches_count": len(thinking_matches),
-                            "reflection_matches_count": len(reflection_matches),
-                            "total_reasoning_parts": len(reasoning_parts),
-                            "think_matches": think_matches,
-                            "thinking_matches": thinking_matches,
-                            "reflection_matches": reflection_matches,
-                        }
+                        "event_type": "reasoning_extraction_debug",
+                        "episode_id": self.episode_id,
+                        "think_matches_count": len(think_matches),
+                        "thinking_matches_count": len(thinking_matches),
+                        "reflection_matches_count": len(reflection_matches),
+                        "total_reasoning_parts": len(reasoning_parts),
+                        "think_matches": think_matches,
+                        "thinking_matches": thinking_matches,
+                        "reflection_matches": reflection_matches,
                     }
                 )
 
@@ -423,12 +432,10 @@ The following strategic guide has been compiled from analyzing previous episodes
                     self.logger.info(
                         f"[DEBUG] Fallback reasoning extraction:",
                         extra={
-                            "extras": {
-                                "event_type": "fallback_reasoning_debug",
-                                "episode_id": self.episode_id,
-                                "potential_reasoning_lines": potential_reasoning,
-                                "fallback_reasoning_count": len(potential_reasoning),
-                            }
+                            "event_type": "fallback_reasoning_debug",
+                            "episode_id": self.episode_id,
+                            "potential_reasoning_lines": potential_reasoning,
+                            "fallback_reasoning_count": len(potential_reasoning),
                         }
                     )
 
@@ -442,13 +449,11 @@ The following strategic guide has been compiled from analyzing previous episodes
                 self.logger.info(
                     f"[DEBUG] Final reasoning result:",
                     extra={
-                        "extras": {
-                            "event_type": "final_reasoning_debug",
-                            "episode_id": self.episode_id,
-                            "final_reasoning": reasoning,
-                            "final_reasoning_length": len(reasoning),
-                            "reasoning_is_none": reasoning is None or reasoning == "",
-                        }
+                        "event_type": "final_reasoning_debug",
+                        "episode_id": self.episode_id,
+                        "final_reasoning": reasoning,
+                        "final_reasoning_length": len(reasoning),
+                        "reasoning_is_none": reasoning is None or reasoning == "",
                     }
                 )
 
@@ -487,7 +492,9 @@ The following strategic guide has been compiled from analyzing previous episodes
             }
         except Exception as e:
             if self.logger:
-                self.logger.error(f"Error getting agent action: {e}")
+                self.logger.error(f"Error getting agent action: {e}", extra={
+                    "episode_id": self.episode_id
+                })
             return {
                 "action": "look",
                 "reasoning": None,
@@ -675,12 +682,10 @@ The following strategic guide has been compiled from analyzing previous episodes
                 self.logger.info(
                     f"Knowledge base reloaded successfully (prompt: {old_length} -> {new_length} chars)",
                     extra={
-                        "extras": {
-                            "event_type": "knowledge_base_reloaded",
-                            "episode_id": self.episode_id,
-                            "old_prompt_length": old_length,
-                            "new_prompt_length": new_length,
-                        }
+                        "event_type": "knowledge_base_reloaded",
+                        "episode_id": self.episode_id,
+                        "old_prompt_length": old_length,
+                        "new_prompt_length": new_length,
                     }
                 )
             
@@ -688,5 +693,7 @@ The following strategic guide has been compiled from analyzing previous episodes
             
         except Exception as e:
             if self.logger:
-                self.logger.warning(f"Failed to reload knowledge base: {e}")
+                self.logger.warning(f"Failed to reload knowledge base: {e}", extra={
+                    "episode_id": self.episode_id
+                })
             return False

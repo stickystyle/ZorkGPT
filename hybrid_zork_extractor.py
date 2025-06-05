@@ -138,7 +138,9 @@ class HybridZorkExtractor:
                     f.write("\n\n")
         except Exception as e:
             if self.logger:
-                self.logger.warning(f"Failed to log prompt to {filename}: {e}")
+                self.logger.warning(f"Failed to log prompt to {filename}: {e}", extra={
+                    "episode_id": self.episode_id
+                })
 
     def _load_system_prompt(self) -> None:
         """Load the system prompt for LLM extraction."""
@@ -212,7 +214,9 @@ Extract key information from the game text and return it as JSON with these fiel
             )
             
             if not llm_response:
-                self.logger.warning(f"[{self.episode_id}] LLM extraction returned empty response")
+                self.logger.warning(f"[{self.episode_id}] LLM extraction returned empty response", extra={
+                    "episode_id": self.episode_id
+                })
                 return self._create_fallback_response(clean_game_text, previous_location, structured_info)
             
             # Extract content from the response
@@ -229,15 +233,13 @@ Extract key information from the game text and return it as JSON with these fiel
                 self.logger.info(
                     f"[{self.episode_id}] Hybrid extraction successful: {parsed_response.current_location_name}",
                     extra={
-                        "extras": {
-                            "event_type": "hybrid_extraction_success",
-                            "episode_id": self.episode_id,
-                            "extracted_location": parsed_response.current_location_name,
-                            "location_changed": location_changed,
-                            "location_change_reason": location_change_reason,
-                            "structured_available": bool(structured_info.get("current_location_name")),
-                            "combat_state_transition": f"{self.previous_combat_state} -> {parsed_response.in_combat}",
-                        }
+                        "event_type": "hybrid_extraction_success",
+                        "episode_id": self.episode_id,
+                        "extracted_location": parsed_response.current_location_name,
+                        "location_changed": location_changed,
+                        "location_change_reason": location_change_reason,
+                        "structured_available": bool(structured_info.get("current_location_name")),
+                        "combat_state_transition": f"{self.previous_combat_state} -> {parsed_response.in_combat}",
                     }
                 )
                 
@@ -247,7 +249,9 @@ Extract key information from the game text and return it as JSON with these fiel
                 
                 return parsed_response
             else:
-                self.logger.warning(f"[{self.episode_id}] Failed to parse LLM extraction response")
+                self.logger.warning(f"[{self.episode_id}] Failed to parse LLM extraction response", extra={
+                    "episode_id": self.episode_id
+                })
                 fallback_response = self._create_fallback_response(clean_game_text, previous_location, structured_info)
                 
                 # Update previous state tracking even for fallback
@@ -257,7 +261,9 @@ Extract key information from the game text and return it as JSON with these fiel
                 return fallback_response
         
         except Exception as e:
-            self.logger.error(f"[{self.episode_id}] Extraction failed: {e}")
+            self.logger.error(f"[{self.episode_id}] Extraction failed: {e}", extra={
+                "episode_id": self.episode_id
+            })
             # Pass structured_info to fallback even on exception
             structured_info = self._extract_structured_info(game_text_from_zork)
             fallback_response = self._create_fallback_response(game_text_from_zork, previous_location, structured_info)
@@ -315,7 +321,9 @@ Extract key information from the game text and return it as JSON with these fiel
             
         except Exception as e:
             if self.logger:
-                self.logger.warning(f"[{self.episode_id}] Movement analysis failed: {e}")
+                self.logger.warning(f"[{self.episode_id}] Movement analysis failed: {e}", extra={
+                    "episode_id": self.episode_id
+                })
             # Fallback: assume no movement on error
             return False, f"Movement analysis error: {str(e)}"
 
@@ -380,8 +388,12 @@ Respond only with the JSON, no other text."""
                 
         except Exception as e:
             if self.logger:
-                self.logger.warning(f"[{self.episode_id}] Failed to parse movement analysis: {e}")
-                self.logger.warning(f"LLM response was: {llm_response}")
+                self.logger.warning(f"[{self.episode_id}] Failed to parse movement analysis: {e}", extra={
+                    "episode_id": self.episode_id
+                })
+                self.logger.warning(f"LLM response was: {llm_response}", extra={
+                    "episode_id": self.episode_id
+                })
             # Fallback: return the raw reason
             return False, f"Parse error: {llm_response[:100]}..."
 
@@ -445,8 +457,12 @@ Respond only with the JSON, no other text."""
 
         except Exception as e:
             if self.logger:
-                self.logger.error(f"Error parsing LLM extractor response: {e}")
-                self.logger.error(f"Response content: {llm_response}")
+                self.logger.error(f"Error parsing LLM extractor response: {e}", extra={
+                    "episode_id": self.episode_id
+                })
+                self.logger.error(f"Response content: {llm_response}", extra={
+                    "episode_id": self.episode_id
+                })
             return None
 
     def _enhance_with_structured_data(self, extracted_response: ExtractorResponse, structured_info: Dict) -> ExtractorResponse:
