@@ -159,13 +159,9 @@ class ZorkOrchestrator:
         if S3_AVAILABLE and self.s3_bucket:
             try:
                 self.s3_client = boto3.client("s3")
-                self.logger.info(f"S3 export enabled for bucket: {self.s3_bucket}", extra={
-                    "episode_id": self.episode_id
-                })
+                self.logger.info(f"S3 export enabled for bucket: {self.s3_bucket}")
             except Exception as e:
-                self.logger.warning(f"Failed to initialize S3 client: {e}", extra={
-                    "episode_id": self.episode_id
-                })
+                self.logger.warning(f"Failed to initialize S3 client: {e}")
 
         # Initialize LLM clients with model-specific base URLs
         # Agent client
