@@ -3,7 +3,9 @@
 Simple script to update the episode index for ZorkGPT viewer.
 
 This script can be run periodically (e.g., via cron) to keep the episode
-index up to date with new episodes.
+index up to date with new episodes. It generates an episodes.json file
+locally and uploads it to S3 if an S3 bucket is configured, making it
+available for the ZorkGPT viewer to fetch episode information.
 """
 
 import sys
@@ -58,11 +60,22 @@ def main():
         
         print(f"Found {index['total_episodes']} episodes")
         
-        # Save index
+        # Save index locally
         generator.save_index(index, OUTPUT_FILE)
         
+        # Upload to S3 if configured
+        if S3_BUCKET:
+            print("Uploading episode index to S3...")
+            upload_success = generator.upload_index_to_s3(index)
+            if upload_success:
+                print("Episode index uploaded to S3 successfully!")
+            else:
+                print("Warning: Failed to upload episode index to S3")
+        else:
+            print("No S3 bucket configured - skipping S3 upload")
+        
         print(f"Episode index updated successfully!")
-        print(f"Index file: {OUTPUT_FILE}")
+        print(f"Local index file: {OUTPUT_FILE}")
         
         if index['episodes']:
             print(f"Latest episode: {index['episodes'][0]['episode_id']}")

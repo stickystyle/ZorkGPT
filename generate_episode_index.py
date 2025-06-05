@@ -331,6 +331,34 @@ class EpisodeIndexGenerator:
             
         except Exception as e:
             print(f"Error saving episode index: {e}")
+    
+    def upload_index_to_s3(self, index: Dict[str, Any], s3_key: str = "episodes.json") -> bool:
+        """Upload the episode index to S3."""
+        if not self.s3_client or not self.s3_bucket:
+            print("S3 not configured - skipping S3 upload")
+            return False
+        
+        try:
+            # Prepare the full S3 key
+            full_s3_key = f"{self.s3_key_prefix}{s3_key}"
+            
+            # Convert index to JSON string
+            index_json = json.dumps(index, indent=2, default=str)
+            
+            # Upload to S3
+            self.s3_client.put_object(
+                Bucket=self.s3_bucket,
+                Key=full_s3_key,
+                Body=index_json.encode('utf-8'),
+                ContentType='application/json'
+            )
+            
+            print(f"Episode index uploaded to S3: s3://{self.s3_bucket}/{full_s3_key}")
+            return True
+            
+        except Exception as e:
+            print(f"Error uploading episode index to S3: {e}")
+            return False
 
 
 def main():
@@ -339,6 +367,7 @@ def main():
     parser.add_argument("--s3-prefix", default="", help="S3 key prefix")
     parser.add_argument("--local-dir", default="./zorkgpt/snapshots", help="Local snapshots directory")
     parser.add_argument("--output", default="./zorkgpt/episodes.json", help="Output file path")
+    parser.add_argument("--upload-s3", action="store_true", help="Upload index to S3 after generating")
     
     args = parser.parse_args()
     
@@ -353,8 +382,20 @@ def main():
     print("Generating episode index...")
     index = generator.generate_index()
     
-    # Save index
+    # Save index locally
     generator.save_index(index, args.output)
+    
+    # Upload to S3 if requested and configured
+    if args.upload_s3:
+        if args.s3_bucket:
+            print("Uploading episode index to S3...")
+            upload_success = generator.upload_index_to_s3(index)
+            if upload_success:
+                print("Episode index uploaded to S3 successfully!")
+            else:
+                print("Warning: Failed to upload episode index to S3")
+        else:
+            print("Warning: --upload-s3 specified but no S3 bucket configured")
     
     # Print summary
     print(f"\nEpisode Index Summary:")
