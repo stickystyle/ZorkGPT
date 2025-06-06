@@ -1268,6 +1268,7 @@
                 this.availableEpisodes = [];
                 this.currentEpisodeId = null;
                 this.isViewingHistoricalEpisode = false;
+                this.originalLiveEpisodeId = null; // Track the original live episode
                 
                 this.startPolling();
                 this.loadEpisodeIndex();
@@ -1395,6 +1396,12 @@
             
             updateUI() {
                 if (!this.currentState) return;
+                
+                // Capture the original live episode ID on first load
+                if (this.originalLiveEpisodeId === null && !this.isViewingHistoricalEpisode) {
+                    this.originalLiveEpisodeId = this.currentState.metadata.episode_id;
+                    console.log('Captured original live episode:', this.originalLiveEpisodeId);
+                }
                 
                 this.updateGameInfo();
                 this.updateMap();
@@ -2004,14 +2011,15 @@
                 let html = '';
                 
                 for (const episode of this.availableEpisodes) {
-                    const isCurrentEpisode = this.currentState &&
+                    // Highlight the episode we're currently viewing (either live or historical)
+                    const isCurrentlyViewing = this.currentState &&
                         this.currentState.metadata.episode_id === episode.episode_id;
                     
                     const status = this.getEpisodeStatus(episode); //not implementing this at this point
                     const statusClass = `episode-status-${status.toLowerCase()}`;
                     
                     html += `
-                        <div class="episode-item ${isCurrentEpisode ? 'current' : ''}"
+                        <div class="episode-item ${isCurrentlyViewing ? 'current' : ''}"
                              onclick="window.zorkViewer.selectEpisode('${this.escapeHtml(episode.episode_id)}')">
                             <div class="episode-item-header">
                                 <div class="episode-item-id">${this.escapeHtml(episode.episode_id)}</div>
@@ -2076,11 +2084,11 @@
                 console.log(`Selecting episode: ${episodeId}`);
                 this.hideEpisodeSelector();
 
-                // Check if this is the current live episode
-                const isCurrentLiveEpisode = this.currentState &&
-                    this.currentState.metadata.episode_id === episodeId;
+                // Check if this is the original live episode (the one that was running when page loaded)
+                const isOriginalLiveEpisode = this.originalLiveEpisodeId && 
+                    this.originalLiveEpisodeId === episodeId;
 
-                if (isCurrentLiveEpisode && !this.isViewingHistoricalEpisode) {
+                if (isOriginalLiveEpisode && !this.isViewingHistoricalEpisode) {
                     console.log('Already viewing current live episode');
                     return;
                 }
@@ -2093,9 +2101,12 @@
                 }
 
                 try {
-                    // Switch to historical episode mode
-                    this.isViewingHistoricalEpisode = !isCurrentLiveEpisode;
+                    // Determine if we should be in historical mode
+                    const shouldBeHistorical = !isOriginalLiveEpisode;
+                    this.isViewingHistoricalEpisode = shouldBeHistorical;
                     this.currentEpisodeId = episodeId;
+
+                    console.log(`Episode ${episodeId}: isOriginalLive=${isOriginalLiveEpisode}, shouldBeHistorical=${shouldBeHistorical}`);
 
                     if (this.isViewingHistoricalEpisode) {
                         // Load the latest snapshot for this episode
