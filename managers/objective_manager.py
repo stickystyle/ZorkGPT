@@ -9,13 +9,34 @@ Handles the complete lifecycle of objective management:
 """
 
 import re
+import json
 from typing import List, Dict, Any, Optional
 from datetime import datetime
+from pydantic import BaseModel
 
 from managers.base_manager import BaseManager
 from session.game_state import GameState
 from session.game_configuration import GameConfiguration
 from zork_strategy_generator import AdaptiveKnowledgeManager
+from shared_utils import create_json_schema
+
+
+class ObjectiveDiscoveryResponse(BaseModel):
+    """Response model for objective discovery."""
+    objectives: List[str]
+    reasoning: str = ""
+
+
+class ObjectiveCompletionResponse(BaseModel):
+    """Response model for objective completion evaluation."""
+    completed_objectives: List[str]
+    reasoning: str = ""
+
+
+class ObjectiveRefinementResponse(BaseModel):
+    """Response model for objective refinement."""
+    refined_objectives: List[str]
+    reasoning: str = ""
 
 
 class ObjectiveManager(BaseManager):
@@ -49,9 +70,9 @@ class ObjectiveManager(BaseManager):
     
     def process_turn(self, current_agent_reasoning: str = "") -> None:
         """Process objective management for the current turn."""
-        # Check for objective completion based on recent action/response
-        # This would be called by orchestrator after each action
-        pass
+        # Check if this is a periodic update turn
+        if self.should_process_turn():
+            self.process_periodic_updates(current_agent_reasoning)
     
     def process_periodic_updates(self, current_agent_reasoning: str = "") -> None:
         """Process periodic objective updates (checking, refinement, staleness)."""
@@ -211,11 +232,9 @@ Provide insights in these categories focused on strategic patterns and game worl
 
 Focus on actionable insights that help the agent become better at recognizing opportunities, avoiding dangers, and understanding the game world. Be specific about locations, items, commands, and game mechanics discovered through actual gameplay experience.
 
-Format your response as:
-OBJECTIVES:
-- [objective 1]
-- [objective 2]
-- [etc.]
+Return a JSON object with:
+- "objectives": An array of discovered objectives (limit to 10-12 most important)
+- "reasoning": Brief explanation of why these objectives were identified
 
 Focus on objectives the agent has actually discovered through gameplay patterns or its own novel reasoning, not general Zork knowledge."""
 
@@ -243,10 +262,18 @@ Focus on objectives the agent has actually discovered through gameplay patterns 
             )
             
             try:
+                # Use response_format for structured output
+                sampling_params = self.adaptive_knowledge_manager.analysis_sampling.model_dump(exclude_unset=True) if self.adaptive_knowledge_manager else {}
+                sampling_params.update({
+                    "temperature": sampling_params.get("temperature", 0.3),
+                    "max_tokens": sampling_params.get("max_tokens", 5000),
+                    "response_format": create_json_schema(ObjectiveDiscoveryResponse)
+                })
+                
                 response = self.adaptive_knowledge_manager.client.chat.completions.create(
                     model=model_to_use,
                     messages=messages,
-                    **self.adaptive_knowledge_manager.analysis_sampling.model_dump(exclude_unset=True) if self.adaptive_knowledge_manager else {"temperature": 0.3, "max_tokens": 5000}
+                    **sampling_params
                 )
                 
                 response_content = response.content
@@ -255,13 +282,20 @@ Focus on objectives the agent has actually discovered through gameplay patterns 
                     details=f"Response type: {type(response)}, content length: {len(response_content)}"
                 )
                 
-                # Parse objectives from response
-                updated_objectives = self._parse_objectives_from_response(response_content)
+                # Parse JSON response
+                try:
+                    response_data = ObjectiveDiscoveryResponse.model_validate_json(response_content)
+                    updated_objectives = response_data.objectives
+                    reasoning = response_data.reasoning
+                    
+                    self.log_debug(
+                        f"Parsed {len(updated_objectives)} objectives from JSON response",
+                        details=f"Reasoning: {reasoning[:100]}..."
+                    )
+                except Exception as e:
+                    self.log_error(f"Failed to parse JSON response: {e}")
+                    updated_objectives = []
                 
-                self.log_debug(
-                    f"Parsed objectives from LLM response: {updated_objectives}",
-                    details=f"Raw response: '{response_content}', parsed: {updated_objectives}"
-                )
                 
                 if updated_objectives:
                     self.game_state.discovered_objectives = updated_objectives
@@ -378,49 +412,6 @@ Focus on objectives the agent has actually discovered through gameplay patterns 
         
         return "\n".join(context_parts)
 
-    def _parse_objectives_from_response(self, response: str) -> List[str]:
-        """Parse objectives from LLM response."""
-        if not response:
-            return []
-        
-        objectives = []
-        
-        # Look for "OBJECTIVES:" section
-        lines = response.split("\n")
-        in_objectives_section = False
-        
-        for line in lines:
-            line = line.strip()
-            
-            if line.upper().startswith("OBJECTIVES:"):
-                in_objectives_section = True
-                continue
-            
-            if in_objectives_section:
-                # Stop if we hit another section
-                if line.upper().endswith(":") and len(line.split()) == 1:
-                    break
-                
-                # Parse bullet points
-                if line.startswith("-") or line.startswith("*"):
-                    objective = line[1:].strip()
-                    if objective and len(objective) > 5:  # Filter out very short objectives
-                        objectives.append(objective)
-                elif line.startswith(("1.", "2.", "3.", "4.", "5.")):  # Numbered lists
-                    objective = line.split(".", 1)[1].strip()
-                    if objective and len(objective) > 5:
-                        objectives.append(objective)
-        
-        # If no objectives section found, try to extract from general text
-        if not objectives:
-            # Look for lines that seem like objectives
-            for line in lines:
-                line = line.strip()
-                if (line.startswith("-") or line.startswith("*")) and len(line) > 10:
-                    objective = line[1:].strip()
-                    objectives.append(objective)
-        
-        return objectives[:10]  # Limit to 10 objectives max
 
     def check_objective_completion(self, action_taken: str, game_response: str, extracted_info) -> None:
         """Check if any objectives were completed based on the latest action and response."""
@@ -467,11 +458,9 @@ CURRENT LOCATION: {self.game_state.current_room_name_for_map}
 
 Which objectives (if any) have been completed based on this action and the completion signals?
 
-Respond with only the completed objectives, one per line, starting with "-". If no objectives were completed, respond with "NONE".
-
-COMPLETED:
-- [objective text exactly as listed above]
-- [another objective if applicable]"""
+Return a JSON object with:
+- "completed_objectives": Array of objectives that were completed (use exact text from the list above)
+- "reasoning": Brief explanation of why these objectives are considered complete"""
 
         if self.adaptive_knowledge_manager and self.adaptive_knowledge_manager.client:
             try:
@@ -479,33 +468,26 @@ COMPLETED:
                     model=self.adaptive_knowledge_manager.analysis_model,
                     messages=[{"role": "user", "content": prompt}],
                     temperature=0.3,
-                    max_tokens=500
+                    max_tokens=500,
+                    response_format=create_json_schema(ObjectiveCompletionResponse)
                 )
                 
                 response_content = response.content
-                completed_objectives = self._parse_completed_objectives(response_content)
-                if completed_objectives:
-                    self._mark_objectives_complete(completed_objectives, action_taken, completion_signals)
+                
+                # Parse JSON response
+                try:
+                    response_data = ObjectiveCompletionResponse.model_validate_json(response_content)
+                    completed_objectives = response_data.completed_objectives
+                    # Filter to only include objectives that exist in discovered_objectives
+                    completed_objectives = [obj for obj in completed_objectives if obj in self.game_state.discovered_objectives]
+                    if completed_objectives:
+                        self._mark_objectives_complete(completed_objectives, action_taken, completion_signals)
+                except Exception as e:
+                    self.log_error(f"Failed to parse completion JSON: {e}")
                     
             except Exception as e:
                 self.log_error(f"Failed to evaluate objective completion: {e}")
 
-    def _parse_completed_objectives(self, response: str) -> List[str]:
-        """Parse completed objectives from LLM response."""
-        if not response or "NONE" in response.upper():
-            return []
-        
-        completed = []
-        lines = response.split("\n")
-        
-        for line in lines:
-            line = line.strip()
-            if line.startswith("-") or line.startswith("*"):
-                objective = line[1:].strip()
-                if objective and objective in self.game_state.discovered_objectives:
-                    completed.append(objective)
-        
-        return completed
 
     def _mark_objectives_complete(self, completed_objectives: List[str], action_taken: str, completion_signals: List[str]) -> None:
         """Mark objectives as completed and track the completion."""
@@ -550,34 +532,58 @@ COMPLETED:
         current_location = self.game_state.current_room_name_for_map
         current_score = self.game_state.previous_zork_score
         
-        # Track progress for staleness detection
+        # Initialize tracking if this is the first call
+        if self.game_state.last_location_for_staleness is None:
+            self.game_state.last_location_for_staleness = current_location
+            self.game_state.last_score_for_staleness = current_score
+            self.log_debug("Initializing staleness tracking")
+            return
+        
+        # Check if we made any progress this turn
+        made_progress = (
+            current_location != self.game_state.last_location_for_staleness or
+            current_score > self.game_state.last_score_for_staleness
+        )
+        
+        # Log progress status
+        self.log_debug(
+            f"Staleness check - Progress: {made_progress}, "
+            f"Location: {self.game_state.last_location_for_staleness} -> {current_location}, "
+            f"Score: {self.game_state.last_score_for_staleness} -> {current_score}"
+        )
+        
+        # Track staleness for each objective
+        objectives_to_remove = []
         for objective in self.game_state.discovered_objectives:
             # Initialize staleness tracking if needed
             if objective not in self.game_state.objective_staleness_tracker:
                 self.game_state.objective_staleness_tracker[objective] = 0
-            
-            # Check if we made progress (location change or score increase)
-            made_progress = (
-                current_location != self.game_state.last_location_for_staleness or
-                current_score > self.game_state.last_score_for_staleness
-            )
+                self.log_debug(f"Initializing staleness tracking for objective: {objective[:50]}...")
             
             if made_progress:
                 # Reset staleness counter if we made any progress
+                if self.game_state.objective_staleness_tracker[objective] > 0:
+                    self.log_debug(f"Resetting staleness for objective due to progress: {objective[:50]}...")
                 self.game_state.objective_staleness_tracker[objective] = 0
             else:
                 # Increment staleness counter
                 self.game_state.objective_staleness_tracker[objective] += 1
+                staleness_count = self.game_state.objective_staleness_tracker[objective]
                 
-                # Remove objectives that have been stale for too long (30+ turns without progress)
-                if self.game_state.objective_staleness_tracker[objective] >= 30:
-                    self.game_state.discovered_objectives.remove(objective)
-                    del self.game_state.objective_staleness_tracker[objective]
+                # Log increasing staleness
+                if staleness_count % 10 == 0:  # Log every 10 turns
+                    self.log_debug(
+                        f"Objective staleness increasing: {objective[:50]}... (count: {staleness_count})"
+                    )
+                
+                # Mark for removal if stale for too long (30+ turns without progress)
+                if staleness_count >= 30:
+                    objectives_to_remove.append(objective)
                     
                     self.log_progress(
-                        f"Removed stale objective (30+ turns without progress): {objective}",
+                        f"Removing stale objective (30+ turns without progress): {objective[:50]}...",
                         stage="objective_cleanup",
-                        details=f"Removed stale objective: {objective}"
+                        details=f"Removed after {staleness_count} turns without progress"
                     )
                     
                     self.logger.info(
@@ -587,9 +593,14 @@ COMPLETED:
                             "episode_id": self.game_state.episode_id,
                             "turn": self.game_state.turn_count,
                             "objective": objective,
-                            "staleness_count": 30,
+                            "staleness_count": staleness_count,
                         }
                     )
+        
+        # Remove stale objectives
+        for objective in objectives_to_remove:
+            self.game_state.discovered_objectives.remove(objective)
+            del self.game_state.objective_staleness_tracker[objective]
         
         # Update tracking for next check
         self.game_state.last_location_for_staleness = current_location
@@ -598,16 +609,57 @@ COMPLETED:
     def check_objective_refinement(self) -> None:
         """Check if objectives need refinement due to too many accumulating."""
         if not self.config.enable_objective_refinement:
+            self.log_debug("Objective refinement disabled in config")
             return
-            
-        # Check if we have too many objectives or enough time has passed
-        should_refine = (
-            len(self.game_state.discovered_objectives) >= self.config.max_objectives_before_forced_refinement or
-            (self.game_state.turn_count - self.last_objective_refinement_turn >= self.config.objective_refinement_interval)
+        
+        current_objective_count = len(self.game_state.discovered_objectives)
+        turns_since_refinement = self.game_state.turn_count - self.last_objective_refinement_turn
+        
+        # Log current state
+        self.log_debug(
+            f"Refinement check - Objectives: {current_objective_count}, "
+            f"Max before forced: {self.config.max_objectives_before_forced_refinement}, "
+            f"Turns since last: {turns_since_refinement}, "
+            f"Interval: {self.config.objective_refinement_interval}"
         )
         
-        if should_refine and len(self.game_state.discovered_objectives) > self.config.refined_objectives_target_count:
+        # Check if we have too many objectives or enough time has passed
+        force_due_to_count = current_objective_count >= self.config.max_objectives_before_forced_refinement
+        force_due_to_time = turns_since_refinement >= self.config.objective_refinement_interval
+        
+        should_refine = force_due_to_count or force_due_to_time
+        
+        if should_refine and current_objective_count > self.config.refined_objectives_target_count:
+            self.log_progress(
+                f"Triggering objective refinement - Count: {current_objective_count}, "
+                f"Force due to count: {force_due_to_count}, Force due to time: {force_due_to_time}",
+                stage="objective_refinement",
+                details=f"Refining {current_objective_count} objectives down to {self.config.refined_objectives_target_count}"
+            )
+            
+            self.logger.info(
+                "Objective refinement triggered",
+                extra={
+                    "event_type": "objective_refinement_triggered",
+                    "episode_id": self.game_state.episode_id,
+                    "turn": self.game_state.turn_count,
+                    "current_count": current_objective_count,
+                    "target_count": self.config.refined_objectives_target_count,
+                    "forced_by_count": force_due_to_count,
+                    "forced_by_time": force_due_to_time,
+                    "turns_since_last": turns_since_refinement,
+                }
+            )
+            
             self._refine_discovered_objectives()
+        else:
+            if not should_refine:
+                self.log_debug("Refinement not needed - thresholds not met")
+            elif current_objective_count <= self.config.refined_objectives_target_count:
+                self.log_debug(
+                    f"Refinement not needed - already at or below target count "
+                    f"({current_objective_count} <= {self.config.refined_objectives_target_count})"
+                )
 
     def _refine_discovered_objectives(self) -> None:
         """Refine objectives by keeping only the most important ones."""
@@ -631,10 +683,9 @@ Select the {self.config.refined_objectives_target_count} most important objectiv
 3. Most specific and actionable
 4. Not redundant with each other
 
-REFINED OBJECTIVES:
-- [objective 1]
-- [objective 2]
-..."""
+Return a JSON object with:
+- "refined_objectives": Array of the {self.config.refined_objectives_target_count} most important objectives
+- "reasoning": Brief explanation of selection criteria"""
 
         if self.adaptive_knowledge_manager and self.adaptive_knowledge_manager.client:
             try:
@@ -642,21 +693,28 @@ REFINED OBJECTIVES:
                     model=self.adaptive_knowledge_manager.analysis_model,
                     messages=[{"role": "user", "content": prompt}],
                     temperature=0.3,
-                    max_tokens=1000
+                    max_tokens=1000,
+                    response_format=create_json_schema(ObjectiveRefinementResponse)
                 )
                 
                 response_content = response.content
-                refined_objectives = self._parse_objectives_from_response(response_content)
-                if refined_objectives and len(refined_objectives) <= len(self.game_state.discovered_objectives):
-                    old_count = len(self.game_state.discovered_objectives)
-                    self.game_state.discovered_objectives = refined_objectives[:self.config.refined_objectives_target_count]
-                    self.last_objective_refinement_turn = self.game_state.turn_count
+                
+                # Parse JSON response
+                try:
+                    response_data = ObjectiveRefinementResponse.model_validate_json(response_content)
+                    refined_objectives = response_data.refined_objectives
+                    if refined_objectives and len(refined_objectives) <= len(self.game_state.discovered_objectives):
+                        old_count = len(self.game_state.discovered_objectives)
+                        self.game_state.discovered_objectives = refined_objectives[:self.config.refined_objectives_target_count]
+                        self.last_objective_refinement_turn = self.game_state.turn_count
                     
-                    self.log_progress(
-                        f"Objectives refined: {old_count} -> {len(self.game_state.discovered_objectives)}",
-                        stage="objective_refinement",
-                        details=f"Refined from {old_count} to {len(self.game_state.discovered_objectives)} objectives"
-                    )
+                        self.log_progress(
+                            f"Objectives refined: {old_count} -> {len(self.game_state.discovered_objectives)}",
+                            stage="objective_refinement",
+                            details=f"Refined from {old_count} to {len(self.game_state.discovered_objectives)} objectives"
+                        )
+                except Exception as e:
+                    self.log_error(f"Failed to parse refinement JSON: {e}")
                     
             except Exception as e:
                 self.log_error(f"Failed to refine objectives: {e}")
