@@ -2305,7 +2305,15 @@ Format as a clear, structured summary that preserves essential information for c
         """Check if it's time for an objective update and perform it if needed."""
         try:
             # Debug logging to help diagnose issues
-            print(f"🔍 Objective update check: turn={self.turn_count}, interval={self.objective_update_interval}, last_update={self.objective_update_turn}")
+            if self.logger:
+                self.logger.debug(
+                    f"Objective update check: turn={self.turn_count}, interval={self.objective_update_interval}, last_update={self.objective_update_turn}",
+                    extra={
+                        "event_type": "debug",
+                        "stage": "objective_update",
+                        "details": f"turn={self.turn_count}, interval={self.objective_update_interval}, last_update={self.objective_update_turn}"
+                    }
+                )
             
             # Also log to the structured logger for permanent record
             self.logger.info(
@@ -2322,7 +2330,15 @@ Format as a clear, structured summary that preserves essential information for c
             # Update objectives every turn, ensuring it's not a duplicate call for the same turn.
             if (self.turn_count > 0 and 
             self.turn_count - self.objective_update_turn >= self.objective_update_interval):
-                print(f"🎯 Triggering objective update at turn {self.turn_count}")
+                if self.logger:
+                    self.logger.info(
+                        f"Triggering objective update at turn {self.turn_count}",
+                        extra={
+                            "event_type": "progress",
+                            "stage": "objective_update",
+                            "details": f"Starting objective update at turn {self.turn_count}"
+                        }
+                    )
                 self.logger.info(
                     f"Triggering objective update at turn {self.turn_count}",
                     extra={
@@ -2333,7 +2349,15 @@ Format as a clear, structured summary that preserves essential information for c
                 )
                 self._update_discovered_objectives(current_agent_reasoning)
             else:
-                print(f"🔍 Objective update skipped: turn_count={self.turn_count}, already updated this turn or turn 0.")
+                if self.logger:
+                    self.logger.debug(
+                        f"Objective update skipped: turn_count={self.turn_count}, already updated this turn or turn 0",
+                        extra={
+                            "event_type": "debug",
+                            "stage": "objective_update",
+                            "details": f"Skipping objective update at turn {self.turn_count}"
+                        }
+                    )
                 self.logger.info(
                     f"Objective update skipped: turn_count={self.turn_count}, already updated this turn or turn 0",
                     extra={
@@ -2345,7 +2369,15 @@ Format as a clear, structured summary that preserves essential information for c
 }
                 )
         except Exception as e:
-            print(f"❌ Exception in _check_objective_update: {e}")
+            if self.logger:
+                self.logger.error(
+                    f"Exception in _check_objective_update: {e}",
+                    extra={
+                        "event_type": "error",
+                        "stage": "objective_update",
+                        "details": f"Error during objective update check: {e}"
+                    }
+                )
             self.logger.error(
                 f"Exception in _check_objective_update: {e}",
                 extra={
@@ -2364,7 +2396,15 @@ Format as a clear, structured summary that preserves essential information for c
         This maintains discovered objectives between turns while staying LLM-first.
         """
         try:
-            print(f"🎯 Updating discovered objectives (turn {self.turn_count})...")
+            if self.logger:
+                self.logger.info(
+                    f"Updating discovered objectives (turn {self.turn_count})",
+                    extra={
+                        "event_type": "progress",
+                        "stage": "objective_update",
+                        "details": f"Starting objective discovery update at turn {self.turn_count}"
+                    }
+                )
             
             # Log that we're starting the update
             self.logger.info(
@@ -2430,9 +2470,15 @@ Focus on objectives the agent has actually discovered through gameplay patterns 
                 messages = [{"role": "user", "content": prompt}]
                 
                 model_to_use = self.adaptive_knowledge_manager.analysis_model if self.adaptive_knowledge_manager else "gpt-4"
-                print(f"  🔍 Using model: {model_to_use}")
-                print(f"  🔍 Prompt length: {len(prompt)} characters")
-                print(f"  🔍 First 200 chars of prompt: {prompt[:200]}...")
+                if self.logger:
+                    self.logger.debug(
+                        f"Using model: {model_to_use}, prompt length: {len(prompt)} characters",
+                        extra={
+                            "event_type": "debug",
+                            "stage": "objective_update",
+                            "details": f"Model: {model_to_use}, prompt length: {len(prompt)}"
+                        }
+                    )
                 
                 # Log that we're about to make the LLM call
                 self.logger.info(
@@ -2453,23 +2499,42 @@ Focus on objectives the agent has actually discovered through gameplay patterns 
                         **self.adaptive_knowledge_manager.analysis_sampling.model_dump(exclude_unset=True) if self.adaptive_knowledge_manager else {"temperature": 0.3, "max_tokens": 5000}
                     )
                     
-                    print(f"  🔍 LLM call successful, response type: {type(response)}")
-                    print(f"  🔍 Response content type: {type(response.content)}")
-                    print(f"  🔍 Response content length: {len(response.content) if response.content else 0}")
+                    if self.logger:
+                        self.logger.debug(
+                            f"LLM call successful, response length: {len(response.content) if response.content else 0}",
+                            extra={
+                                "event_type": "debug",
+                                "stage": "objective_update",
+                                "details": f"Response type: {type(response)}, content length: {len(response.content) if response.content else 0}"
+                            }
+                        )
                     
                     # Parse objectives from response
                     updated_objectives = self._parse_objectives_from_response(response.content)
                     
-                    print(f"  🔍 Raw LLM response: '{response.content}'")
-                    print(f"  🔍 Parsed objectives: {updated_objectives}")
+                    if self.logger:
+                        self.logger.debug(
+                            f"Parsed objectives from LLM response: {updated_objectives}",
+                            extra={
+                                "event_type": "debug",
+                                "stage": "objective_update",
+                                "details": f"Raw response: '{response.content}', parsed: {updated_objectives}"
+                            }
+                        )
                     
                     if updated_objectives:
                         self.discovered_objectives = updated_objectives
                         self.objective_update_turn = self.turn_count
                         
-                        print(f"  ✅ Objectives updated: {len(updated_objectives)} objectives discovered")
-                        for i, obj in enumerate(updated_objectives[:3], 1):  # Show first 3
-                            print(f"    {i}. {obj}")
+                        if self.logger:
+                            self.logger.info(
+                                f"Objectives updated: {len(updated_objectives)} objectives discovered",
+                                extra={
+                                    "event_type": "progress",
+                                    "stage": "objective_update",
+                                    "details": f"Updated {len(updated_objectives)} objectives: {updated_objectives[:3]}"
+                                }
+                            )
                         
                         # Log the update
                         self.logger.info(
@@ -2483,7 +2548,15 @@ Focus on objectives the agent has actually discovered through gameplay patterns 
 }
                         )
                     else:
-                        print("  ⚠️ No objectives parsed from LLM response")
+                        if self.logger:
+                            self.logger.warning(
+                                "No objectives parsed from LLM response",
+                                extra={
+                                    "event_type": "warning",
+                                    "stage": "objective_update",
+                                    "details": "LLM response did not contain parseable objectives"
+                                }
+                            )
                         self.logger.warning(
                             "No objectives parsed from LLM response",
                             extra={
@@ -2495,7 +2568,15 @@ Focus on objectives the agent has actually discovered through gameplay patterns 
                         )
                         
                 except Exception as llm_error:
-                    print(f"  ❌ LLM call failed: {llm_error}")
+                    if self.logger:
+                        self.logger.error(
+                            f"LLM call failed: {llm_error}",
+                            extra={
+                                "event_type": "error",
+                                "stage": "objective_update",
+                                "details": f"LLM call failed with error: {llm_error}"
+                            }
+                        )
                     self.logger.error(
                         f"Objective LLM call failed: {llm_error}",
                         extra={
@@ -2507,7 +2588,15 @@ Focus on objectives the agent has actually discovered through gameplay patterns 
 }
                     )
             else:
-                print("  ⚠️ No LLM client available for objective analysis")
+                if self.logger:
+                    self.logger.warning(
+                        "No LLM client available for objective analysis",
+                        extra={
+                            "event_type": "warning",
+                            "stage": "objective_update",
+                            "details": "Adaptive knowledge manager LLM client not available"
+                        }
+                    )
                 self.logger.error(
                     "No LLM client available for objective analysis",
                     extra={
@@ -2521,7 +2610,15 @@ Focus on objectives the agent has actually discovered through gameplay patterns 
                 )
                 
         except Exception as e:
-            print(f"  ⚠️ Failed to update objectives: {e}")
+            if self.logger:
+                self.logger.error(
+                    f"Failed to update objectives: {e}",
+                    extra={
+                        "event_type": "error",
+                        "stage": "objective_update",
+                        "details": f"Objective update failed with error: {e}"
+                    }
+                )
             self.logger.error(
                 f"Objective update failed: {e}",
                 extra={
@@ -2793,7 +2890,15 @@ Only mark objectives as completed if you're confident they were achieved."""
                     }
                     self.completed_objectives.append(completion_record)
                     
-                    print(f"  ✅ Objective completed: {objective}")
+                    if self.logger:
+                        self.logger.info(
+                            f"Objective completed: {objective}",
+                            extra={
+                                "event_type": "progress",
+                                "stage": "objective_completion",
+                                "details": f"Completed objective: {objective}"
+                            }
+                        )
                     
                     # Log the completion
                     self.logger.info(
@@ -3025,7 +3130,15 @@ Please provide a refined list of objectives that encourages exploration and prog
                     self.discovered_objectives.remove(objective)
                     del self.objective_staleness_tracker[objective]
                     
-                    print(f"🗑️ Removed stale objective (30+ turns without progress): {objective}")
+                    if self.logger:
+                        self.logger.info(
+                            f"Removed stale objective (30+ turns without progress): {objective}",
+                            extra={
+                                "event_type": "progress",
+                                "stage": "objective_cleanup",
+                                "details": f"Removed stale objective: {objective}"
+                            }
+                        )
                     
                     self.logger.info(
                         f"Objective removed due to staleness: {objective}",
