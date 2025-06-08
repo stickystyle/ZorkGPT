@@ -339,7 +339,7 @@ class ZorkOrchestratorV2:
             formatted_context = self.context_manager.get_formatted_agent_prompt_context(agent_context)
             
             # Get agent action
-            agent_result = self.agent.get_action(
+            agent_result = self.agent.get_action_with_reasoning(
                 game_state_text=current_state,
                 previous_actions_and_responses=agent_context.get('recent_actions', []),
                 action_counts=agent_context.get('action_counts'),
