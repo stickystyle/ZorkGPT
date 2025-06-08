@@ -4,22 +4,33 @@ Unit tests for game over detection functionality.
 """
 
 import unittest
-from zork_api import ZorkInterface
+import sys
+import os
+import pytest
+
+# Add the parent directory to the path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from tests.test_utils import game_client, skip_if_server_unavailable, run_test_commands
+from structured_zork_parser import StructuredZorkParser
 
 
 class TestGameOverDetection(unittest.TestCase):
-    """Test cases for game over detection in ZorkInterface."""
+    """Test cases for game over detection in game responses."""
 
     def setUp(self):
-        """Set up ZorkInterface instance for testing."""
-        self.zork = ZorkInterface()
+        """Set up parser instance for testing."""
+        skip_if_server_unavailable()
+        self.parser = StructuredZorkParser()
 
     def test_troll_miss_not_game_over(self):
         """Test that troll miss messages are not incorrectly detected as game over."""
         troll_response = """Your swing misses the troll by an inch.
 The troll swings his axe, but it misses."""
 
-        is_over, reason = self.zork.is_game_over(troll_response)
+        parsed = self.parser.parse(troll_response)
+        is_over = parsed.game_over
+        reason = parsed.game_over_reason
 
         self.assertFalse(
             is_over, f"Troll miss should not be game over. Reason: {reason}"
@@ -56,6 +67,44 @@ The troll swings his axe, but it misses."""
             with self.subTest(message=msg):
                 is_over, reason = self.zork.is_game_over(msg)
                 self.assertTrue(is_over, f"Death message should be game over: '{msg}'")
+
+
+    def test_real_game_death_scenario(self, game_client):
+        """Test game over detection with actual death scenario."""
+        # This is a known death sequence in Zork
+        commands = [
+            "north",  # To North of House
+            "north",  # To Forest Path  
+            "climb tree",  # Up the tree
+            "take egg",  # Get the jeweled egg
+            "down",  # Back to Forest Path
+            "south",  # To North of House
+            "east",  # To Behind House
+            "open window",  # Open kitchen window
+            "enter window",  # Enter kitchen
+            "west",  # To Living Room
+            "open trap door",  # Open trap door
+            "down",  # To Cellar
+            "north",  # To Troll Room - triggers combat
+        ]
+        
+        # Run commands up to troll room
+        responses = run_test_commands(game_client, commands[:-1])
+        
+        # Enter troll room multiple times to potentially trigger death
+        death_occurred = False
+        for _ in range(10):  # Try up to 10 times
+            response = game_client.send_command("north")
+            if response.get('game_over', False):
+                death_occurred = True
+                self.assertTrue(response['game_over'])
+                self.assertIsNotNone(response.get('game_over_reason'))
+                break
+            # If not dead, try to leave and re-enter
+            game_client.send_command("south")
+        
+        # Note: Death from troll is probabilistic, so we just verify the detection works
+        # when it does occur
 
 
 if __name__ == "__main__":

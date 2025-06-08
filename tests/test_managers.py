@@ -627,7 +627,9 @@ class TestEpisodeSynthesizer(TestBaseManagerSetup):
         
         episode_id = episode_synthesizer.initialize_episode(agent=mock_agent)
         
-        assert episode_id.startswith("episode_")
+        # Episode ID should be in ISO8601 format (YYYY-MM-DDTHH:MM:SS)
+        import re
+        assert re.match(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}', episode_id)
         assert game_state.episode_id == episode_id
         mock_agent.update_episode_id.assert_called_once_with(episode_id)
     

@@ -18,6 +18,7 @@ from session.game_state import GameState
 from session.game_configuration import GameConfiguration
 from zork_strategy_generator import AdaptiveKnowledgeManager
 from config import get_config
+from utils.llm_utils import extract_llm_content
 
 
 class KnowledgeManager(BaseManager):
@@ -108,10 +109,10 @@ class KnowledgeManager(BaseManager):
             # Perform the knowledge update using "Method 2" - entire episode analysis
             self.log_debug("Calling adaptive knowledge manager update_knowledge_from_turns")
             success = self.adaptive_knowledge_manager.update_knowledge_from_turns(
+                episode_id=self.game_state.episode_id,
                 start_turn=1,
                 end_turn=self.game_state.turn_count,
-                episode_id=self.game_state.episode_id,
-                map_metrics=map_metrics
+                is_final_update=False
             )
             
             if success:
@@ -211,10 +212,9 @@ class KnowledgeManager(BaseManager):
                 
                 # Perform final knowledge update
                 success = self.adaptive_knowledge_manager.update_knowledge_from_turns(
+                    episode_id=self.game_state.episode_id,
                     start_turn=1,
                     end_turn=self.game_state.turn_count,
-                    episode_id=self.game_state.episode_id,
-                    map_metrics=map_metrics,
                     is_final_update=True
                 )
                 

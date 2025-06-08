@@ -16,6 +16,7 @@ from managers.base_manager import BaseManager
 from session.game_state import GameState
 from session.game_configuration import GameConfiguration
 from zork_strategy_generator import AdaptiveKnowledgeManager
+from utils.llm_utils import extract_llm_content
 
 
 class ObjectiveManager(BaseManager):
@@ -248,7 +249,7 @@ Focus on objectives the agent has actually discovered through gameplay patterns 
                         **self.adaptive_knowledge_manager.analysis_sampling.model_dump(exclude_unset=True) if self.adaptive_knowledge_manager else {"temperature": 0.3, "max_tokens": 5000}
                     )
                     
-                    response_content = response.choices[0].message.content if response.choices else ""
+                    response_content = extract_llm_content(response)
                     self.log_debug(
                         f"LLM call successful, response length: {len(response_content)}",
                         details=f"Response type: {type(response)}, content length: {len(response_content)}"
@@ -481,7 +482,7 @@ COMPLETED:
                     max_tokens=500
                 )
                 
-                response_content = response.choices[0].message.content if response.choices else ""
+                response_content = extract_llm_content(response)
                 completed_objectives = self._parse_completed_objectives(response_content)
                 if completed_objectives:
                     self._mark_objectives_complete(completed_objectives, action_taken, completion_signals)
@@ -644,7 +645,7 @@ REFINED OBJECTIVES:
                     max_tokens=1000
                 )
                 
-                response_content = response.choices[0].message.content if response.choices else ""
+                response_content = extract_llm_content(response)
                 refined_objectives = self._parse_objectives_from_response(response_content)
                 if refined_objectives and len(refined_objectives) <= len(self.game_state.discovered_objectives):
                     old_count = len(self.game_state.discovered_objectives)

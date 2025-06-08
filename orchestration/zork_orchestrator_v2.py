@@ -336,8 +336,10 @@ class ZorkOrchestratorV2:
             
             # Get agent action
             agent_result = self.agent.get_action(
-                game_state=current_state,
-                context=formatted_context
+                game_state_text=current_state,
+                previous_actions_and_responses=agent_context.get('recent_actions', []),
+                action_counts=agent_context.get('action_counts'),
+                relevant_memories=formatted_context
             )
             
             proposed_action = agent_result["action"]
@@ -360,8 +362,10 @@ class ZorkOrchestratorV2:
             )
             
             critic_result = self.critic.evaluate_action(
+                game_state_text=current_state,
                 proposed_action=proposed_action,
-                context=critic_context
+                available_exits=critic_context.get('available_exits', []),
+                action_counts=self.game_state.action_counts
             )
             
             action_to_take = critic_result["action"]
@@ -450,7 +454,8 @@ class ZorkOrchestratorV2:
                 self.map_manager.update_from_movement(
                     action_taken=action,
                     new_room_name=new_location,
-                    previous_room_name=self.game_state.current_room_name_for_map
+                    previous_room_name=self.game_state.current_room_name_for_map,
+                    game_response=response
                 )
             elif not self.game_state.current_room_name_for_map:
                 # Initial room

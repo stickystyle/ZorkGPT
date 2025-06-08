@@ -17,6 +17,7 @@ from datetime import datetime
 from managers.base_manager import BaseManager
 from session.game_state import GameState
 from session.game_configuration import GameConfiguration
+from utils.llm_utils import extract_llm_content
 
 
 class EpisodeSynthesizer(BaseManager):
@@ -62,8 +63,8 @@ class EpisodeSynthesizer(BaseManager):
     def initialize_episode(self, agent=None, extractor=None, critic=None) -> str:
         """Initialize a new episode and coordinate component updates."""
         try:
-            # Generate new episode ID
-            episode_id = datetime.now().strftime("episode_%Y%m%d_%H%M%S")
+            # Generate new episode ID (ISO8601 format for consistency)
+            episode_id = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
             
             # Reset episode state in GameState
             self.game_state.reset_episode()
@@ -99,7 +100,7 @@ class EpisodeSynthesizer(BaseManager):
             
         except Exception as e:
             self.log_error(f"Failed to initialize episode: {e}")
-            return f"episode_{datetime.now().strftime('%Y%m%d_%H%M%S')}_error"
+            return f"{datetime.now().strftime('%Y-%m-%dT%H:%M:%S')}_error"
     
     def finalize_episode(self, final_score: int, critic_confidence_history: List[float] = None) -> None:
         """Finalize the current episode with synthesis and cleanup."""
@@ -329,7 +330,7 @@ Keep it under 200 words."""
                 max_tokens=500
             )
             
-            return response.choices[0].message.content if response.choices else self.generate_fallback_episode_summary(final_score, is_death)
+            return extract_llm_content(response) or self.generate_fallback_episode_summary(final_score, is_death)
             
         except Exception as e:
             self.log_error(f"LLM episode summary failed: {e}")

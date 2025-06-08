@@ -19,6 +19,7 @@ from collections import defaultdict, Counter
 from managers.base_manager import BaseManager
 from session.game_state import GameState
 from session.game_configuration import GameConfiguration
+from utils.llm_utils import extract_llm_content
 
 
 class StateManager(BaseManager):
@@ -236,7 +237,7 @@ Keep the summary under 500 words and focus on actionable information for continu
                     max_tokens=1000
                 )
                 
-                return response.choices[0].message.content if response.choices else ""
+                return extract_llm_content(response) or ""
                 
             except Exception as llm_error:
                 self.log_warning(f"LLM summarization failed: {llm_error}")

@@ -16,7 +16,7 @@ from managers.base_manager import BaseManager
 from session.game_state import GameState
 from session.game_configuration import GameConfiguration
 from map_graph import MapGraph
-from movement_analyzer import MovementAnalyzer
+from movement_analyzer import MovementAnalyzer, MovementContext
 
 
 class MapManager(BaseManager):
@@ -91,7 +91,8 @@ class MapManager(BaseManager):
         self, 
         action_taken: str, 
         new_room_name: str, 
-        previous_room_name: Optional[str] = None
+        previous_room_name: Optional[str] = None,
+        game_response: str = ""
     ) -> None:
         """Update map based on movement action and result."""
         try:
@@ -106,7 +107,7 @@ class MapManager(BaseManager):
             
             # Update movement tracking if we moved from a previous room
             if prev_room and prev_room != new_room_name:
-                self._update_movement_tracking(action_taken, prev_room, new_room_name)
+                self._update_movement_tracking(action_taken, prev_room, new_room_name, game_response)
             
             # Update current room tracking
             self.game_state.prev_room_for_prompt_context = self.game_state.current_room_name_for_map
@@ -133,39 +134,79 @@ class MapManager(BaseManager):
         except Exception as e:
             self.log_error(f"Failed to update map from movement: {e}")
     
-    def _update_movement_tracking(self, action: str, from_room: str, to_room: str) -> None:
+    def _update_movement_tracking(self, action: str, from_room: str, to_room: str, game_response: str = "") -> None:
         """Update movement tracking between rooms."""
         try:
-            # Analyze the movement
-            movement_analysis = self.movement_analyzer.analyze_movement(
+            # Create movement context
+            movement_context = MovementContext(
+                current_location=to_room,
+                previous_location=from_room,
                 action=action,
-                from_room=from_room,
-                to_room=to_room,
+                game_response=game_response,
                 turn_number=self.game_state.turn_count
             )
             
+            # Analyze the movement
+            movement_analysis = self.movement_analyzer.analyze_movement(movement_context)
+            
             # Update room exits based on analysis
-            self.game_map.update_room_exits(
-                room_name=from_room,
-                available_exits=movement_analysis.get("available_exits", [])
-            )
+            if hasattr(movement_analysis, 'from_exits') and movement_analysis.from_exits:
+                self.game_map.update_room_exits(
+                    room_name=from_room,
+                    available_exits=movement_analysis.from_exits
+                )
             
             # Add connection if movement was successful
-            if movement_analysis.get("successful_movement", False):
-                direction = movement_analysis.get("direction")
+            if hasattr(movement_analysis, 'connection_created') and movement_analysis.connection_created:
+                # Extract direction from action if possible
+                direction = self._extract_direction_from_action(action)
                 if direction:
                     self.game_map.add_connection(
                         from_room=from_room,
                         to_room=to_room,
                         direction=direction,
-                        confidence=movement_analysis.get("confidence", 0.8)
+                        confidence=0.8  # Default confidence
                     )
             
-            # Clear any pending connections that were resolved
-            self.movement_analyzer.clear_pending_connections(from_room, to_room)
+            # Note: Pending connections are automatically cleared by the movement analyzer
+            # when they are resolved, so no manual clearing is needed here
             
         except Exception as e:
             self.log_error(f"Failed to update movement tracking: {e}")
+    
+    def _extract_direction_from_action(self, action: str) -> Optional[str]:
+        """Extract direction from movement action."""
+        if not action:
+            return None
+        
+        action_lower = action.lower().strip()
+        
+        # Direct direction mappings
+        direction_map = {
+            'north': 'north', 'n': 'north',
+            'south': 'south', 's': 'south', 
+            'east': 'east', 'e': 'east',
+            'west': 'west', 'w': 'west',
+            'up': 'up', 'u': 'up',
+            'down': 'down', 'd': 'down',
+            'northwest': 'northwest', 'nw': 'northwest',
+            'northeast': 'northeast', 'ne': 'northeast', 
+            'southwest': 'southwest', 'sw': 'southwest',
+            'southeast': 'southeast', 'se': 'southeast'
+        }
+        
+        # Check for exact matches first
+        if action_lower in direction_map:
+            return direction_map[action_lower]
+        
+        # Check for "go" commands
+        for prefix in ['go ', 'move ', 'walk ']:
+            if action_lower.startswith(prefix):
+                direction_part = action_lower[len(prefix):].strip()
+                if direction_part in direction_map:
+                    return direction_map[direction_part]
+        
+        return None
     
     def track_failed_action(self, action: str, location: str) -> None:
         """Track a failed action at a specific location."""

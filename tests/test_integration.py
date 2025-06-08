@@ -160,7 +160,9 @@ class TestZorkOrchestratorV2Integration:
         # Verify episode ran
         assert final_score >= 0
         assert orchestrator.game_state.turn_count > 0
-        assert orchestrator.game_state.episode_id.startswith("episode_")
+        # Episode ID should be in ISO8601 format (YYYY-MM-DDTHH:MM:SS)
+        import re
+        assert re.match(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}', orchestrator.game_state.episode_id)
         
         # Verify game server interactions
         mock_game_server_client.start_session.assert_called_once()
