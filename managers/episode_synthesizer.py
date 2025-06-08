@@ -329,7 +329,7 @@ Keep it under 200 words."""
 
             messages = [{"role": "user", "content": prompt}]
             response = self.llm_client.chat.completions.create(
-                model="gpt-4",
+                model=self.config.llm.analysis_model,
                 messages=messages,
                 temperature=0.3,
                 max_tokens=500

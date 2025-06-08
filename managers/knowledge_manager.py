@@ -475,7 +475,8 @@ class KnowledgeManager(BaseManager):
         """Get the model used for analysis tasks."""
         if hasattr(self.adaptive_knowledge_manager, 'analysis_model'):
             return self.adaptive_knowledge_manager.analysis_model
-        return "gpt-4"
+        # If adaptive knowledge manager doesn't have analysis model, use config
+        return self.config.llm.analysis_model
     
     def get_status(self) -> Dict[str, Any]:
         """Get current knowledge manager status."""

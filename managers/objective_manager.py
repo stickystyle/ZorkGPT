@@ -223,7 +223,9 @@ Focus on objectives the agent has actually discovered through gameplay patterns 
             if hasattr(self.adaptive_knowledge_manager, 'client') and self.adaptive_knowledge_manager.client:
                 messages = [{"role": "user", "content": prompt}]
                 
-                model_to_use = self.adaptive_knowledge_manager.analysis_model if self.adaptive_knowledge_manager else "gpt-4"
+                if not self.adaptive_knowledge_manager:
+                    raise ValueError("Adaptive knowledge manager is required for objective completion evaluation")
+                model_to_use = self.adaptive_knowledge_manager.analysis_model
                 self.log_debug(
                     f"Using model: {model_to_use}, prompt length: {len(prompt)} characters",
                     details=f"Model: {model_to_use}, prompt length: {len(prompt)}"
