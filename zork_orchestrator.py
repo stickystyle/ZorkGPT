@@ -31,6 +31,7 @@ from hybrid_zork_extractor import HybridZorkExtractor
 from zork_critic import ZorkCritic, CriticResponse
 from zork_strategy_generator import AdaptiveKnowledgeManager
 from config import get_config, get_client_api_key
+from game_server_client import GameServerClient
 
 # Optional S3 support
 try:
@@ -88,6 +89,8 @@ class ZorkOrchestrator:
         s3_key_prefix: str = None,
         # Gameplay delay for viewer experience
         turn_delay_seconds: float = None,
+        # Game server configuration
+        game_server_url: str = None,
         # Objective Refinement Configuration
         enable_objective_refinement: bool = None,
         objective_refinement_interval: int = None,
@@ -121,6 +124,7 @@ class ZorkOrchestrator:
         # Game settings
         self.max_turns_per_episode = max_turns_per_episode if max_turns_per_episode is not None else config.orchestrator.max_turns_per_episode
         self.turn_delay_seconds = turn_delay_seconds if turn_delay_seconds is not None else config.gameplay.turn_delay_seconds
+        self.game_server_url = game_server_url if game_server_url is not None else "http://localhost:8000"
 
         # Adaptive knowledge management (always enabled)
         self.knowledge_update_interval = knowledge_update_interval if knowledge_update_interval is not None else config.orchestrator.knowledge_update_interval
@@ -215,6 +219,22 @@ class ZorkOrchestrator:
         # Episode state (reset for each episode)
         self.reset_episode_state()
 
+    def create_game_interface(self):
+        """Create a game server client interface."""
+        import requests
+        import sys
+        try:
+            # Test connection to game server
+            response = requests.get(f"{self.game_server_url}/health", timeout=5)
+            response.raise_for_status()
+            self.logger.info(f"Successfully connected to game server at {self.game_server_url}")
+        except Exception as e:
+            error_msg = f"Error: Cannot connect to game server at {self.game_server_url}. Please ensure the game server is running with 'docker-compose up -d'"
+            self.logger.error(error_msg)
+            sys.exit(1)
+            
+        return GameServerClient(base_url=self.game_server_url)
+
     def reset_episode_state(self) -> None:
         """Reset all episode-specific state variables."""
         self.action_counts = Counter()
@@ -259,12 +279,12 @@ class ZorkOrchestrator:
         self.extractor.update_episode_id(self.episode_id)
         self.critic.update_episode_id(self.episode_id)
 
-    def play_episode(self, zork_interface_instance) -> int:
+    def play_episode(self, game_interface) -> int:
         """
         Play a single episode of Zork.
 
         Args:
-            zork_interface_instance: The Zork game interface
+            game_interface: The game interface (GameServerClient or ZorkInterface)
 
         Returns:
             Final Zork score
@@ -292,7 +312,7 @@ class ZorkOrchestrator:
 
         try:
             # Get initial game state
-            current_game_state = zork_interface_instance.start()
+            current_game_state = game_interface.start()
         except Exception as e:
             self.logger.error(
                 f"Failed to start Zork game: {e}",
@@ -301,7 +321,7 @@ class ZorkOrchestrator:
             raise
 
         # Enable verbose mode to get full room descriptions on every visit
-        verbose_response = zork_interface_instance.send_command("verbose")
+        verbose_response = game_interface.send_command("verbose")
         self.logger.info(
             f"Enabled verbose mode: {verbose_response}",
             extra={
@@ -312,22 +332,22 @@ class ZorkOrchestrator:
         )
 
         # Get current score and inventory for state initialization
-        current_zork_score_val, max_zork_score = zork_interface_instance.score(
+        current_zork_score_val, max_zork_score = game_interface.score(
             current_game_state
         )
-        current_inventory, _ = zork_interface_instance.inventory_with_response()
+        current_inventory, _ = game_interface.inventory_with_response()
 
         # Update instance variables for state export
         self.previous_zork_score = current_zork_score_val
         self.current_inventory = current_inventory
 
         # Check if we should attempt to restore from a save file
-        restore_attempted = self._attempt_restore_from_save(zork_interface_instance)
+        restore_attempted = self._attempt_restore_from_save(game_interface)
         if restore_attempted:
             # Re-get current state after restore
-            current_game_state = zork_interface_instance.send_command("look")
-            current_zork_score_val, max_zork_score = zork_interface_instance.score()
-            current_inventory, _ = zork_interface_instance.inventory_with_response()
+            current_game_state = game_interface.send_command("look")
+            current_zork_score_val, max_zork_score = game_interface.score()
+            current_inventory, _ = game_interface.inventory_with_response()
             
             # Update instance variables
             self.previous_zork_score = current_zork_score_val
@@ -394,7 +414,7 @@ class ZorkOrchestrator:
         # Main game loop
         while (
             not game_over
-            and zork_interface_instance.is_running()
+            and game_interface.is_running()
             and self.turn_count < self.max_turns_per_episode
         ):
             self.turn_count += 1
@@ -414,7 +434,7 @@ class ZorkOrchestrator:
             )
 
             # Check for save signal from external process (like manage_ec2.py)
-            save_signal_processed = self._handle_save_signal(zork_interface_instance)
+            save_signal_processed = self._handle_save_signal(game_interface)
             if save_signal_processed:
                 # Save signal was processed, continue with normal gameplay
                 # The system is ready for shutdown but will complete current turn
@@ -429,7 +449,7 @@ class ZorkOrchestrator:
             # Get inventory only if not in combat (to avoid death during inventory checks)
             if not in_combat:
                 current_inventory, inventory_response = (
-                    zork_interface_instance.inventory_with_response()
+                    game_interface.inventory_with_response()
                 )
                 # Update instance variable for state export
                 self.current_inventory = current_inventory
@@ -437,7 +457,7 @@ class ZorkOrchestrator:
                 # Check if the inventory command caused game over
                 if inventory_response:
                     game_over_flag, game_over_reason = (
-                        zork_interface_instance.is_game_over(inventory_response)
+                        game_interface.is_game_over(inventory_response)
                     )
                     if game_over_flag:
                         # Check if this is a death and increment counter
@@ -461,7 +481,7 @@ class ZorkOrchestrator:
 
                         # Get final score
                         current_zork_score_val, max_zork_score = (
-                            zork_interface_instance.score(inventory_response)
+                            game_interface.score(inventory_response)
                         )
                         self.previous_zork_score = current_zork_score_val
 
@@ -742,7 +762,7 @@ class ZorkOrchestrator:
             action_taken = agent_action
 
             try:
-                next_game_state = zork_interface_instance.send_command(action_taken)
+                next_game_state = game_interface.send_command(action_taken)
 
                 # Get clean game text for display (without structured header)
                 clean_game_text = next_game_state
@@ -765,7 +785,7 @@ class ZorkOrchestrator:
                 )
 
                 # Check if the game has ended based on the response
-                game_over_flag, game_over_reason = zork_interface_instance.is_game_over(
+                game_over_flag, game_over_reason = game_interface.is_game_over(
                     next_game_state
                 )
                 if game_over_flag:
@@ -790,7 +810,7 @@ class ZorkOrchestrator:
 
                     game_over = True
                     current_zork_score_val, max_zork_score = (
-                        zork_interface_instance.score(next_game_state)
+                        game_interface.score(next_game_state)
                     )
                     self.previous_zork_score = current_zork_score_val
                     # Store clean game text in action history (without structured header)
@@ -984,14 +1004,14 @@ class ZorkOrchestrator:
                 else:
                     # Fallback to traditional score extraction
                     try:
-                        if not game_over and zork_interface_instance.is_running():
+                        if not game_over and game_interface.is_running():
                             current_zork_score_val, max_zork_score = (
-                                zork_interface_instance.score()
+                                game_interface.score()
                             )
                         else:
                             # Use the score method with the game text for parsing
                             current_zork_score_val, max_zork_score = (
-                                zork_interface_instance.score(next_game_state)
+                                game_interface.score(next_game_state)
                             )
                         
                         # Check if score parsing returned 0 but we had a previous non-zero score
@@ -1206,7 +1226,7 @@ class ZorkOrchestrator:
         end_reasons = []
         if game_over:
             end_reasons.append("game_over=True")
-        if not zork_interface_instance.is_running():
+        if not game_interface.is_running():
             end_reasons.append("zork_process_not_running")
         if self.turn_count >= self.max_turns_per_episode:
             end_reasons.append(
@@ -1219,7 +1239,7 @@ class ZorkOrchestrator:
                     "event_type": "episode_end_debug",
                     "episode_id": self.episode_id,
                     "game_over": game_over,
-                    "zork_running": zork_interface_instance.is_running(),
+                    "zork_running": game_interface.is_running(),
                     "turn_count": self.turn_count,
                     "max_turns": self.max_turns_per_episode,
                     "reasons": end_reasons,
@@ -2883,12 +2903,11 @@ Only mark objectives as completed if you're confident they were achieved."""
             self.logger.info(
                 f"Triggering objective refinement at turn {self.turn_count}. Reason: {reason}",
                 extra={
-                        "event_type": "objective_refinement_triggered",
-                        "episode_id": self.episode_id,
-                        "turn": self.turn_count,
-                        "current_objective_count": len(self.discovered_objectives),
-                        "reason": reason,
-                    }
+                    "event_type": "objective_refinement_triggered",
+                    "episode_id": self.episode_id,
+                    "turn": self.turn_count,
+                    "current_objective_count": len(self.discovered_objectives),
+                    "reason": reason,
                 }
             )
             self._refine_discovered_objectives()
@@ -3059,7 +3078,7 @@ Please provide a refined list of objectives that encourages exploration and prog
         self.last_location_for_staleness = current_location
         self.last_score_for_staleness = current_score
 
-    def _handle_save_signal(self, zork_interface_instance) -> bool:
+    def _handle_save_signal(self, game_interface) -> bool:
         """Check for and handle save signal from external process (like manage_ec2.py).
         
         Returns:
@@ -3107,14 +3126,14 @@ Please provide a refined list of objectives that encourages exploration and prog
             self.logger.info(f"Current save attempt details", extra={
                     "event_type": "save_attempt_details",
                     "episode_id": self.episode_id,
-                    "game_running": zork_interface_instance.is_running(),
-                    "working_directory": zork_interface_instance.working_directory,
+                    "game_running": game_interface.is_running(),
+                    "working_directory": game_interface.working_directory,
                     "save_filename": save_filename,
                     "save_file_abs_path": current_save_file_abs_path
 })
             
             # Attempt to save the Zork game state
-            save_success = zork_interface_instance.trigger_zork_save(save_filename)
+            save_success = game_interface.trigger_zork_save(save_filename)
             
             if save_success:
                 self.logger.info("Zork game state saved successfully", extra={
@@ -3163,8 +3182,8 @@ Please provide a refined list of objectives that encourages exploration and prog
                         "event_type": "zork_save_failed",
                         "episode_id": self.episode_id,
                         "save_file": current_save_file_abs_path,
-                        "game_running": zork_interface_instance.is_running(),
-                        "working_directory": zork_interface_instance.working_directory
+                        "game_running": game_interface.is_running(),
+                        "working_directory": game_interface.working_directory
 })
             
             # Remove signal file regardless of save success/failure
@@ -3186,7 +3205,7 @@ Please provide a refined list of objectives that encourages exploration and prog
         
         return False
 
-    def _attempt_restore_from_save(self, zork_interface_instance) -> bool:
+    def _attempt_restore_from_save(self, game_interface) -> bool:
         """Attempt to restore from a previous save file.
         
         Returns:
@@ -3224,7 +3243,7 @@ Please provide a refined list of objectives that encourages exploration and prog
                 "restore_filename": restore_filename
 })
         
-        restore_success = zork_interface_instance.trigger_zork_restore(restore_filename)
+        restore_success = game_interface.trigger_zork_restore(restore_filename)
         
         if restore_success:
             # Set current save filename for tracking
