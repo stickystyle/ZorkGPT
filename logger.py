@@ -44,6 +44,9 @@ class HumanReadableFormatter(logging.Formatter):
                 return f"\n--- Turn {record.turn} ---\n{message}"
             elif event_type == "agent_action" and hasattr(record, "agent_action"):
                 return f"Agent proposes: {record.agent_action}"
+            elif event_type == "final_action_selection" and hasattr(record, "agent_action"):
+                override_text = " (OVERRIDDEN)" if getattr(record, "was_overridden", False) else ""
+                return f"Selected action: {record.agent_action}{override_text}"
             elif event_type == "critic_evaluation" and hasattr(record, "critic_score") and hasattr(record, "critic_justification"):
                 return f"Critic evaluation: Score={record.critic_score:.2f}, Justification='{record.critic_justification}'"
             elif event_type == "zork_response" and hasattr(record, "zork_response"):
@@ -59,6 +62,24 @@ class HumanReadableFormatter(logging.Formatter):
                     f"Visible Characters='{', '.join(info.get('visible_characters', []))}', "
                     f"Important Messages='{', '.join(info.get('important_messages', []))}'"
                 )
+            elif event_type == "objective_update":
+                status = getattr(record, "status", "")
+                details = getattr(record, "details", "")
+                if status and details:
+                    return f"Objective Update [{status}]: {details}"
+                else:
+                    return f"Objective Update: {message}"
+            elif event_type == "progress":
+                stage = getattr(record, "stage", "")
+                details = getattr(record, "details", "")
+                if stage:
+                    return f"Progress [{stage}]: {details if details else message}"
+                else:
+                    return f"Progress: {message}"
+            elif event_type == "state_export":
+                return f"State Export: {message}"
+            elif event_type == "knowledge_update":
+                return f"Knowledge Update: {message}"
 
         # Add episode_id and turn prefix if available as direct attributes
         prefix_parts = []

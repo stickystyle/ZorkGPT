@@ -36,9 +36,11 @@ class AdaptiveKnowledgeManager:
         self,
         log_file: str = "zork_episode_log.jsonl",
         output_file: str = "knowledgebase.md",
+        logger=None,
     ):
         self.log_file = log_file
         self.output_file = output_file
+        self.logger = logger
 
         # Initialize LLM client
         config = get_config()
@@ -193,12 +195,26 @@ class AdaptiveKnowledgeManager:
         Returns:
             True if knowledge was updated, False if skipped
         """
-        print(f"🧠 Evaluating knowledge update for turns {start_turn}-{end_turn}...")
+        if self.logger:
+            self.logger.info(
+                f"Evaluating knowledge update for turns {start_turn}-{end_turn}",
+                extra={
+                    "event_type": "knowledge_update",
+                    "details": f"Analyzing turn window {start_turn}-{end_turn}"
+                }
+            )
 
         # Extract turn window data
         turn_data = self._extract_turn_window_data(episode_id, start_turn, end_turn)
         if not turn_data:
-            print("  ⚠️ No turn data found for analysis")
+            if self.logger:
+                self.logger.warning(
+                    "No turn data found for analysis",
+                    extra={
+                        "event_type": "knowledge_update",
+                        "details": f"Turn window {start_turn}-{end_turn} had no data"
+                    }
+                )
             return False
 
         # Check if this is the very first knowledge update (no meaningful knowledge exists)
@@ -235,20 +251,39 @@ class AdaptiveKnowledgeManager:
 
         # Method 2 Optimization: Always use comprehensive analysis since we have full episode context
         # The strategy determination system was designed for incremental windows with limited context
-        print(f"  🎯 Using comprehensive analysis (Method 2: full episode context)")
+        if self.logger:
+            self.logger.info(
+                "Using comprehensive analysis",
+                extra={
+                    "event_type": "knowledge_update",
+                    "details": "Method 2: full episode context"
+                }
+            )
 
         # Step 2: Perform comprehensive analysis with full episode context
         new_insights = self._analyze_full_insights(turn_data)
         if not new_insights:
-            print("  ⚠️ Comprehensive analysis failed to generate insights")
+            if self.logger:
+                self.logger.warning(
+                    "Comprehensive analysis failed to generate insights",
+                    extra={"event_type": "knowledge_update"}
+                )
             return False
 
         # Step 3: Intelligent knowledge merging with comprehensive strategy
         success = self._intelligent_knowledge_merge(new_insights, "FULL_UPDATE")
         if success:
-            print("  ✅ Knowledge base updated successfully")
+            if self.logger:
+                self.logger.info(
+                    "Knowledge base updated successfully",
+                    extra={"event_type": "knowledge_update"}
+                )
         else:
-            print("  ⚠️ Knowledge merge failed")
+            if self.logger:
+                self.logger.error(
+                    "Knowledge merge failed",
+                    extra={"event_type": "knowledge_update"}
+                )
 
         return success
 

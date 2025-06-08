@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-from zork_api import ZorkInterface
 from zork_orchestrator import ZorkOrchestrator
 import time
 
@@ -23,13 +22,17 @@ def run_episode():
     print(
         f"  - S3 client: {'✅ Available' if orchestrator.s3_client else '❌ Not available'}"
     )
+    print(f"  - Game server URL: {orchestrator.game_server_url}")
     print(f"  - Game working directory: {orchestrator.zork_workdir_abs_path}")
     print(f"  - Save file template: {orchestrator.zork_save_filename_template}")
     print()
 
-    with ZorkInterface(timeout=1.0, working_directory=orchestrator.zork_workdir_abs_path, logger=orchestrator.logger) as zork_game:
+    # Create game interface using the orchestrator's method
+    game_interface = orchestrator.create_game_interface()
+    
+    with game_interface:
         try:
-            final_score = orchestrator.play_episode(zork_game)
+            final_score = orchestrator.play_episode(game_interface)
 
             print(f"\n🎯 Episode Complete!")
             print(f"  - Final score: {final_score}")

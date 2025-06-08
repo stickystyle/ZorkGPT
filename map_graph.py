@@ -212,7 +212,8 @@ class Room:
 
 
 class MapGraph:
-    def __init__(self):
+    def __init__(self, logger=None):
+        self.logger = logger
         self.rooms: Dict[str, Room] = {}
         # connections[room_name_1][exit_taken_from_room_1] = room_name_2
         self.connections: Dict[str, Dict[str, str]] = {}
@@ -383,7 +384,15 @@ class MapGraph:
             if exit_name not in pruned_exits_for_room:
                 self.rooms[room_key].add_exit(exit_name)
             else:
-                print(f"🚫 Skipping re-addition of pruned exit: {room_name} -> {exit_name}")
+                if self.logger:
+                    self.logger.debug(
+                        f"Skipping re-addition of pruned exit: {room_name} -> {exit_name}",
+                        extra={
+                            "event_type": "progress",
+                            "stage": "map_building",
+                            "details": f"Exit {exit_name} was previously pruned as invalid"
+                        }
+                    )
 
     def track_exit_failure(self, room_name: str, exit_name: str) -> int:
         """
@@ -405,7 +414,15 @@ class MapGraph:
         self.exit_failure_counts[failure_key] = self.exit_failure_counts.get(failure_key, 0) + 1
         
         failure_count = self.exit_failure_counts[failure_key]
-        print(f"🚫 Exit failure tracked: {room_name} -> {processed_exit} (attempt #{failure_count})")
+        if self.logger:
+            self.logger.debug(
+                f"Exit failure tracked: {room_name} -> {processed_exit} (attempt #{failure_count})",
+                extra={
+                    "event_type": "progress",
+                    "stage": "map_building", 
+                    "details": f"Exit failure count: {failure_count}"
+                }
+            )
         
         return failure_count
 
@@ -1122,8 +1139,15 @@ class MapGraph:
             if len(variants) <= 1:
                 continue  # No case variations for this location
                 
-            print(f"🔄 Consolidating case variations: {normalized_name}")
-            print(f"   Variants found: {variants}")
+            if self.logger:
+                self.logger.info(
+                    f"Consolidating case variations: {normalized_name}",
+                    extra={
+                        "event_type": "progress",
+                        "stage": "map_consolidation",
+                        "details": f"Variants found: {variants}"
+                    }
+                )
             
             # Choose the consolidation target - prefer the one that matches our normalization style
             # Prefer Title Case for base names and consistent patterns for suffixes
@@ -1135,8 +1159,15 @@ class MapGraph:
                 if variant in self.rooms:
                     all_exits.update(self.rooms[variant].exits)
             
-            print(f"   Target location: {target_location}")
-            print(f"   Combined exits: {sorted(list(all_exits))}")
+            if self.logger:
+                self.logger.debug(
+                    f"Consolidation target: {target_location}",
+                    extra={
+                        "event_type": "progress",
+                        "stage": "map_consolidation",
+                        "details": f"Combined exits: {sorted(list(all_exits))}"
+                    }
+                )
             
             # Merge all connections from variants into the target
             for variant in variants:

@@ -125,16 +125,14 @@ class ZorkInterface:
         
         # Enhanced logging for debug - capture all game responses
         if self.logger:
-            self.logger.info(
-                f"[DEBUG] Game command and response",
+            self.logger.debug(
+                f"Game command and response",
                 extra={
-                    "extras": {
-                        "event_type": "game_command_response_debug",
-                        "command": command,
-                        "response": response,
-                        "response_length": len(response),
-                    }
-                },
+                    "event_type": "game_command_response_debug",
+                    "command": command,
+                    "response": response,
+                    "response_length": len(response),
+                }
             )
         
         return response
@@ -199,7 +197,8 @@ class ZorkInterface:
             bool: True if save was successful
         """
         if not self.is_running():
-            print(f"Save failed: Zork process not running")
+            if self.logger:
+                self.logger.error("Save failed: Zork process not running")
             return False
             
         # Try a more robust save approach
@@ -221,7 +220,8 @@ class ZorkInterface:
             # Get the response
             response = self.get_response()
             
-            print(f"Save command response: {repr(response)}")
+            if self.logger:
+                self.logger.debug(f"Save command response: {repr(response)}")
             
             # Check for various success indicators
             response_lower = response.lower()
@@ -247,25 +247,30 @@ class ZorkInterface:
             
             # If we see failure indicators, definitely failed
             if has_failure:
-                print(f"Save failed - failure indicator found: {response}")
+                if self.logger:
+                    self.logger.error(f"Save failed - failure indicator found: {response}")
                 return False
             
             # If we see success indicators, probably succeeded
             if has_success:
-                print(f"Save succeeded - success indicator found: {response}")
+                if self.logger:
+                    self.logger.info(f"Save succeeded - success indicator found: {response}")
                 return True
             
             # If response is very short or empty, might have worked
             if len(response.strip()) < 20:
-                print(f"Save may have succeeded - minimal response: {response}")
+                if self.logger:
+                    self.logger.info(f"Save may have succeeded - minimal response: {response}")
                 return True
             
             # Default to failure if unclear
-            print(f"Save status unclear - defaulting to failure: {response}")
+            if self.logger:
+                self.logger.warning(f"Save status unclear - defaulting to failure: {response}")
             return False
             
         except Exception as e:
-            print(f"Save failed with exception: {e}")
+            if self.logger:
+                self.logger.error(f"Save failed with exception: {e}")
             return False
 
     def trigger_zork_restore(self, filename: str) -> bool:
@@ -286,7 +291,8 @@ class ZorkInterface:
         )
         
         if not success:
-            print(f"Restore failed: {response}")
+            if self.logger:
+                self.logger.error(f"Restore failed: {response}")
         
         return success
 
@@ -401,15 +407,13 @@ class ZorkInterface:
         """Parse inventory text into a list of items."""
         # Enhanced logging for debug - capture full response text
         if self.logger:
-            self.logger.info(
-                f"[DEBUG] Inventory parsing input",
+            self.logger.debug(
+                f"Inventory parsing input",
                 extra={
-                    "extras": {
-                        "event_type": "inventory_parse_debug",
-                        "raw_inventory_text": inv_text,
-                        "text_length": len(inv_text),
-                    }
-                },
+                    "event_type": "inventory_parse_debug",
+                    "raw_inventory_text": inv_text,
+                    "text_length": len(inv_text),
+                }
             )
         
         # Check for death messages that shouldn't be parsed as inventory
@@ -427,11 +431,9 @@ class ZorkInterface:
                     self.logger.warning(
                         f"Death text detected in inventory response",
                         extra={
-                            "extras": {
-                                "event_type": "death_text_in_inventory",
-                                "death_indicator": indicator,
-                                "full_response": inv_text,
-                            }
+                            "event_type": "death_text_in_inventory",
+                            "death_indicator": indicator,
+                            "full_response": inv_text,
                         },
                     )
                 return []  # Return empty inventory if death text detected
@@ -527,11 +529,9 @@ class ZorkInterface:
             self.logger.info(
                 f"[DEBUG] Inventory parsing result",
                 extra={
-                    "extras": {
-                        "event_type": "inventory_parse_result",
-                        "parsed_items": result,
-                        "item_count": len(result),
-                    }
+                    "event_type": "inventory_parse_result",
+                    "parsed_items": result,
+                    "item_count": len(result),
                 },
             )
 

@@ -206,7 +206,7 @@ class ZorkOrchestrator:
 
         # Initialize adaptive knowledge manager (always enabled)
         self.adaptive_knowledge_manager = AdaptiveKnowledgeManager(
-            log_file=self.json_log_file, output_file="knowledgebase.md"
+            log_file=self.json_log_file, output_file="knowledgebase.md", logger=self.logger
         )
 
         # Session-persistent state (survives episode resets)
@@ -227,7 +227,7 @@ class ZorkOrchestrator:
         self.turn_count = 0
         self.game_over_flag = False  # Track game over state for state export
         # Use MapGraph with enhanced confidence tracking
-        self.game_map = MapGraph()
+        self.game_map = MapGraph(logger=self.logger)
         self.current_room_name_for_map = ""
         self.prev_room_for_prompt_context: Optional[str] = None
         self.action_leading_to_current_room_for_prompt_context: Optional[str] = None
@@ -946,17 +946,15 @@ class ZorkOrchestrator:
                     self.logger.info(
                         f"Movement connection: {from_location_id} --[{movement_result.action}]--> {to_location_id}",
                         extra={
-                            "extras": {
-                                "event_type": "movement_connection_created",
-                                "episode_id": self.episode_id,
-                                "from_room": from_location_id,
-                                "to_room": to_location_id,
-                                "action": movement_result.action,
-                                "confidence": getattr(
-                                    movement_result, "confidence", 1.0
-                                ),
-                            }
-                        },
+                            "event_type": "movement_connection_created",
+                            "episode_id": self.episode_id,
+                            "from_room": from_location_id,
+                            "to_room": to_location_id,
+                            "action": movement_result.action,
+                            "confidence": getattr(
+                                movement_result, "confidence", 1.0
+                            ),
+                        }
                     )
 
                 # Get score - try structured parser first if using hybrid extractor
@@ -977,13 +975,11 @@ class ZorkOrchestrator:
                     self.logger.debug(
                         f"Score extracted via structured parser: {current_zork_score_val} (moves: {structured_moves})",
                         extra={
-                            "extras": {
                                 "event_type": "structured_score_extraction",
                                 "episode_id": self.episode_id,
                                 "score": current_zork_score_val,
                                 "moves": structured_moves,
-                            }
-                        },
+}
                     )
                 else:
                     # Fallback to traditional score extraction
@@ -1062,13 +1058,11 @@ class ZorkOrchestrator:
                 self.logger.info(
                     f"Score decreased by {abs(score_change)} points",
                     extra={
-                        "extras": {
                             "event_type": "score_decrease",
                             "episode_id": self.episode_id,
                             "score_change": score_change,
                             "new_score": current_zork_score_val,
-                        }
-                    },
+}
                 )
 
             self.previous_zork_score = current_zork_score_val
@@ -1093,13 +1087,11 @@ class ZorkOrchestrator:
                 self.logger.error(
                     "agent_reasoning unexpectedly missing - this indicates a bug in the agent action flow",
                     extra={
-                        "extras": {
                             "event_type": "missing_agent_reasoning_error",
                             "episode_id": self.episode_id,
                             "turn": self.turn_count,
                             "error": "agent_reasoning variable not in locals()",
-                        }
-                    },
+}
                 )
                 current_agent_reasoning = ""
             else:
@@ -1111,13 +1103,11 @@ class ZorkOrchestrator:
                 self.logger.warning(
                     f"Failed to check objective update: {objective_error}",
                     extra={
-                        "extras": {
                             "event_type": "objective_update_error",
                             "episode_id": self.episode_id,
                             "turn": self.turn_count,
                             "error": str(objective_error),
-                        }
-                    },
+}
                 )
             
             # Check for objective completion after each turn
@@ -1141,13 +1131,11 @@ class ZorkOrchestrator:
                         self.logger.info(
                             f"Map consolidation completed: {consolidations} locations merged",
                             extra={
-                                "extras": {
                                     "event_type": "map_consolidation",
                                     "episode_id": self.episode_id,
                                     "turn": self.turn_count,
                                     "consolidations_performed": consolidations,
-                                }
-                            },
+}
                         )
                 
                     # Enhanced base name consolidation to address main fragmentation source
@@ -1156,13 +1144,11 @@ class ZorkOrchestrator:
                         self.logger.info(
                             f"Enhanced base name consolidation completed: {base_consolidations} locations merged",
                             extra={
-                                "extras": {
                                     "event_type": "base_name_consolidation",
                                     "episode_id": self.episode_id,
                                     "turn": self.turn_count,
                                     "base_consolidations_performed": base_consolidations,
-                                }
-                            },
+}
                         )
                 
                     # Then, prune fragmented nodes that serve no navigation purpose
@@ -1171,13 +1157,11 @@ class ZorkOrchestrator:
                         self.logger.info(
                             f"Map pruning completed: {pruned_nodes} fragmented nodes removed",
                             extra={
-                                "extras": {
                                     "event_type": "map_pruning",
                                     "episode_id": self.episode_id,
                                     "turn": self.turn_count,
                                     "nodes_pruned": pruned_nodes,
-                                }
-                            },
+}
                         )
                 except Exception as e:
                     self.logger.warning(f"Failed to consolidate map: {e}", extra={
@@ -1197,29 +1181,25 @@ class ZorkOrchestrator:
                     self.logger.info(
                         f"Turn took {turn_elapsed_time:.2f}s, pausing for {remaining_time:.2f}s more to reach minimum {self.turn_delay_seconds}s",
                         extra={
-                            "extras": {
                                 "event_type": "turn_delay",
                                 "episode_id": self.episode_id,
                                 "turn_elapsed_time": turn_elapsed_time,
                                 "delay_seconds": remaining_time,
                                 "target_turn_duration": self.turn_delay_seconds,
                                 "turn": self.turn_count,
-                            }
-                        },
+}
                     )
                     time.sleep(remaining_time)
                 else:
                     self.logger.info(
                         f"Turn took {turn_elapsed_time:.2f}s (>= {self.turn_delay_seconds}s target), no additional delay needed",
                         extra={
-                            "extras": {
                                 "event_type": "turn_no_delay_needed",
                                 "episode_id": self.episode_id,
                                 "turn_elapsed_time": turn_elapsed_time,
                                 "target_turn_duration": self.turn_delay_seconds,
                                 "turn": self.turn_count,
-                            }
-                        },
+}
                     )
 
         # Debug: Log why the episode ended
@@ -1236,7 +1216,6 @@ class ZorkOrchestrator:
         self.logger.info(
             f"Episode ended. Reasons: {', '.join(end_reasons) if end_reasons else 'unknown'}",
             extra={
-                "extras": {
                     "event_type": "episode_end_debug",
                     "episode_id": self.episode_id,
                     "game_over": game_over,
@@ -1244,15 +1223,13 @@ class ZorkOrchestrator:
                     "turn_count": self.turn_count,
                     "max_turns": self.max_turns_per_episode,
                     "reasons": end_reasons,
-                }
-            },
+}
         )
 
         # Log episode end
         self.logger.info(
             "Episode finished",
             extra={
-                "extras": {
                     "event_type": "episode_end",
                     "episode_id": self.episode_id,
                     "turn_count": self.turn_count,
@@ -1260,8 +1237,7 @@ class ZorkOrchestrator:
                     "final_max_turns": self.max_turns_per_episode,
                     # Performance metrics
                     "avg_critic_score": self.get_avg_critic_score(),
-                }
-            },
+}
         )
 
         # Perform final adaptive knowledge update if there's been significant progress
@@ -1289,7 +1265,6 @@ class ZorkOrchestrator:
             self.logger.info(
                 f"🧠 Performing Method 2 knowledge update: processing entire episode (turns 1-{self.turn_count})",
                 extra={
-                    "extras": {
                         "event_type": "method2_periodic_knowledge_update",
                         "episode_id": self.episode_id,
                         "turn": self.turn_count,
@@ -1298,8 +1273,7 @@ class ZorkOrchestrator:
                         "total_turns_processed": self.turn_count,
                         "turns_since_last_update": turns_since_last_update,
                         "method": "single_batch_comprehensive",
-                    }
-                },
+}
             )
 
             try:
@@ -1327,14 +1301,12 @@ class ZorkOrchestrator:
                     self.logger.info(
                         f"✅ Method 2 knowledge update completed (processed {self.turn_count} turns)",
                         extra={
-                            "extras": {
                                 "event_type": "method2_knowledge_update_success",
                                 "episode_id": self.episode_id,
                                 "turn": self.turn_count,
                                 "turns_processed": self.turn_count,
                                 "method": "single_batch_comprehensive",
-                            }
-                        },
+}
                     )
                     
                     # Update map in knowledge base after successful update
@@ -1347,30 +1319,26 @@ class ZorkOrchestrator:
                     self.logger.info(
                         f"⚠️ Method 2 knowledge update skipped (quality assessment rejected data)",
                         extra={
-                            "extras": {
                                 "event_type": "method2_knowledge_update_skipped",
                                 "episode_id": self.episode_id,
                                 "turn": self.turn_count,
                                 "reason": "low_quality_data",
                                 "turns_analyzed": self.turn_count,
                                 "method": "single_batch_comprehensive",
-                            }
-                        },
+}
                     )
 
             except Exception as e:
                 self.logger.warning(
                     f"❌ Method 2 knowledge update failed: {e}",
                     extra={
-                        "extras": {
                             "event_type": "method2_knowledge_update_failed",
                             "episode_id": self.episode_id,
                             "error": str(e),
                             "turn": self.turn_count,
                             "turns_analyzed": self.turn_count,
                             "method": "single_batch_comprehensive",
-                        }
-                    },
+}
                 )
 
     def _check_map_update(self) -> None:
@@ -1388,13 +1356,11 @@ class ZorkOrchestrator:
             self.logger.info(
                 f"Updating map in knowledge base (turn {self.turn_count})",
                 extra={
-                    "extras": {
                         "event_type": "map_update_check",
                         "episode_id": self.episode_id,
                         "turn": self.turn_count,
                         "turns_since_last_map_update": turns_since_last_map_update,
-                    }
-                },
+}
             )
 
             # Update map in knowledge base (but consolidation already ran above)
@@ -1413,13 +1379,11 @@ class ZorkOrchestrator:
                 self.logger.info(
                     f"Map consolidation (turn {self.turn_count}): {base_consolidations} locations merged",
                     extra={
-                        "extras": {
                             "event_type": "turn_based_consolidation",
                             "episode_id": self.episode_id,
                             "turn": self.turn_count,
                             "base_consolidations_performed": base_consolidations,
-                        }
-                    },
+}
                 )
             
             # Also run legacy consolidation for any remaining case variations
@@ -1429,13 +1393,11 @@ class ZorkOrchestrator:
                     self.logger.info(
                         f"Legacy consolidation (turn {self.turn_count}): {consolidations} locations merged",
                         extra={
-                            "extras": {
                                 "event_type": "turn_based_legacy_consolidation",
                                 "episode_id": self.episode_id,
                                 "turn": self.turn_count,
                                 "consolidations_performed": consolidations,
-                            }
-                        },
+}
                     )
             
             # Prune fragmented nodes that serve no navigation purpose
@@ -1444,26 +1406,22 @@ class ZorkOrchestrator:
                 self.logger.info(
                     f"Map pruning (turn {self.turn_count}): {pruned_nodes} fragmented nodes removed",
                     extra={
-                        "extras": {
                             "event_type": "turn_based_pruning",
                             "episode_id": self.episode_id,
                             "turn": self.turn_count,
                             "nodes_pruned": pruned_nodes,
-                        }
-                    },
+}
                 )
                 
         except Exception as e:
             self.logger.warning(
                 f"Failed to run map consolidation on turn {self.turn_count}: {e}",
                 extra={
-                    "extras": {
                         "event_type": "map_consolidation_failed",
                         "episode_id": self.episode_id,
                         "turn": self.turn_count,
                         "error": str(e),
-                    }
-                },
+}
             )
 
     def _update_knowledge_base_map(self) -> None:
@@ -1484,35 +1442,29 @@ class ZorkOrchestrator:
                 self.logger.info(
                     "Map updated in knowledge base",
                     extra={
-                        "extras": {
                             "event_type": "knowledge_base_map_update_success",
                             "episode_id": self.episode_id,
                             "turn": self.turn_count,
-                        }
-                    },
+}
                 )
             else:
                 self.logger.info(
                     "Map update skipped (no map data)",
                     extra={
-                        "extras": {
                             "event_type": "knowledge_base_map_update_skipped",
                             "episode_id": self.episode_id,
                             "turn": self.turn_count,
-                        }
-                    },
+}
                 )
                 
         except Exception as e:
             self.logger.warning(
                 f"Failed to update map in knowledge base: {e}",
                 extra={
-                    "extras": {
                         "event_type": "knowledge_base_map_update_failed",
                         "episode_id": self.episode_id,
                         "error": str(e),
-                    }
-                },
+}
             )
 
     def _reload_agent_knowledge(self) -> None:
@@ -1525,11 +1477,9 @@ class ZorkOrchestrator:
                 self.logger.info(
                     "Knowledge base reloaded for agent use",
                     extra={
-                        "extras": {
                             "event_type": "agent_knowledge_reload",
                             "episode_id": self.episode_id,
-                        }
-                    },
+}
                 )
             else:
                 self.logger.warning("Failed to reload agent knowledge base", extra={
@@ -1576,7 +1526,6 @@ class ZorkOrchestrator:
             self.logger.info(
                 f"Skipping final knowledge update - {skip_reason}",
                 extra={
-                    "extras": {
                         "event_type": "final_knowledge_update_skipped",
                         "episode_id": self.episode_id,
                         "reason": "recent_comprehensive_update",
@@ -1586,8 +1535,7 @@ class ZorkOrchestrator:
                         "episode_ended_in_death": episode_ended_in_death,
                         "will_synthesize_wisdom": will_synthesize_wisdom,
                         "method": "single_batch_comprehensive",
-                    }
-                },
+}
             )
             return
         
@@ -1606,20 +1554,17 @@ class ZorkOrchestrator:
             self.logger.info(
                 "Skipping final knowledge update - no turns completed",
                 extra={
-                    "extras": {
                         "event_type": "final_knowledge_update_skipped",
                         "episode_id": self.episode_id,
                         "reason": "no_turns_completed",
                         "turn_count": self.turn_count,
-                    }
-                },
+}
             )
             return
 
         self.logger.info(
             f"🧠 Performing final Method 2 knowledge update for {reason_desc} (turns 1-{self.turn_count})",
             extra={
-                "extras": {
                     "event_type": "method2_final_knowledge_update_start",
                     "episode_id": self.episode_id,
                     "start_turn": 1,  # Always start from turn 1
@@ -1631,8 +1576,7 @@ class ZorkOrchestrator:
                     "episode_ended_in_death": episode_ended_in_death,
                     "will_synthesize_wisdom": will_synthesize_wisdom,
                     "death_count": self.death_count,
-                }
-            },
+}
         )
 
         try:
@@ -1661,7 +1605,6 @@ class ZorkOrchestrator:
                 self.logger.info(
                     f"✅ Final Method 2 knowledge update completed (processed {self.turn_count} turns)",
                     extra={
-                        "extras": {
                             "event_type": "method2_final_knowledge_update_success",
                             "episode_id": self.episode_id,
                             "turns_processed": self.turn_count,
@@ -1669,8 +1612,7 @@ class ZorkOrchestrator:
                             "reason": update_reason,
                             "episode_ended_in_death": episode_ended_in_death,
                             "will_synthesize_wisdom": will_synthesize_wisdom,
-                        }
-                    },
+}
                 )
                 
                 # Update map in knowledge base after successful update
@@ -1682,7 +1624,6 @@ class ZorkOrchestrator:
                 self.logger.info(
                     f"⚠️ Final Method 2 knowledge update skipped (quality assessment rejected episode data)",
                     extra={
-                        "extras": {
                             "event_type": "method2_final_knowledge_update_skipped",
                             "episode_id": self.episode_id,
                             "reason": "low_quality_data",
@@ -1690,15 +1631,13 @@ class ZorkOrchestrator:
                             "method": "single_batch_comprehensive",
                             "episode_ended_in_death": episode_ended_in_death,
                             "will_synthesize_wisdom": will_synthesize_wisdom,
-                        }
-                    },
+}
                 )
 
         except Exception as e:
             self.logger.warning(
                 f"❌ Final Method 2 knowledge update failed: {e}",
                 extra={
-                    "extras": {
                         "event_type": "method2_final_knowledge_update_failed",
                         "episode_id": self.episode_id,
                         "error": str(e),
@@ -1706,8 +1645,7 @@ class ZorkOrchestrator:
                         "method": "single_batch_comprehensive",
                         "episode_ended_in_death": episode_ended_in_death,
                         "will_synthesize_wisdom": will_synthesize_wisdom,
-                    }
-                },
+}
             )
 
     def _is_death_episode(self) -> bool:
@@ -1772,7 +1710,6 @@ class ZorkOrchestrator:
                             self.logger.info(
                                 f"Exit pruning triggered for {from_room}: {pruned_count} invalid exits removed",
                                 extra={
-                                    "extras": {
                                         "event_type": "exit_pruning",
                                         "episode_id": self.episode_id,
                                         "turn": self.turn_count,
@@ -1780,8 +1717,7 @@ class ZorkOrchestrator:
                                         "failed_action": action,
                                         "failure_count": failure_count,
                                         "exits_pruned": pruned_count,
-                                    }
-                                },
+}
                             )
 
         # Update room context for next turn
@@ -2349,14 +2285,12 @@ Format as a clear, structured summary that preserves essential information for c
                 self.logger.info(
                     f"Immediate knowledge update triggered: {trigger_reason}",
                     extra={
-                        "extras": {
                             "event_type": "immediate_knowledge_update",
                             "episode_id": self.episode_id,
                             "section_id": section_id,
                             "trigger_reason": trigger_reason,
                             "turn": self.turn_count,
-                        }
-                    },
+}
                 )
                 
                 # Reload agent knowledge immediately for current session benefit
@@ -2365,26 +2299,22 @@ Format as a clear, structured summary that preserves essential information for c
                 self.logger.warning(
                     f"Failed immediate knowledge update for {trigger_reason}",
                     extra={
-                        "extras": {
                             "event_type": "immediate_knowledge_update_failed",
                             "episode_id": self.episode_id,
                             "section_id": section_id,
                             "trigger_reason": trigger_reason,
-                        }
-                    },
+}
                 )
                 
         except Exception as e:
             self.logger.error(
                 f"Error during immediate knowledge update: {e}",
                 extra={
-                    "extras": {
                         "event_type": "immediate_knowledge_update_error",
                         "episode_id": self.episode_id,
                         "error": str(e),
                         "trigger_reason": trigger_reason,
-                    }
-                },
+}
             )
 
     def _check_objective_update(self, current_agent_reasoning: str = "") -> None:
@@ -2397,14 +2327,12 @@ Format as a clear, structured summary that preserves essential information for c
             self.logger.info(
                 f"Objective update check: turn={self.turn_count}, last_update={self.objective_update_turn}",
                 extra={
-                    "extras": {
                         "event_type": "objective_update_check",
                         "episode_id": self.episode_id,
                         "turn": self.turn_count,
                         "objective_update_turn": self.objective_update_turn,
                         "current_objectives_count": len(self.discovered_objectives),
-                    }
-                },
+}
             )
             
             # Update objectives every turn, ensuring it's not a duplicate call for the same turn.
@@ -2414,12 +2342,10 @@ Format as a clear, structured summary that preserves essential information for c
                 self.logger.info(
                     f"Triggering objective update at turn {self.turn_count}",
                     extra={
-                        "extras": {
                             "event_type": "objective_update_triggered",
                             "episode_id": self.episode_id,
                             "turn": self.turn_count,
-                        }
-                    },
+}
                 )
                 self._update_discovered_objectives(current_agent_reasoning)
             else:
@@ -2427,27 +2353,23 @@ Format as a clear, structured summary that preserves essential information for c
                 self.logger.info(
                     f"Objective update skipped: turn_count={self.turn_count}, already updated this turn or turn 0",
                     extra={
-                        "extras": {
                             "event_type": "objective_update_skipped",
                             "episode_id": self.episode_id,
                             "turn": self.turn_count,
                             "objective_update_turn": self.objective_update_turn,
                             "skip_reason": "turn_0" if self.turn_count == 0 else "already_updated",
-                        }
-                    },
+}
                 )
         except Exception as e:
             print(f"❌ Exception in _check_objective_update: {e}")
             self.logger.error(
                 f"Exception in _check_objective_update: {e}",
                 extra={
-                    "extras": {
                         "event_type": "objective_update_exception",
                         "episode_id": self.episode_id,
                         "turn": self.turn_count,
                         "error": str(e),
-                    }
-                },
+}
             )
             raise  # Re-raise to be caught by the outer try-catch
 
@@ -2464,14 +2386,12 @@ Format as a clear, structured summary that preserves essential information for c
             self.logger.info(
                 f"Starting objective discovery/update at turn {self.turn_count}",
                 extra={
-                    "extras": {
                         "event_type": "objective_discovery_start",
                         "episode_id": self.episode_id,
                         "turn": self.turn_count,
                         "current_objectives": self.discovered_objectives,
                         "current_score": self.previous_zork_score,
-                    }
-                },
+}
             )
             
             # Get recent gameplay context for analysis
@@ -2534,14 +2454,12 @@ Focus on objectives the agent has actually discovered through gameplay patterns 
                 self.logger.info(
                     f"Making LLM call for objective discovery with model {model_to_use}",
                     extra={
-                        "extras": {
                             "event_type": "objective_llm_call_start",
                             "episode_id": self.episode_id,
                             "turn": self.turn_count,
                             "model": model_to_use,
                             "prompt_length": len(prompt),
-                        }
-                    },
+}
                 )
                 
                 try:
@@ -2573,27 +2491,23 @@ Focus on objectives the agent has actually discovered through gameplay patterns 
                         self.logger.info(
                             "Discovered objectives updated",
                             extra={
-                                "extras": {
                                     "event_type": "objectives_updated",
                                     "episode_id": self.episode_id,
                                     "turn": self.turn_count,
                                     "objective_count": len(updated_objectives),
                                     "objectives": updated_objectives,
-                                }
-                            },
+}
                         )
                     else:
                         print("  ⚠️ No objectives parsed from LLM response")
                         self.logger.warning(
                             "No objectives parsed from LLM response",
                             extra={
-                                "extras": {
                                     "event_type": "objectives_parsing_failed",
                                     "episode_id": self.episode_id,
                                     "turn": self.turn_count,
                                     "llm_response": response.content,
-                                }
-                            },
+}
                         )
                         
                 except Exception as llm_error:
@@ -2601,29 +2515,25 @@ Focus on objectives the agent has actually discovered through gameplay patterns 
                     self.logger.error(
                         f"Objective LLM call failed: {llm_error}",
                         extra={
-                            "extras": {
                                 "event_type": "objective_llm_call_failed",
                                 "episode_id": self.episode_id,
                                 "turn": self.turn_count,
                                 "error": str(llm_error),
                                 "model": model_to_use,
-                            }
-                        },
+}
                     )
             else:
                 print("  ⚠️ No LLM client available for objective analysis")
                 self.logger.error(
                     "No LLM client available for objective analysis",
                     extra={
-                        "extras": {
                             "event_type": "objective_no_client",
                             "episode_id": self.episode_id,
                             "turn": self.turn_count,
                             "has_adaptive_manager": hasattr(self, 'adaptive_knowledge_manager'),
                             "has_client": hasattr(self.adaptive_knowledge_manager, 'client') if hasattr(self, 'adaptive_knowledge_manager') else False,
                             "client_value": str(self.adaptive_knowledge_manager.client) if hasattr(self, 'adaptive_knowledge_manager') and hasattr(self.adaptive_knowledge_manager, 'client') else "N/A",
-                        }
-                    },
+}
                 )
                 
         except Exception as e:
@@ -2631,13 +2541,11 @@ Focus on objectives the agent has actually discovered through gameplay patterns 
             self.logger.error(
                 f"Objective update failed: {e}",
                 extra={
-                    "extras": {
                         "event_type": "objective_update_failed",
                         "episode_id": self.episode_id,
                         "turn": self.turn_count,
                         "error": str(e),
-                    }
-                },
+}
             )
 
     def _prepare_objective_analysis_context(self, recent_memory, recent_actions, current_agent_reasoning) -> str:
@@ -2907,7 +2815,6 @@ Only mark objectives as completed if you're confident they were achieved."""
                     self.logger.info(
                         f"Objective completed: {objective}",
                         extra={
-                            "extras": {
                                 "event_type": "objective_completed",
                                 "episode_id": self.episode_id,
                                 "turn": self.turn_count,
@@ -2915,8 +2822,7 @@ Only mark objectives as completed if you're confident they were achieved."""
                                 "completion_action": action_taken,
                                 "completion_signals": completion_signals,
                                 "completion_score": self.previous_zork_score,
-                            }
-                        },
+}
                     )
                     
         except Exception as e:
@@ -2977,7 +2883,6 @@ Only mark objectives as completed if you're confident they were achieved."""
             self.logger.info(
                 f"Triggering objective refinement at turn {self.turn_count}. Reason: {reason}",
                 extra={
-                    "extras": {
                         "event_type": "objective_refinement_triggered",
                         "episode_id": self.episode_id,
                         "turn": self.turn_count,
@@ -3142,14 +3047,12 @@ Please provide a refined list of objectives that encourages exploration and prog
                     self.logger.info(
                         f"Objective removed due to staleness: {objective}",
                         extra={
-                            "extras": {
                                 "event_type": "objective_staleness_removal",
                                 "episode_id": self.episode_id,
                                 "turn": self.turn_count,
                                 "stale_objective": objective,
                                 "turns_without_progress": 30,
-                            }
-                        },
+}
                     )
         
         # Update tracking variables
@@ -3172,63 +3075,53 @@ Please provide a refined list of objectives that encourages exploration and prog
                     # Fallback to generated filename if signal file is empty
                     save_filename = self._generate_unique_save_filename()
                     self.logger.warning("Signal file was empty, generated new filename", extra={
-                        "extras": {
                             "event_type": "empty_signal_file",
                             "episode_id": self.episode_id,
                             "generated_filename": save_filename
-                        }
-                    })
+})
                     
             except Exception as e:
                 # Fallback to generated filename if file can't be read
                 save_filename = self._generate_unique_save_filename()
                 self.logger.warning(f"Could not read signal file content: {e}, generated new filename", extra={
-                    "extras": {
                         "event_type": "signal_file_read_error", 
                         "episode_id": self.episode_id,
                         "error": str(e),
                         "generated_filename": save_filename
-                    }
-                })
+})
             
             # Set current save filename and calculate paths
             self.current_save_filename = save_filename
             current_save_file_abs_path = self._get_save_file_path(save_filename)
             
             self.logger.info("Save requested by external signal", extra={
-                "extras": {
                     "event_type": "save_signal_received",
                     "episode_id": self.episode_id,
                     "turn": self.turn_count,
                     "signal_file": self.save_signal_file_abs_path,
                     "save_filename": save_filename,
                     "save_file_path": current_save_file_abs_path
-                }
-            })
+})
             
             # Log current game state before attempting save
             self.logger.info(f"Current save attempt details", extra={
-                "extras": {
                     "event_type": "save_attempt_details",
                     "episode_id": self.episode_id,
                     "game_running": zork_interface_instance.is_running(),
                     "working_directory": zork_interface_instance.working_directory,
                     "save_filename": save_filename,
                     "save_file_abs_path": current_save_file_abs_path
-                }
-            })
+})
             
             # Attempt to save the Zork game state
             save_success = zork_interface_instance.trigger_zork_save(save_filename)
             
             if save_success:
                 self.logger.info("Zork game state saved successfully", extra={
-                    "extras": {
                         "event_type": "zork_save_success",
                         "episode_id": self.episode_id,
                         "save_file": current_save_file_abs_path
-                    }
-                })
+})
                 
                 # Check if save file was actually created
                 save_file_with_qzl = current_save_file_abs_path + ".qzl"
@@ -3252,52 +3145,42 @@ Please provide a refined list of objectives that encourages exploration and prog
                     self.export_current_state()
                     
                     self.logger.info("ZorkGPT state exported with save metadata - ready for shutdown", extra={
-                        "extras": {
                             "event_type": "state_export_complete",
                             "episode_id": self.episode_id,
                             "export_file": self.state_export_file,
                             "save_metadata": save_metadata
-                        }
-                    })
+})
                 else:
                     self.logger.error("Zork save file not found after save command - not exporting JSON state", extra={
-                        "extras": {
                             "event_type": "save_file_missing_after_save",
                             "episode_id": self.episode_id,
                             "expected_paths": [current_save_file_abs_path, save_file_with_qzl]
-                        }
-                    })
+})
                     save_success = False  # Mark as failed since file doesn't exist
                     
             else:
                 self.logger.error("Failed to save Zork game state - not exporting JSON state", extra={
-                    "extras": {
                         "event_type": "zork_save_failed",
                         "episode_id": self.episode_id,
                         "save_file": current_save_file_abs_path,
                         "game_running": zork_interface_instance.is_running(),
                         "working_directory": zork_interface_instance.working_directory
-                    }
-                })
+})
             
             # Remove signal file regardless of save success/failure
             try:
                 os.remove(self.save_signal_file_abs_path)
                 self.logger.info("Save signal file removed", extra={
-                    "extras": {
                         "event_type": "save_signal_removed",
                         "episode_id": self.episode_id,
                         "save_success": save_success
-                    }
-                })
+})
             except OSError as e:
                 self.logger.warning(f"Failed to remove save signal file: {e}", extra={
-                    "extras": {
                         "event_type": "save_signal_removal_failed",
                         "episode_id": self.episode_id,
                         "error": str(e)
-                    }
-                })
+})
             
             return True
         
@@ -3321,31 +3204,25 @@ Please provide a refined list of objectives that encourages exploration and prog
             restore_filename = os.path.basename(most_recent_save).replace('.qzl', '').replace('.sav', '')
             
             self.logger.info("Found most recent save file", extra={
-                "extras": {
                     "event_type": "most_recent_save_found",
                     "episode_id": self.episode_id,
                     "save_file": save_file_to_use,
                     "restore_filename": restore_filename
-                }
-            })
+})
         else:
             self.logger.info("No save file found - starting fresh game", extra={
-                "extras": {
                     "event_type": "no_save_file",
                     "episode_id": self.episode_id,
                     "game_directory": self.zork_workdir_abs_path
-                }
-            })
+})
             return False
         
         self.logger.info("Attempting restore from save file", extra={
-            "extras": {
                 "event_type": "restore_attempt",
                 "episode_id": self.episode_id,
                 "save_file": save_file_to_use,
                 "restore_filename": restore_filename
-            }
-        })
+})
         
         restore_success = zork_interface_instance.trigger_zork_restore(restore_filename)
         
@@ -3354,41 +3231,33 @@ Please provide a refined list of objectives that encourages exploration and prog
             self.current_save_filename = restore_filename + ".sav"  # Add extension for consistency
             
             self.logger.info("Successfully restored from save file", extra={
-                "extras": {
                     "event_type": "restore_success",
                     "episode_id": self.episode_id,
                     "save_file": save_file_to_use,
                     "current_save_filename": self.current_save_filename
-                }
-            })
+})
             return True
         else:
             self.logger.error("Failed to restore from save file", extra={
-                "extras": {
                     "event_type": "restore_failed",
                     "episode_id": self.episode_id,
                     "save_file": save_file_to_use
-                }
-            })
+})
             
             # Delete corrupt save file
             try:
                 os.remove(save_file_to_use)
                 self.logger.info("Removed corrupt save file", extra={
-                    "extras": {
                         "event_type": "corrupt_save_removed",
                         "episode_id": self.episode_id,
                         "save_file": save_file_to_use
-                    }
-                })
+})
             except OSError as e:
                 self.logger.warning(f"Failed to remove corrupt save file: {e}", extra={
-                    "extras": {
                         "event_type": "corrupt_save_removal_failed",
                         "episode_id": self.episode_id,
                         "error": str(e)
-                    }
-                })
+})
             
             return False
 
@@ -3409,24 +3278,19 @@ Please provide a refined list of objectives that encourages exploration and prog
                     sync_valid = self._validate_save_sync(save_metadata)
                     if not sync_valid:
                         self.logger.warning("Save file sync validation failed - JSON state may be out of sync", extra={
-                            "extras": {
                                 "event_type": "save_sync_validation_failed",
                                 "episode_id": self.episode_id,
                                 "save_metadata": save_metadata
-                            }
-                        })
+})
                         # Continue loading but mark as potentially invalid
                         previous_state["_sync_warning"] = True
                 else:
                     self.logger.info("No save metadata found in previous state - cannot validate sync", extra={
-                        "extras": {
                             "event_type": "no_save_metadata",
                             "episode_id": self.episode_id
-                        }
-                    })
+})
                 
                 self.logger.info("Loaded previous state from JSON", extra={
-                    "extras": {
                         "event_type": "previous_state_loaded",
                         "episode_id": self.episode_id,
                         "state_file": self.state_export_file,
@@ -3434,29 +3298,24 @@ Please provide a refined list of objectives that encourages exploration and prog
                         "previous_turn_count": previous_state.get("metadata", {}).get("turn_count", 0),
                         "has_save_metadata": save_metadata is not None,
                         "sync_warning": previous_state.get("_sync_warning", False)
-                    }
-                })
+})
                 
                 return previous_state
             else:
                 self.logger.info("No previous state file found", extra={
-                    "extras": {
                         "event_type": "no_previous_state",
                         "episode_id": self.episode_id,
                         "state_file": self.state_export_file
-                    }
-                })
+})
                 return None
                 
         except (json.JSONDecodeError, OSError) as e:
             self.logger.warning(f"Failed to load previous state: {e}", extra={
-                "extras": {
                     "event_type": "previous_state_load_failed",
                     "episode_id": self.episode_id,
                     "error": str(e),
                     "state_file": self.state_export_file
-                }
-            })
+})
             return None
 
     def _validate_save_sync(self, save_metadata: Dict[str, Any]) -> bool:
@@ -3474,23 +3333,19 @@ Please provide a refined list of objectives that encourages exploration and prog
             
             if not save_file_path or not expected_mtime:
                 self.logger.warning("Incomplete save metadata - cannot validate sync", extra={
-                    "extras": {
                         "event_type": "incomplete_save_metadata",
                         "episode_id": self.episode_id,
                         "save_metadata": save_metadata
-                    }
-                })
+})
                 return False
             
             # Check if save file still exists
             if not os.path.exists(save_file_path):
                 self.logger.warning(f"Save file no longer exists: {save_file_path}", extra={
-                    "extras": {
                         "event_type": "save_file_missing",
                         "episode_id": self.episode_id,
                         "save_file_path": save_file_path
-                    }
-                })
+})
                 return False
             
             # Check if modification time matches (within tolerance)
@@ -3500,35 +3355,29 @@ Please provide a refined list of objectives that encourages exploration and prog
             # Allow 5 second tolerance for filesystem time differences
             if time_diff > 5.0:
                 self.logger.warning(f"Save file modification time mismatch - expected: {expected_mtime}, actual: {actual_mtime}, diff: {time_diff}s", extra={
-                    "extras": {
                         "event_type": "save_file_time_mismatch",
                         "episode_id": self.episode_id,
                         "save_file_path": save_file_path,
                         "expected_mtime": expected_mtime,
                         "actual_mtime": actual_mtime,
                         "time_diff": time_diff
-                    }
-                })
+})
                 return False
             
             self.logger.info("Save file sync validation passed", extra={
-                "extras": {
                     "event_type": "save_sync_validated",
                     "episode_id": self.episode_id,
                     "save_file_path": save_file_path,
                     "time_diff": time_diff
-                }
-            })
+})
             return True
             
         except Exception as e:
             self.logger.warning(f"Error during save sync validation: {e}", extra={
-                "extras": {
                     "event_type": "save_sync_validation_error",
                     "episode_id": self.episode_id,
                     "error": str(e)
-                }
-            })
+})
             return False
 
     def _merge_previous_state(self, previous_state: Dict[str, Any]) -> None:
@@ -3543,11 +3392,9 @@ Please provide a refined list of objectives that encourages exploration and prog
         has_sync_warning = previous_state.get("_sync_warning", False)
         if has_sync_warning:
             self.logger.warning("Merging previous state with sync warning - data may be inconsistent", extra={
-                "extras": {
                     "event_type": "merge_with_sync_warning",
                     "episode_id": self.episode_id
-                }
-            })
+})
         
         # Preserve map data
         if "map" in previous_state:
@@ -3567,23 +3414,19 @@ Please provide a refined list of objectives that encourages exploration and prog
                 
                 merge_status = "partial" if has_sync_warning else "complete"
                 self.logger.info(f"Merged previous map data ({merge_status})", extra={
-                    "extras": {
                         "event_type": "map_data_merged",
                         "episode_id": self.episode_id,
                         "rooms_loaded": len(map_data["raw_data"].get("rooms", {})),
                         "connections_loaded": sum(len(conns) for conns in map_data["raw_data"].get("connections", {}).values()),
                         "merge_status": merge_status,
                         "has_sync_warning": has_sync_warning
-                    }
-                })
+})
             except Exception as e:
                 self.logger.warning(f"Failed to merge map data: {e}", extra={
-                    "extras": {
                         "event_type": "map_merge_failed",
                         "episode_id": self.episode_id,
                         "error": str(e)
-                    }
-                })
+})
         
         # Preserve knowledge base
         if "knowledge_base" in previous_state:
@@ -3598,22 +3441,18 @@ Please provide a refined list of objectives that encourages exploration and prog
                     
                     merge_status = "partial" if has_sync_warning else "complete"
                     self.logger.info(f"Restored previous knowledge base ({merge_status})", extra={
-                        "extras": {
                             "event_type": "knowledge_restored",
                             "episode_id": self.episode_id,
                             "content_length": len(kb_content),
                             "merge_status": merge_status,
                             "has_sync_warning": has_sync_warning
-                        }
-                    })
+})
             except Exception as e:
                 self.logger.warning(f"Failed to restore knowledge base: {e}", extra={
-                    "extras": {
                         "event_type": "knowledge_restore_failed",
                         "episode_id": self.episode_id,
                         "error": str(e)
-                    }
-                })
+})
         
         # Preserve death count and other persistent stats
         if "current_state" in previous_state:
@@ -3622,36 +3461,30 @@ Please provide a refined list of objectives that encourages exploration and prog
                 self.death_count = current_state["death_count"]
                 merge_status = "with_sync_warning" if has_sync_warning else "clean"
                 self.logger.info(f"Restored death count: {self.death_count} ({merge_status})", extra={
-                    "extras": {
                         "event_type": "death_count_restored",
                         "episode_id": self.episode_id,
                         "death_count": self.death_count,
                         "merge_status": merge_status,
                         "has_sync_warning": has_sync_warning
-                    }
-                })
+})
         
         # Store the save metadata for later verification during reconciliation
         if "save_metadata" in previous_state:
             self._previous_save_metadata = previous_state["save_metadata"]
             self.logger.info("Stored previous save metadata for reconciliation", extra={
-                "extras": {
                     "event_type": "save_metadata_stored",
                     "episode_id": self.episode_id,
                     "save_turn": self._previous_save_metadata.get("save_turn"),
                     "save_timestamp": self._previous_save_metadata.get("save_timestamp")
-                }
-            })
+})
         
         final_status = "completed_with_warnings" if has_sync_warning else "completed_successfully"
         self.logger.info(f"Previous state merge {final_status}", extra={
-            "extras": {
                 "event_type": "state_merge_complete",
                 "episode_id": self.episode_id,
                 "final_status": final_status,
                 "has_sync_warning": has_sync_warning
-            }
-        })
+})
 
     def _reconcile_restored_state(self, game_state: str, inventory: List[str], score: int) -> str:
         """Reconcile restored game state with loaded JSON state to detect inconsistencies.
@@ -3668,11 +3501,9 @@ Please provide a refined list of objectives that encourages exploration and prog
             # If we don't have previous save metadata, we can't do detailed reconciliation
             if not hasattr(self, '_previous_save_metadata'):
                 self.logger.info("No previous save metadata available for reconciliation", extra={
-                    "extras": {
                         "event_type": "reconciliation_no_metadata",
                         "episode_id": self.episode_id
-                    }
-                })
+})
                 return "no_metadata"
             
             # Extract expected values from previous save metadata
@@ -3689,15 +3520,13 @@ Please provide a refined list of objectives that encourages exploration and prog
                 
                 # Log the expected vs actual state for analysis
                 self.logger.info(f"Reconciliation check - Expected save turn: {expected_turn}, Save timestamp: {save_timestamp}", extra={
-                    "extras": {
                         "event_type": "reconciliation_comparison",
                         "episode_id": self.episode_id,
                         "expected_save_turn": expected_turn,
                         "save_timestamp": save_timestamp,
                         "current_score": score,
                         "current_inventory_count": len(inventory)
-                    }
-                })
+})
                 
                 # TODO: Could add more sophisticated validation here:
                 # - Compare current location with expected location from JSON state
@@ -3709,23 +3538,19 @@ Please provide a refined list of objectives that encourages exploration and prog
             # Future enhancements could add more detailed state comparison
             
             self.logger.info("Reconciliation completed - state appears consistent", extra={
-                "extras": {
                     "event_type": "reconciliation_completed",
                     "episode_id": self.episode_id,
                     "status": "consistent"
-                }
-            })
+})
             
             return "consistent"
             
         except Exception as e:
             self.logger.warning(f"Error during reconciliation: {e}", extra={
-                "extras": {
                     "event_type": "reconciliation_error",
                     "episode_id": self.episode_id,
                     "error": str(e)
-                }
-            })
+})
             return "error"
 
     def _generate_unique_save_filename(self) -> str:
@@ -3818,15 +3643,13 @@ Please provide a refined list of objectives that encourages exploration and prog
         self.logger.info(
             f"Performing inter-episode synthesis for episode {self.episode_id}",
             extra={
-                "extras": {
-                    "event_type": "inter_episode_synthesis_start",
-                    "episode_id": self.episode_id,
-                    "turn_count": self.turn_count,
-                    "death_count": self.death_count,
-                    "episode_ended_in_death": self._is_death_episode(),
-                    "final_score": self.previous_zork_score,
-                }
-            },
+                "event_type": "inter_episode_synthesis_start",
+                "episode_id": self.episode_id,
+                "turn_count": self.turn_count,
+                "death_count": self.death_count,
+                "episode_ended_in_death": self._is_death_episode(),
+                "final_score": self.previous_zork_score,
+            }
         )
 
         try:
@@ -3863,38 +3686,32 @@ Please provide a refined list of objectives that encourages exploration and prog
                 self.logger.info(
                     f"Inter-episode synthesis completed successfully",
                     extra={
-                        "extras": {
                             "event_type": "inter_episode_synthesis_success",
                             "episode_id": self.episode_id,
                             "turn_count": self.turn_count,
                             "episode_ended_in_death": self._is_death_episode(),
-                        }
-                    },
+}
                 )
             else:
                 self.logger.info(
                     f"Inter-episode synthesis skipped - no significant insights to preserve",
                     extra={
-                        "extras": {
                             "event_type": "inter_episode_synthesis_skipped",
                             "episode_id": self.episode_id,
                             "reason": "no_significant_insights",
                             "turn_count": self.turn_count,
-                        }
-                    },
+}
                 )
 
         except Exception as e:
             self.logger.warning(
                 f"Inter-episode synthesis failed: {e}",
                 extra={
-                    "extras": {
                         "event_type": "inter_episode_synthesis_failed",
                         "episode_id": self.episode_id,
                         "error": str(e),
                         "turn_count": self.turn_count,
-                    }
-                },
+}
             )
 
     def _should_synthesize_inter_episode_wisdom(self) -> bool:
