@@ -32,68 +32,111 @@ class JSONFormatter(logging.Formatter):
 
 
 class HumanReadableFormatter(logging.Formatter):
-    """Custom formatter for human-readable console output."""
+    """Custom formatter for human-readable console output focused on gameplay."""
 
     def format(self, record):
         message = record.getMessage()
 
+        # Skip debug messages for console output unless it's an error/warning
+        if record.levelname == "DEBUG":
+            return None  # Don't display debug messages on console
+        
+        # Always show errors and warnings, regardless of event type
+        if record.levelname in ["ERROR", "WARNING"]:
+            return f"{record.levelname}: {message}"
+
         # Check for structured event types and format accordingly
         if hasattr(record, "event_type"):
             event_type = record.event_type
-            if event_type == "turn_start" and hasattr(record, "turn"):
-                return f"\n--- Turn {record.turn} ---\n{message}"
-            elif event_type == "agent_action" and hasattr(record, "agent_action"):
-                return f"Agent proposes: {record.agent_action}"
-            elif event_type == "final_action_selection" and hasattr(record, "agent_action"):
-                override_text = " (OVERRIDDEN)" if getattr(record, "was_overridden", False) else ""
-                return f"Selected action: {record.agent_action}{override_text}"
-            elif event_type == "critic_evaluation" and hasattr(record, "critic_score") and hasattr(record, "critic_justification"):
-                return f"Critic evaluation: Score={record.critic_score:.2f}, Justification='{record.critic_justification}'"
-            elif event_type == "zork_response" and hasattr(record, "zork_response"):
-                return f"Zork response:\n{record.zork_response}"
-            elif event_type == "reward" and hasattr(record, "reward") and hasattr(record, "total_reward"):
-                return f"Turn reward: {record.reward:.2f}, Total episode reward: {record.total_reward:.2f}"
-            elif event_type == "extracted_info" and hasattr(record, "extracted_info"):
-                info = record.extracted_info
-                return (
-                    f"Extracted Info: Current Location='{info.get('current_location_name', 'Unknown')}' "
-                    f"Exits='{', '.join(info.get('exits', []))}', "
-                    f"Visible Objects='{', '.join(info.get('visible_objects', []))}', "
-                    f"Visible Characters='{', '.join(info.get('visible_characters', []))}', "
-                    f"Important Messages='{', '.join(info.get('important_messages', []))}'"
-                )
-            elif event_type == "objective_update":
-                status = getattr(record, "status", "")
+            
+            # Key gameplay events to show
+            if event_type == "episode_initialized":
+                episode_id = getattr(record, "episode_id", "unknown")
+                return f"\n🎮 NEW EPISODE: {episode_id}"
+            
+            elif event_type == "turn_completed":
+                turn = getattr(record, "turn", "?")
+                action = getattr(record, "action", "unknown")
+                score = getattr(record, "score", 0)
+                location = getattr(record, "location", "unknown")
+                confidence = getattr(record, "confidence", 0)
+                return f"Turn {turn}: '{action}' → Score: {score}, Location: {location}, Confidence: {confidence:.2f}"
+            
+            elif event_type == "episode_completed" or event_type == "episode_finalized":
+                turn = getattr(record, "turn", "?")
+                final_score = getattr(record, "final_score", 0)
+                reason = getattr(record, "reason", "completed")
+                return f"🏁 Episode completed after {turn} turns - Final Score: {final_score} ({reason})"
+                
+            elif event_type == "agent_action_parsed":
+                action = getattr(record, "action", "unknown")
+                return f"  Agent: '{action}'"
+            
+            elif event_type == "critic_evaluation":
+                confidence = getattr(record, "confidence", 0)
+                return f"  Critic: confidence {confidence:.2f}"
+                
+            elif event_type == "objective_update" and hasattr(record, "status"):
+                status = record.status
                 details = getattr(record, "details", "")
-                if status and details:
-                    return f"Objective Update [{status}]: {details}"
-                else:
-                    return f"Objective Update: {message}"
+                return f"📋 Objective [{status}]: {details}"
+            
+            elif event_type == "knowledge_update":
+                return f"📚 Knowledge: {message}"
+                
+            # Hide low-value progress messages unless they're important
             elif event_type == "progress":
                 stage = getattr(record, "stage", "")
-                details = getattr(record, "details", "")
-                if stage:
-                    return f"Progress [{stage}]: {details if details else message}"
+                # Only show key progress events
+                if stage in ["episode_initialization", "episode_finalization", "inter_episode_synthesis"]:
+                    details = getattr(record, "details", "")
+                    return f"⚙️  {stage.replace('_', ' ').title()}: {details if details else message}"
                 else:
-                    return f"Progress: {message}"
-            elif event_type == "state_export":
-                return f"State Export: {message}"
-            elif event_type == "knowledge_update":
-                return f"Knowledge Update: {message}"
-
-        # Add episode_id and turn prefix if available as direct attributes
-        prefix_parts = []
-        if hasattr(record, "episode_id"):
-            prefix_parts.append(f"[{record.episode_id}]")
-        if hasattr(record, "turn"):
-            prefix_parts.append(f"Turn {record.turn}")
+                    return None  # Hide routine progress messages
+                    
+            # Hide other low-value events
+            elif event_type in ["agent_raw_response_debug", "reasoning_extraction_debug", 
+                              "fallback_reasoning_debug", "final_reasoning_debug", 
+                              "map_consolidation", "agent_llm_response"]:
+                return None  # Don't display these on console
         
-        if prefix_parts:
-            prefix = " ".join(prefix_parts) + ": "
-            return f"{prefix}{message}"
+        # For non-structured messages, only show if they're important
+        if record.levelname == "INFO" and any(keyword in message.lower() for keyword in 
+            ["error", "failed", "exception", "warning", "completed", "initialized"]):
+            return message
+            
+        # Hide everything else to keep console clean
+        return None
 
-        # Default formatting
-        return message
+
+class FilteringStreamHandler(logging.StreamHandler):
+    """Stream handler that filters out None messages from formatter."""
+    
+    def emit(self, record):
+        try:
+            msg = self.format(record)
+            if msg is not None:  # Only emit if formatter didn't return None
+                stream = self.stream
+                stream.write(msg + self.terminator)
+                self.flush()
+        except Exception:
+            self.handleError(record)
+
+
+class FilteringFileHandler(logging.FileHandler):
+    """File handler that filters out None messages from formatter."""
+    
+    def emit(self, record):
+        try:
+            msg = self.format(record)
+            if msg is not None:  # Only emit if formatter didn't return None
+                if self.stream is None:
+                    self.stream = self._open()
+                stream = self.stream
+                stream.write(msg + self.terminator)
+                self.flush()
+        except Exception:
+            self.handleError(record)
 
 
 def setup_logging(
@@ -112,14 +155,14 @@ def setup_logging(
     logger.setLevel(log_level)
     logger.handlers = []  # Clear any existing handlers
 
-    # Console handler with human-readable formatter
-    console_handler = logging.StreamHandler()
+    # Console handler with human-readable formatter (filtered)
+    console_handler = FilteringStreamHandler()
     console_handler.setLevel(log_level)
     console_handler.setFormatter(HumanReadableFormatter())
     logger.addHandler(console_handler)
 
-    # File handler with human-readable formatter
-    file_handler = logging.FileHandler(episode_log_file, mode="a", encoding="utf-8")
+    # File handler with human-readable formatter (filtered)
+    file_handler = FilteringFileHandler(episode_log_file, mode="a", encoding="utf-8")
     file_handler.setLevel(log_level)
     file_handler.setFormatter(HumanReadableFormatter())
     logger.addHandler(file_handler)
