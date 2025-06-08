@@ -16,7 +16,6 @@ import os
 import json
 import time
 import re
-import glob
 
 from zork_api import ZorkInterface
 from llm_client import LLMClientWrapper
@@ -106,25 +105,12 @@ class ZorkOrchestrator:
         self.episode_log_file = episode_log_file if episode_log_file is not None else config.files.episode_log_file
         self.json_log_file = json_log_file if json_log_file is not None else config.files.json_log_file
 
-        # Save/restore configuration
-        self.zork_save_filename_template = config.gameplay.zork_save_filename_template
-        self.zork_game_workdir = config.gameplay.zork_game_workdir
-        self.save_signal_filename = config.gameplay.save_signal_filename
-        
-        # Calculate absolute paths
-        self.zork_workdir_abs_path = os.path.abspath(self.zork_game_workdir)
-        self.save_signal_file_abs_path = os.path.abspath(self.save_signal_filename)
-
-        # Initialize current save filename - will be set when save is triggered or restored
-        self.current_save_filename = None
-
-        # Ensure game directory exists
-        os.makedirs(self.zork_workdir_abs_path, exist_ok=True)
+        # Game server configuration
+        self.game_server_url = game_server_url if game_server_url is not None else "http://localhost:8000"
 
         # Game settings
         self.max_turns_per_episode = max_turns_per_episode if max_turns_per_episode is not None else config.orchestrator.max_turns_per_episode
         self.turn_delay_seconds = turn_delay_seconds if turn_delay_seconds is not None else config.gameplay.turn_delay_seconds
-        self.game_server_url = game_server_url if game_server_url is not None else "http://localhost:8000"
 
         # Adaptive knowledge management (always enabled)
         self.knowledge_update_interval = knowledge_update_interval if knowledge_update_interval is not None else config.orchestrator.knowledge_update_interval
@@ -341,24 +327,8 @@ class ZorkOrchestrator:
         self.previous_zork_score = current_zork_score_val
         self.current_inventory = current_inventory
 
-        # Check if we should attempt to restore from a save file
-        restore_attempted = self._attempt_restore_from_save(game_interface)
-        if restore_attempted:
-            # Re-get current state after restore
-            current_game_state = game_interface.send_command("look")
-            current_zork_score_val, max_zork_score = game_interface.score()
-            current_inventory, _ = game_interface.inventory_with_response()
-            
-            # Update instance variables
-            self.previous_zork_score = current_zork_score_val
-            self.current_inventory = current_inventory
-            
-            self.logger.info(f"Game restored - Score: {current_zork_score_val}, Inventory: {len(current_inventory)} items", extra={
-                "event_type": "game_restored",
-                "episode_id": self.episode_id,
-                "restored_score": current_zork_score_val,
-                "restored_inventory_count": len(current_inventory),
-            })
+        # Note: Game server automatically handles restore on session start
+        # If there's a save file for this session, it will be automatically restored
 
         # Extract initial information
         extracted_info = self.extractor.extract_info(current_game_state)
@@ -433,12 +403,8 @@ class ZorkOrchestrator:
                 },
             )
 
-            # Check for save signal from external process (like manage_ec2.py)
-            save_signal_processed = self._handle_save_signal(game_interface)
-            if save_signal_processed:
-                # Save signal was processed, continue with normal gameplay
-                # The system is ready for shutdown but will complete current turn
-                pass
+            # Note: Save/restore is now handled automatically by the game server
+            # External saves can be triggered via the game server's /sessions/{session_id}/save endpoint
 
             # Check if we're in combat from the previous turn's extracted info
             in_combat = False
@@ -1850,9 +1816,7 @@ class ZorkOrchestrator:
             },
         }
         
-        # Add save metadata if available (for sync verification)
-        if hasattr(self, '_save_metadata'):
-            state["save_metadata"] = self._save_metadata
+        # Game server handles save metadata automatically
             
         return state
 
@@ -3078,207 +3042,7 @@ Please provide a refined list of objectives that encourages exploration and prog
         self.last_location_for_staleness = current_location
         self.last_score_for_staleness = current_score
 
-    def _handle_save_signal(self, game_interface) -> bool:
-        """Check for and handle save signal from external process (like manage_ec2.py).
-        
-        Returns:
-            bool: True if save signal was processed (regardless of success)
-        """
-        if os.path.exists(self.save_signal_file_abs_path):
-            # Read the save filename from the signal file content
-            try:
-                with open(self.save_signal_file_abs_path, 'r') as f:
-                    save_filename = f.read().strip()
-                    
-                if not save_filename:
-                    # Fallback to generated filename if signal file is empty
-                    save_filename = self._generate_unique_save_filename()
-                    self.logger.warning("Signal file was empty, generated new filename", extra={
-                            "event_type": "empty_signal_file",
-                            "episode_id": self.episode_id,
-                            "generated_filename": save_filename
-})
-                    
-            except Exception as e:
-                # Fallback to generated filename if file can't be read
-                save_filename = self._generate_unique_save_filename()
-                self.logger.warning(f"Could not read signal file content: {e}, generated new filename", extra={
-                        "event_type": "signal_file_read_error", 
-                        "episode_id": self.episode_id,
-                        "error": str(e),
-                        "generated_filename": save_filename
-})
-            
-            # Set current save filename and calculate paths
-            self.current_save_filename = save_filename
-            current_save_file_abs_path = self._get_save_file_path(save_filename)
-            
-            self.logger.info("Save requested by external signal", extra={
-                    "event_type": "save_signal_received",
-                    "episode_id": self.episode_id,
-                    "turn": self.turn_count,
-                    "signal_file": self.save_signal_file_abs_path,
-                    "save_filename": save_filename,
-                    "save_file_path": current_save_file_abs_path
-})
-            
-            # Log current game state before attempting save
-            self.logger.info(f"Current save attempt details", extra={
-                    "event_type": "save_attempt_details",
-                    "episode_id": self.episode_id,
-                    "game_running": game_interface.is_running(),
-                    "working_directory": game_interface.working_directory,
-                    "save_filename": save_filename,
-                    "save_file_abs_path": current_save_file_abs_path
-})
-            
-            # Attempt to save the Zork game state
-            save_success = game_interface.trigger_zork_save(save_filename)
-            
-            if save_success:
-                self.logger.info("Zork game state saved successfully", extra={
-                        "event_type": "zork_save_success",
-                        "episode_id": self.episode_id,
-                        "save_file": current_save_file_abs_path
-})
-                
-                # Check if save file was actually created
-                save_file_with_qzl = current_save_file_abs_path + ".qzl"
-                save_file_exists = os.path.exists(save_file_with_qzl) or os.path.exists(current_save_file_abs_path)
-                
-                if save_file_exists:
-                    # Only export JSON state if Zork save file actually exists
-                    # Add save file metadata to the JSON state for verification
-                    save_metadata = {
-                        "save_file_path": save_file_with_qzl if os.path.exists(save_file_with_qzl) else current_save_file_abs_path,
-                        "save_file_mtime": os.path.getmtime(save_file_with_qzl) if os.path.exists(save_file_with_qzl) else os.path.getmtime(current_save_file_abs_path),
-                        "save_turn": self.turn_count,
-                        "save_timestamp": datetime.now().isoformat(),
-                        "save_filename": save_filename
-                    }
-                    
-                    # Add save metadata to current state before export
-                    self._save_metadata = save_metadata
-                    
-                    # Force save current ZorkGPT state to JSON
-                    self.export_current_state()
-                    
-                    self.logger.info("ZorkGPT state exported with save metadata - ready for shutdown", extra={
-                            "event_type": "state_export_complete",
-                            "episode_id": self.episode_id,
-                            "export_file": self.state_export_file,
-                            "save_metadata": save_metadata
-})
-                else:
-                    self.logger.error("Zork save file not found after save command - not exporting JSON state", extra={
-                            "event_type": "save_file_missing_after_save",
-                            "episode_id": self.episode_id,
-                            "expected_paths": [current_save_file_abs_path, save_file_with_qzl]
-})
-                    save_success = False  # Mark as failed since file doesn't exist
-                    
-            else:
-                self.logger.error("Failed to save Zork game state - not exporting JSON state", extra={
-                        "event_type": "zork_save_failed",
-                        "episode_id": self.episode_id,
-                        "save_file": current_save_file_abs_path,
-                        "game_running": game_interface.is_running(),
-                        "working_directory": game_interface.working_directory
-})
-            
-            # Remove signal file regardless of save success/failure
-            try:
-                os.remove(self.save_signal_file_abs_path)
-                self.logger.info("Save signal file removed", extra={
-                        "event_type": "save_signal_removed",
-                        "episode_id": self.episode_id,
-                        "save_success": save_success
-})
-            except OSError as e:
-                self.logger.warning(f"Failed to remove save signal file: {e}", extra={
-                        "event_type": "save_signal_removal_failed",
-                        "episode_id": self.episode_id,
-                        "error": str(e)
-})
-            
-            return True
-        
-        return False
 
-    def _attempt_restore_from_save(self, game_interface) -> bool:
-        """Attempt to restore from a previous save file.
-        
-        Returns:
-            bool: True if restore was successful
-        """
-        save_file_to_use = None
-        restore_filename = None
-        
-        # First, try to find the most recent save file
-        most_recent_save = self._find_most_recent_save()
-        
-        if most_recent_save:
-            save_file_to_use = most_recent_save
-            # Extract filename from path for the restore command
-            restore_filename = os.path.basename(most_recent_save).replace('.qzl', '').replace('.sav', '')
-            
-            self.logger.info("Found most recent save file", extra={
-                    "event_type": "most_recent_save_found",
-                    "episode_id": self.episode_id,
-                    "save_file": save_file_to_use,
-                    "restore_filename": restore_filename
-})
-        else:
-            self.logger.info("No save file found - starting fresh game", extra={
-                    "event_type": "no_save_file",
-                    "episode_id": self.episode_id,
-                    "game_directory": self.zork_workdir_abs_path
-})
-            return False
-        
-        self.logger.info("Attempting restore from save file", extra={
-                "event_type": "restore_attempt",
-                "episode_id": self.episode_id,
-                "save_file": save_file_to_use,
-                "restore_filename": restore_filename
-})
-        
-        restore_success = game_interface.trigger_zork_restore(restore_filename)
-        
-        if restore_success:
-            # Set current save filename for tracking
-            self.current_save_filename = restore_filename + ".sav"  # Add extension for consistency
-            
-            self.logger.info("Successfully restored from save file", extra={
-                    "event_type": "restore_success",
-                    "episode_id": self.episode_id,
-                    "save_file": save_file_to_use,
-                    "current_save_filename": self.current_save_filename
-})
-            return True
-        else:
-            self.logger.error("Failed to restore from save file", extra={
-                    "event_type": "restore_failed",
-                    "episode_id": self.episode_id,
-                    "save_file": save_file_to_use
-})
-            
-            # Delete corrupt save file
-            try:
-                os.remove(save_file_to_use)
-                self.logger.info("Removed corrupt save file", extra={
-                        "event_type": "corrupt_save_removed",
-                        "episode_id": self.episode_id,
-                        "save_file": save_file_to_use
-})
-            except OSError as e:
-                self.logger.warning(f"Failed to remove corrupt save file: {e}", extra={
-                        "event_type": "corrupt_save_removal_failed",
-                        "episode_id": self.episode_id,
-                        "error": str(e)
-})
-            
-            return False
 
     def _load_previous_state(self) -> Optional[Dict[str, Any]]:
         """Load previous state from current_state.json if it exists.
@@ -3291,32 +3055,14 @@ Please provide a refined list of objectives that encourages exploration and prog
                 with open(self.state_export_file, 'r') as f:
                     previous_state = json.load(f)
                 
-                # Validate save file synchronization if save metadata exists
-                save_metadata = previous_state.get("save_metadata")
-                if save_metadata:
-                    sync_valid = self._validate_save_sync(save_metadata)
-                    if not sync_valid:
-                        self.logger.warning("Save file sync validation failed - JSON state may be out of sync", extra={
-                                "event_type": "save_sync_validation_failed",
-                                "episode_id": self.episode_id,
-                                "save_metadata": save_metadata
-})
-                        # Continue loading but mark as potentially invalid
-                        previous_state["_sync_warning"] = True
-                else:
-                    self.logger.info("No save metadata found in previous state - cannot validate sync", extra={
-                            "event_type": "no_save_metadata",
-                            "episode_id": self.episode_id
-})
+                # Game server handles save/restore synchronization automatically
                 
                 self.logger.info("Loaded previous state from JSON", extra={
                         "event_type": "previous_state_loaded",
                         "episode_id": self.episode_id,
                         "state_file": self.state_export_file,
                         "previous_episode_id": previous_state.get("metadata", {}).get("episode_id", "unknown"),
-                        "previous_turn_count": previous_state.get("metadata", {}).get("turn_count", 0),
-                        "has_save_metadata": save_metadata is not None,
-                        "sync_warning": previous_state.get("_sync_warning", False)
+                        "previous_turn_count": previous_state.get("metadata", {}).get("turn_count", 0)
 })
                 
                 return previous_state
@@ -3337,67 +3083,6 @@ Please provide a refined list of objectives that encourages exploration and prog
 })
             return None
 
-    def _validate_save_sync(self, save_metadata: Dict[str, Any]) -> bool:
-        """Validate that save file metadata matches expected state.
-        
-        Args:
-            save_metadata: Save metadata from JSON state
-            
-        Returns:
-            bool: True if save file appears to be in sync
-        """
-        try:
-            save_file_path = save_metadata.get("save_file_path")
-            expected_mtime = save_metadata.get("save_file_mtime")
-            
-            if not save_file_path or not expected_mtime:
-                self.logger.warning("Incomplete save metadata - cannot validate sync", extra={
-                        "event_type": "incomplete_save_metadata",
-                        "episode_id": self.episode_id,
-                        "save_metadata": save_metadata
-})
-                return False
-            
-            # Check if save file still exists
-            if not os.path.exists(save_file_path):
-                self.logger.warning(f"Save file no longer exists: {save_file_path}", extra={
-                        "event_type": "save_file_missing",
-                        "episode_id": self.episode_id,
-                        "save_file_path": save_file_path
-})
-                return False
-            
-            # Check if modification time matches (within tolerance)
-            actual_mtime = os.path.getmtime(save_file_path)
-            time_diff = abs(actual_mtime - expected_mtime)
-            
-            # Allow 5 second tolerance for filesystem time differences
-            if time_diff > 5.0:
-                self.logger.warning(f"Save file modification time mismatch - expected: {expected_mtime}, actual: {actual_mtime}, diff: {time_diff}s", extra={
-                        "event_type": "save_file_time_mismatch",
-                        "episode_id": self.episode_id,
-                        "save_file_path": save_file_path,
-                        "expected_mtime": expected_mtime,
-                        "actual_mtime": actual_mtime,
-                        "time_diff": time_diff
-})
-                return False
-            
-            self.logger.info("Save file sync validation passed", extra={
-                    "event_type": "save_sync_validated",
-                    "episode_id": self.episode_id,
-                    "save_file_path": save_file_path,
-                    "time_diff": time_diff
-})
-            return True
-            
-        except Exception as e:
-            self.logger.warning(f"Error during save sync validation: {e}", extra={
-                    "event_type": "save_sync_validation_error",
-                    "episode_id": self.episode_id,
-                    "error": str(e)
-})
-            return False
 
     def _merge_previous_state(self, previous_state: Dict[str, Any]) -> None:
         """Merge relevant data from previous state into current session.
@@ -3407,13 +3092,7 @@ Please provide a refined list of objectives that encourages exploration and prog
         if not previous_state:
             return
         
-        # Check for sync warnings
-        has_sync_warning = previous_state.get("_sync_warning", False)
-        if has_sync_warning:
-            self.logger.warning("Merging previous state with sync warning - data may be inconsistent", extra={
-                    "event_type": "merge_with_sync_warning",
-                    "episode_id": self.episode_id
-})
+        # Game server handles save/restore synchronization automatically
         
         # Preserve map data
         if "map" in previous_state:
@@ -3505,122 +3184,6 @@ Please provide a refined list of objectives that encourages exploration and prog
                 "has_sync_warning": has_sync_warning
 })
 
-    def _reconcile_restored_state(self, game_state: str, inventory: List[str], score: int) -> str:
-        """Reconcile restored game state with loaded JSON state to detect inconsistencies.
-        
-        Args:
-            game_state: Current game state text from restored game
-            inventory: Current inventory from restored game  
-            score: Current score from restored game
-            
-        Returns:
-            str: Reconciliation status ("consistent", "minor_discrepancy", "major_discrepancy")
-        """
-        try:
-            # If we don't have previous save metadata, we can't do detailed reconciliation
-            if not hasattr(self, '_previous_save_metadata'):
-                self.logger.info("No previous save metadata available for reconciliation", extra={
-                        "event_type": "reconciliation_no_metadata",
-                        "episode_id": self.episode_id
-})
-                return "no_metadata"
-            
-            # Extract expected values from previous save metadata
-            expected_turn = self._previous_save_metadata.get("save_turn", 0)
-            save_timestamp = self._previous_save_metadata.get("save_timestamp", "unknown")
-            
-            discrepancies = []
-            
-            # Check if current state makes sense relative to save metadata
-            # We expect to be at or near the turn where we saved
-            if expected_turn > 0:
-                # For a fresh restore, we should be starting from turn 0 again
-                # But our tracking variables should reflect where we were when saved
-                
-                # Log the expected vs actual state for analysis
-                self.logger.info(f"Reconciliation check - Expected save turn: {expected_turn}, Save timestamp: {save_timestamp}", extra={
-                        "event_type": "reconciliation_comparison",
-                        "episode_id": self.episode_id,
-                        "expected_save_turn": expected_turn,
-                        "save_timestamp": save_timestamp,
-                        "current_score": score,
-                        "current_inventory_count": len(inventory)
-})
-                
-                # TODO: Could add more sophisticated validation here:
-                # - Compare current location with expected location from JSON state
-                # - Validate inventory contents match expectations
-                # - Check score consistency
-                # - Verify map state consistency
-                
-            # For now, if we got here without errors, consider it consistent
-            # Future enhancements could add more detailed state comparison
-            
-            self.logger.info("Reconciliation completed - state appears consistent", extra={
-                    "event_type": "reconciliation_completed",
-                    "episode_id": self.episode_id,
-                    "status": "consistent"
-})
-            
-            return "consistent"
-            
-        except Exception as e:
-            self.logger.warning(f"Error during reconciliation: {e}", extra={
-                    "event_type": "reconciliation_error",
-                    "episode_id": self.episode_id,
-                    "error": str(e)
-})
-            return "error"
-
-    def _generate_unique_save_filename(self) -> str:
-        """Generate a unique save filename based on the template.
-        
-        Returns:
-            str: Unique save filename with timestamp
-        """
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        return self.zork_save_filename_template.format(timestamp=timestamp)
-    
-    def _find_most_recent_save(self) -> Optional[str]:
-        """Find the most recent save file in the game directory.
-        
-        Returns:
-            str: Path to most recent save file or None if no saves found
-        """
-        try:
-            # Look for .qzl files (Zork save format) in the game directory
-            pattern = os.path.join(self.zork_workdir_abs_path, "*.qzl")
-            save_files = glob.glob(pattern)
-            
-            if not save_files:
-                # Also check for .sav files
-                pattern = os.path.join(self.zork_workdir_abs_path, "*.sav")
-                save_files = glob.glob(pattern)
-            
-            if save_files:
-                # Sort by modification time, most recent first
-                save_files.sort(key=os.path.getmtime, reverse=True)
-                return save_files[0]
-                
-        except Exception as e:
-            self.logger.warning(f"Error finding save files: {e}", extra={
-                "episode_id": self.episode_id
-            })
-            
-        return None
-
-    def _get_save_file_path(self, filename: str) -> str:
-        """Get the absolute path for a save file.
-        
-        Args:
-            filename: Save filename (with or without .qzl extension)
-            
-        Returns:
-            str: Absolute path to save file
-        """
-        # Remove .qzl extension if present since Zork adds it automatically
-        base_filename = filename.replace('.qzl', '').replace('.sav', '')
-        return os.path.join(self.zork_workdir_abs_path, base_filename)
 
     def _perform_inter_episode_synthesis(self) -> None:
         """

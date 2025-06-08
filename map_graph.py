@@ -468,9 +468,15 @@ class MapGraph:
                 self.connection_confidence[connection_key] = min(
                     1.0, self.connection_confidence.get(connection_key, 0.5) + 0.1
                 )
-                print(
-                    f"✅ Map connection verified: {from_room_key} -> {processed_exit_taken} -> {to_room_key} (verifications: {self.connection_verifications[connection_key]})"
-                )
+                if self.logger:
+                    self.logger.debug(
+                        f"Map connection verified: {from_room_key} -> {processed_exit_taken} -> {to_room_key}",
+                        extra={
+                            "event_type": "progress",
+                            "stage": "map_building",
+                            "details": f"verifications: {self.connection_verifications[connection_key]}"
+                        }
+                    )
             else:
                 # Conflicting connection - this is important to track
                 existing_confidence = self.connection_confidence.get(connection_key, 0.5)
@@ -488,13 +494,15 @@ class MapGraph:
                 }
                 self.connection_conflicts.append(conflict)
 
-                print(
-                    f"⚠️  Map conflict detected: {from_room_key} -> {processed_exit_taken}"
-                )
-                print(
-                    f"   Existing: {existing_destination} (confidence: {existing_confidence:.2f}, verifications: {existing_verifications})"
-                )
-                print(f"   New: {to_room_key} (confidence: {confidence:.2f}, verifications: 1)")
+                if self.logger:
+                    self.logger.warning(
+                        f"Map conflict detected: {from_room_key} -> {processed_exit_taken}",
+                        extra={
+                            "event_type": "progress",
+                            "stage": "map_building",
+                            "details": f"Existing: {existing_destination} ({existing_confidence:.2f}, {existing_verifications}x) vs New: {to_room_key} ({confidence:.2f}, 1x)"
+                        }
+                    )
 
                 # Enhanced conflict resolution logic
                 should_update = False
@@ -511,9 +519,15 @@ class MapGraph:
                     else:
                         # Both have low verification count - this is suspicious
                         # Log this as a critical conflict that needs investigation
-                        print(f"   🚨 CRITICAL CONFLICT: Both connections have equal confidence and low verifications!")
-                        print(f"   🚨 This suggests inconsistent movement behavior or extraction errors.")
-                        print(f"   🚨 Keeping existing connection but flagging for investigation.")
+                        if self.logger:
+                            self.logger.error(
+                                "Critical map conflict: equal confidence and low verifications",
+                                extra={
+                                    "event_type": "progress",
+                                    "stage": "map_building",
+                                    "details": "Suggests inconsistent movement behavior or extraction errors"
+                                }
+                            )
                         should_update = False
                         reason = "keeping existing due to critical conflict (needs investigation)"
                 else:
@@ -521,11 +535,27 @@ class MapGraph:
                     reason = "existing has higher confidence"
 
                 if should_update:
-                    print(f"   → Using new connection ({reason})")
+                    if self.logger:
+                        self.logger.info(
+                            f"Using new connection ({reason})",
+                            extra={
+                                "event_type": "progress",
+                                "stage": "map_building",
+                                "details": f"{from_room_key} -> {processed_exit_taken} -> {to_room_key}"
+                            }
+                        )
                     self.connection_confidence[connection_key] = confidence
                     self.connection_verifications[connection_key] = 1
                 else:
-                    print(f"   → Keeping existing connection ({reason})")
+                    if self.logger:
+                        self.logger.debug(
+                            f"Keeping existing connection ({reason})",
+                            extra={
+                                "event_type": "progress",
+                                "stage": "map_building",
+                                "details": f"{from_room_key} -> {processed_exit_taken} -> {existing_destination}"
+                            }
+                        )
                     return  # Don't update the connection
         else:
             # New connection
@@ -1177,7 +1207,14 @@ class MapGraph:
                 if variant in self.connections:
                     # Move outgoing connections from variant to target
                     for exit_action, destination in self.connections[variant].items():
-                        print(f"   Moving connection: {variant} --[{exit_action}]--> {destination}")
+                        if self.logger:
+                            self.logger.debug(
+                                f"Moving connection during consolidation: {variant} -> {exit_action} -> {destination}",
+                                extra={
+                                    "event_type": "progress", 
+                                    "stage": "map_consolidation"
+                                }
+                            )
                         self.add_connection(target_location, exit_action, destination)
                     
                     # Remove the old connections
@@ -1187,7 +1224,14 @@ class MapGraph:
                 for from_location, exits in self.connections.items():
                     for exit_action, destination in list(exits.items()):
                         if destination == variant:
-                            print(f"   Redirecting connection: {from_location} --[{exit_action}]--> {variant} => {target_location}")
+                            if self.logger:
+                                self.logger.debug(
+                                    f"Redirecting connection during consolidation: {from_location} -> {exit_action} -> {variant} => {target_location}",
+                                    extra={
+                                        "event_type": "progress",
+                                        "stage": "map_consolidation"
+                                    }
+                                )
                             exits[exit_action] = target_location
                 
                 # Remove the variant room if it's not the target
@@ -1210,7 +1254,14 @@ class MapGraph:
                 self.rooms[target_location].exits = all_exits
         
         if consolidations_performed > 0:
-            print(f"✅ Consolidation complete: {consolidations_performed} locations merged")
+            if self.logger:
+                self.logger.info(
+                    f"Consolidation complete: {consolidations_performed} locations merged",
+                    extra={
+                        "event_type": "progress",
+                        "stage": "map_consolidation"
+                    }
+                )
         
         return consolidations_performed
 
@@ -1262,7 +1313,14 @@ class MapGraph:
         Returns:
             Number of consolidations performed
         """
-        print("🔧 Forcing map consolidation (bypassing needs_consolidation flag)...")
+        if self.logger:
+            self.logger.info(
+                "Forcing map consolidation (bypassing needs_consolidation flag)",
+                extra={
+                    "event_type": "progress",
+                    "stage": "map_consolidation"
+                }
+            )
         
         # Temporarily set the flag to ensure consolidation runs
         old_flag = self.has_new_rooms_since_consolidation
@@ -1287,7 +1345,14 @@ class MapGraph:
         """
         from collections import defaultdict
         
-        print("🔧 Enhanced base name consolidation...")
+        if self.logger:
+            self.logger.info(
+                "Enhanced base name consolidation starting",
+                extra={
+                    "event_type": "progress",
+                    "stage": "map_consolidation"
+                }
+            )
         
         # Group locations by their base name
         base_name_groups = defaultdict(list)
@@ -1303,8 +1368,15 @@ class MapGraph:
             if len(variants) <= 1:
                 continue  # No variants to consolidate
             
-            print(f"🔄 Consolidating base name variants: {base_name}")
-            print(f"   Variants found: {variants}")
+            if self.logger:
+                self.logger.debug(
+                    f"Consolidating base name variants: {base_name}",
+                    extra={
+                        "event_type": "progress",
+                        "stage": "map_consolidation",
+                        "details": f"Variants: {variants}"
+                    }
+                )
             
             # Choose the best variant as the consolidation target
             target_location = self._choose_best_base_name_variant(variants)
@@ -1315,8 +1387,15 @@ class MapGraph:
                 if variant in self.rooms:
                     all_exits.update(self.rooms[variant].exits)
             
-            print(f"   Target location: {target_location}")
-            print(f"   Combined exits: {sorted(list(all_exits))}")
+            if self.logger:
+                self.logger.debug(
+                    f"Consolidation target selected: {target_location}",
+                    extra={
+                        "event_type": "progress",
+                        "stage": "map_consolidation",
+                        "details": f"Combined exits: {sorted(list(all_exits))}"
+                    }
+                )
             
             # Merge all connections from variants into the target
             for variant in variants:
@@ -1326,7 +1405,14 @@ class MapGraph:
                 # Move outgoing connections from variant to target
                 if variant in self.connections:
                     for exit_action, destination in self.connections[variant].items():
-                        print(f"   Moving connection: {variant} --[{exit_action}]--> {destination}")
+                        if self.logger:
+                            self.logger.debug(
+                                f"Moving connection during consolidation: {variant} -> {exit_action} -> {destination}",
+                                extra={
+                                    "event_type": "progress", 
+                                    "stage": "map_consolidation"
+                                }
+                            )
                         self.add_connection(target_location, exit_action, destination)
                     
                     # Remove the old connections
@@ -1336,12 +1422,26 @@ class MapGraph:
                 for from_location, exits in self.connections.items():
                     for exit_action, destination in list(exits.items()):
                         if destination == variant:
-                            print(f"   Redirecting connection: {from_location} --[{exit_action}]--> {variant} => {target_location}")
+                            if self.logger:
+                                self.logger.debug(
+                                    f"Redirecting connection during consolidation: {from_location} -> {exit_action} -> {variant} => {target_location}",
+                                    extra={
+                                        "event_type": "progress",
+                                        "stage": "map_consolidation"
+                                    }
+                                )
                             exits[exit_action] = target_location
                 
                 # Remove the variant room if it's not the target
                 if variant in self.rooms:
-                    print(f"   Removing variant: {variant}")
+                    if self.logger:
+                        self.logger.debug(
+                            f"Removing variant during consolidation: {variant}",
+                            extra={
+                                "event_type": "progress",
+                                "stage": "map_consolidation"
+                            }
+                        )
                     del self.rooms[variant]
                     
                 consolidations_performed += 1
@@ -1360,9 +1460,23 @@ class MapGraph:
                 self.rooms[target_location].exits = all_exits
         
         if consolidations_performed > 0:
-            print(f"✅ Base name consolidation complete: {consolidations_performed} locations merged")
+            if self.logger:
+                self.logger.info(
+                    f"Base name consolidation complete: {consolidations_performed} locations merged",
+                    extra={
+                        "event_type": "progress",
+                        "stage": "map_consolidation"
+                    }
+                )
         else:
-            print("✅ No base name variants found to consolidate")
+            if self.logger:
+                self.logger.debug(
+                    "No base name variants found to consolidate",
+                    extra={
+                        "event_type": "progress",
+                        "stage": "map_consolidation"
+                    }
+                )
         
         return consolidations_performed
 
@@ -1417,7 +1531,15 @@ class MapGraph:
         
         # Choose the variant with the highest score
         best_variant = max(variants, key=score_base_name_variant)
-        print(f"   Selected '{best_variant}' from variants: {variants}")
+        if self.logger:
+            self.logger.debug(
+                f"Selected best variant: {best_variant}",
+                extra={
+                    "event_type": "progress",
+                    "stage": "map_consolidation",
+                    "details": f"From variants: {variants}"
+                }
+            )
         return best_variant
 
     def prune_fragmented_nodes(self) -> int:
@@ -1474,7 +1596,14 @@ class MapGraph:
         
         # Perform the pruning
         for room_name, reason in candidates_for_pruning:
-            print(f"🗑️  Pruning fragmented node: {room_name} ({reason})")
+            if self.logger:
+                self.logger.debug(
+                    f"Pruning fragmented node: {room_name} ({reason})",
+                    extra={
+                        "event_type": "progress",
+                        "stage": "map_pruning"
+                    }
+                )
             
             # Remove from rooms
             if room_name in self.rooms:
@@ -1489,15 +1618,36 @@ class MapGraph:
                 exits_to_remove = [exit_action for exit_action, destination in exits.items() 
                                  if destination == room_name]
                 for exit_action in exits_to_remove:
-                    print(f"   Removing stale connection: {from_room} --[{exit_action}]--> {room_name}")
+                    if self.logger:
+                        self.logger.debug(
+                            f"Removing stale connection: {from_room} -> {exit_action} -> {room_name}",
+                            extra={
+                                "event_type": "progress",
+                                "stage": "map_pruning"
+                            }
+                        )
                     del exits[exit_action]
             
             pruned_count += 1
         
         if pruned_count > 0:
-            print(f"✅ Pruning complete: {pruned_count} fragmented nodes removed")
+            if self.logger:
+                self.logger.info(
+                    f"Pruning complete: {pruned_count} fragmented nodes removed",
+                    extra={
+                        "event_type": "progress",
+                        "stage": "map_pruning"
+                    }
+                )
         else:
-            print("✅ No fragmented nodes found to prune")
+            if self.logger:
+                self.logger.debug(
+                    "No fragmented nodes found to prune",
+                    extra={
+                        "event_type": "progress",
+                        "stage": "map_pruning"
+                    }
+                )
         
         return pruned_count
 
@@ -1614,11 +1764,26 @@ class MapGraph:
                 self.pruned_exits[room_key] = set()
             self.pruned_exits[room_key].add(exit_name)
             
-            print(f"🗑️ Pruned invalid exit: {room_name} -> {exit_name} (failed {self.exit_failure_counts.get((room_key, exit_name), 0)} times)")
+            if self.logger:
+                self.logger.info(
+                    f"Pruned invalid exit: {room_name} -> {exit_name}",
+                    extra={
+                        "event_type": "progress",
+                        "stage": "exit_pruning",
+                        "details": f"failed {self.exit_failure_counts.get((room_key, exit_name), 0)} times"
+                    }
+                )
             pruned_count += 1
         
         if pruned_count > 0:
-            print(f"✅ Exit pruning complete for {room_name}: {pruned_count} invalid exits removed")
+            if self.logger:
+                self.logger.info(
+                    f"Exit pruning complete for {room_name}: {pruned_count} invalid exits removed",
+                    extra={
+                        "event_type": "progress",
+                        "stage": "exit_pruning"
+                    }
+                )
         
         return pruned_count
 
