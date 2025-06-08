@@ -265,6 +265,27 @@ class ZorkOrchestrator:
         self.extractor.update_episode_id(self.episode_id)
         self.critic.update_episode_id(self.episode_id)
 
+    def _sync_turn_count_with_game_server(self, game_interface) -> None:
+        """
+        Sync orchestrator's turn_count with the actual game server state.
+        This is critical for restored games where the game state has a higher move count.
+        """
+        if hasattr(game_interface, 'turn_number'):
+            # Game server client has turn_number from rebuilt history
+            server_turn_count = game_interface.turn_number
+            if server_turn_count > self.turn_count:
+                self.logger.info(
+                    f"Syncing turn count: orchestrator={self.turn_count} -> server={server_turn_count}",
+                    extra={
+                        "event_type": "turn_count_sync",
+                        "episode_id": self.episode_id,
+                        "old_turn_count": self.turn_count,
+                        "new_turn_count": server_turn_count,
+                        "sync_reason": "game_server_restore"
+                    }
+                )
+                self.turn_count = server_turn_count
+
     def play_episode(self, game_interface) -> int:
         """
         Play a single episode of Zork.
@@ -299,6 +320,10 @@ class ZorkOrchestrator:
         try:
             # Get initial game state
             current_game_state = game_interface.start()
+            
+            # Sync turn count with game server state (handles restored games)
+            self._sync_turn_count_with_game_server(game_interface)
+            
         except Exception as e:
             self.logger.error(
                 f"Failed to start Zork game: {e}",
@@ -967,6 +992,20 @@ class ZorkOrchestrator:
                                 "moves": structured_moves,
 }
                     )
+                    
+                    # Secondary sync: use structured_moves if turn_count is still out of sync
+                    if structured_moves is not None and structured_moves > self.turn_count:
+                        self.logger.info(
+                            f"Secondary turn sync from structured moves: {self.turn_count} -> {structured_moves}",
+                            extra={
+                                "event_type": "turn_count_sync",
+                                "episode_id": self.episode_id,
+                                "old_turn_count": self.turn_count,
+                                "new_turn_count": structured_moves,
+                                "sync_reason": "structured_moves_fallback"
+                            }
+                        )
+                        self.turn_count = structured_moves
                 else:
                     # Fallback to traditional score extraction
                     try:
