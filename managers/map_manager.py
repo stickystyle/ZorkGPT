@@ -162,9 +162,9 @@ class MapManager(BaseManager):
                 direction = self._extract_direction_from_action(action)
                 if direction:
                     self.game_map.add_connection(
-                        from_room=from_room,
-                        to_room=to_room,
-                        direction=direction,
+                        from_room_name=from_room,
+                        exit_taken=direction,
+                        to_room_name=to_room,
                         confidence=0.8  # Default confidence
                     )
             
