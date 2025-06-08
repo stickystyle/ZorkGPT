@@ -2,17 +2,13 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Do not make any changes until you have 95% confidence in the change you need to make. Ask me questions until you reach that confidence
+**IMPORTANT**: Do not make any changes until you have 95% confidence in the change you need to make. Ask me questions until you reach that confidence
 
 ## Project Overview
 
 ZorkGPT is an AI agent system that plays the classic text adventure game "Zork" using Large Language Models. The system uses a modular architecture with specialized LLM-driven components for action generation, information extraction, action evaluation, and adaptive learning.
 
 **Key Principle**: All game reasoning must originate from LLMs - no hardcoded solutions or predetermined game mechanics are allowed.
-
-## Refactored Architecture (2025)
-
-The system has been completely refactored from a monolithic design into a clean, modular architecture following the Single Responsibility Principle and orchestration patterns.
 
 ### Client-Server Architecture
 - **Game Server** (`game_server.py`): Runs dfrotz in a Docker container and exposes a REST API
@@ -205,25 +201,70 @@ elif hasattr(response, 'content'):
 
 **Component Responsibilities**:
 - `ZorkOrchestratorV2.play_episode()` - **ONLY** component that generates episode IDs (owns episode lifecycle)
+
+### Refactoring Philosophy
+
+**MANDATORY**: We do not maintain backwards compatibility when refactoring this codebase.
+
+```python
+# ✅ CORRECT - Direct fixes, clean architecture
+def refactor_component():
+    # Fix method signatures directly
+    # Update all callers to match new interface
+    # Remove deprecated code paths entirely
+    pass
+
+# ❌ WRONG - Do not create compatibility layers
+def refactor_component():
+    # Don't add compatibility shims
+    # Don't maintain old interfaces "just in case"
+    # Don't create wrapper functions for backwards compatibility
+    pass
+```
+
+**Rationale**:
+- This is a controlled codebase with single ownership
+- We control all consumers of every interface
+- Backwards compatibility adds complexity without benefit
+- Clean architecture is more valuable than compatibility
+- Direct fixes are faster and more maintainable than compatibility layers
+
+**When Refactoring**:
+1. **Identify all consumers** of the interface being changed
+2. **Update all consumers directly** to use the new interface
+3. **Remove old code entirely** - no compatibility layers
+4. **Test thoroughly** to ensure all integrations work
+5. **Document the new patterns** in this file
+
+### Configuration Management
+
+**MANDATORY**: No hardcoded model fallbacks - configuration errors should fail fast.
+
+```python
+# ✅ CORRECT - Use configured models, fail if not configured
+model = self.config.llm.analysis_model
+response = client.create(model=model, ...)
+
+# ❌ WRONG - Do not hardcode model fallbacks
+model = self.config.llm.analysis_model if self.config else "gpt-4"  # ❌ Forbidden!
+model = getattr(self.config.llm, 'analysis_model', 'gpt-4')         # ❌ Forbidden!
+```
+
+**Rationale**:
+- Configuration errors should be caught immediately, not hidden by fallbacks
+- Wrong models can lead to unexpected behavior and costs
+- pyproject.toml is the single source of truth for model configuration
+- Fail-fast principle: better to error immediately than run with wrong config
+
+**Model Configuration Sources** (in precedence order):
+1. `pyproject.toml` - Primary configuration file
+2. `config.py` - Default values only for development/fallback
+3. Components should **never** hardcode model names
 - `EpisodeSynthesizer.initialize_episode(episode_id)` - Receives episode ID from orchestrator, coordinates initialization  
 - `GameState.reset_episode(episode_id)` - Accepts episode ID as parameter, resets state
 - `GameServerClient.start_session(session_id)` - Uses provided episode ID as session ID
 - `All Managers.reset_episode()` - Reset manager-specific state only (no episode ID involvement)
 
-### LLM Response Handling
-**MANDATORY**: All LLM response handling MUST use the standardized utility:
-
-```python
-from utils.llm_utils import extract_llm_content
-
-# CORRECT - Standardized handling
-response_content = extract_llm_content(llm_response)
-
-# INCORRECT - Direct access
-content = llm_response.choices[0].message.content  # ❌ Breaks with different formats!
-```
-
-This utility handles multiple response formats (OpenAI, direct content, dict, etc.) with proper error handling.
 
 ### Manager Pattern
 **MANDATORY**: All domain logic must be implemented in specialized managers, not in the orchestrator.
