@@ -889,7 +889,9 @@ Tasks:
 6. **Focus on algorithmic decision patterns** that an LLM can follow
 
 Maintain the same general structure but improve the content quality.
-Do not add new information - only reorganize and clarify existing knowledge for AI consumption."""
+Do not add new information - only reorganize and clarify existing knowledge for AI consumption.
+
+**IMPORTANT**: Do not add any meta-commentary about the knowledge base structure or organization. Do not include sections like "Updated Knowledge Base Structure" or explanations of how the content is organized. Simply provide the improved content directly."""
 
         # Incase using Qwen qwen3-30b-a3b
         prompt = r"\no_think " + prompt
@@ -1007,7 +1009,9 @@ Merge guidelines:
 7. **Focus on algorithmic decision patterns** that an LLM can follow
 
 The merged guide should be more comprehensive and accurate than either individual source.
-Maintain the existing structure but enhance it with the new insights."""
+Maintain the existing structure but enhance it with the new insights.
+
+**IMPORTANT**: Do not add any meta-commentary about the knowledge base structure or organization. Do not include sections like "Updated Knowledge Base Structure" or explanations of how the content is organized. Simply provide the merged content directly."""
         # Incase using Qwen qwen3-30b-a3b
         prompt = r"\no_think " + prompt
         try:
@@ -1167,7 +1171,9 @@ Create a strategy guide that prioritizes strategic discovery frameworks, objecti
 
 **OUTPUT FORMAT**: Provide a condensed version that is 50-70% of the original length while maintaining 100% of the strategic value.
 
-Focus on creating a guide that is information-dense but highly readable for an AI agent during gameplay."""
+Focus on creating a guide that is information-dense but highly readable for an AI agent during gameplay.
+
+**IMPORTANT**: Do not add any meta-commentary about the knowledge base structure or organization. Do not include sections like "Updated Knowledge Base Structure" or explanations of how the content is organized. Simply provide the condensed content directly."""
 
         try:
             messages = [
@@ -1447,7 +1453,7 @@ This knowledge base contains discovered information about the Zork game world, i
         """Reassemble sections into a complete knowledge base."""
         header = """# **Zork Game World Knowledge Base (Merged and Enhanced)**
 
-This knowledge base contains discovered information about the Zork game world, including specific items, puzzles, dangers, and strategic insights learned through gameplay. The guide is structured to reflect algorithmic decision-making patterns, precise command syntax, and computational approaches for optimal performance.
+This knowledge base contains discovered information about the Zork game world, including specific items, puzzles, dangers, and strategic insights learned through gameplay. All advice uses algorithmic decision-making patterns, precise command syntax, and computational approaches for optimal performance.
 
 ---
 
