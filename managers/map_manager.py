@@ -302,28 +302,22 @@ class MapManager(BaseManager):
     def get_quality_metrics(self) -> Dict[str, Any]:
         """Get comprehensive map quality metrics."""
         try:
-            if hasattr(self.game_map, 'get_quality_metrics'):
-                return self.game_map.get_quality_metrics()
-            else:
-                # Fallback basic metrics
-                return {
-                    "room_count": len(self.game_map.rooms) if hasattr(self.game_map, 'rooms') else 0,
-                    "connection_count": len(self.game_map.connections) if hasattr(self.game_map, 'connections') else 0,
-                    "confidence_score": 0.5,  # Default moderate confidence
-                    "fragmentation_score": 0.0,
-                    "isolated_room_count": 0
-                }
+            return self.game_map.get_map_quality_metrics()
         except Exception as e:
             self.log_error(f"Failed to get map quality metrics: {e}")
-            return {}
+            # Fallback basic metrics
+            return {
+                "room_count": len(getattr(self.game_map, 'rooms', {})),
+                "connection_count": len(getattr(self.game_map, 'connections', {})),
+                "confidence_score": 0.5,  # Default moderate confidence
+                "fragmentation_score": 0.0,
+                "isolated_room_count": 0
+            }
     
     def get_mermaid_representation(self) -> str:
         """Get mermaid diagram representation of the map."""
         try:
-            if hasattr(self.game_map, 'to_mermaid'):
-                return self.game_map.to_mermaid()
-            else:
-                return ""
+            return self.game_map.render_mermaid()
         except Exception as e:
             self.log_error(f"Failed to get mermaid representation: {e}")
             return ""
@@ -343,8 +337,8 @@ class MapManager(BaseManager):
         """Get map state for export to game state."""
         try:
             return {
-                "room_count": len(self.game_map.rooms) if hasattr(self.game_map, 'rooms') else 0,
-                "connection_count": len(self.game_map.connections) if hasattr(self.game_map, 'connections') else 0,
+                "room_count": len(getattr(self.game_map, 'rooms', {})),
+                "connection_count": len(getattr(self.game_map, 'connections', {})),
                 "current_room": self.game_state.current_room_name_for_map,
                 "quality_metrics": self.get_quality_metrics(),
                 "mermaid_map": self.get_mermaid_representation()
@@ -377,7 +371,7 @@ class MapManager(BaseManager):
                 return "\\n".join(room_list)
             else:
                 # Fallback to basic room list
-                rooms = list(self.game_map.rooms.keys()) if hasattr(self.game_map, 'rooms') else []
+                rooms = list(getattr(self.game_map, 'rooms', {}).keys())
                 return "\\n".join([f"- {room}" for room in rooms[:max_rooms]])
         except Exception as e:
             self.log_error(f"Failed to get room analysis: {e}")

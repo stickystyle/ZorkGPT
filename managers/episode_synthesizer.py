@@ -82,13 +82,13 @@ class EpisodeSynthesizer(BaseManager):
             )
             
             # Update episode ID in all components
-            if agent and hasattr(agent, 'update_episode_id'):
+            if agent:
                 agent.update_episode_id(episode_id)
             
-            if extractor and hasattr(extractor, 'update_episode_id'):
+            if extractor:
                 extractor.update_episode_id(episode_id)
             
-            if critic and hasattr(critic, 'update_episode_id'):
+            if critic:
                 critic.update_episode_id(episode_id)
             
             self.logger.info(

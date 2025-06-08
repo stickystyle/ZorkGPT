@@ -39,12 +39,12 @@ class KnowledgeManager(BaseManager):
         config: GameConfiguration, 
         game_state: GameState,
         agent,
-        game_map,
+        game_map,  # Actually receives MapManager
         json_log_file: str = "zork_episode_log.jsonl"
     ):
         super().__init__(logger, config, game_state, "knowledge_manager")
         self.agent = agent
-        self.game_map = game_map
+        self.map_manager = game_map  # Rename for clarity - this is actually MapManager
         
         # Initialize AdaptiveKnowledgeManager
         self.adaptive_knowledge_manager = AdaptiveKnowledgeManager(
@@ -98,12 +98,11 @@ class KnowledgeManager(BaseManager):
             
             # Include map quality metrics for context
             map_metrics = {}
-            if hasattr(self.game_map, 'get_quality_metrics'):
-                try:
-                    map_metrics = self.game_map.get_quality_metrics()
-                    self.log_debug(f"Map quality metrics: {map_metrics}")
-                except Exception as e:
-                    self.log_warning(f"Failed to get map quality metrics: {e}")
+            try:
+                map_metrics = self.map_manager.get_quality_metrics()
+                self.log_debug(f"Map quality metrics: {map_metrics}")
+            except Exception as e:
+                self.log_warning(f"Failed to get map quality metrics: {e}")
             
             # Perform the knowledge update using "Method 2" - entire episode analysis
             self.log_debug("Calling adaptive knowledge manager update_knowledge_from_turns")
@@ -203,11 +202,10 @@ class KnowledgeManager(BaseManager):
             if not skip_final_update or is_death_episode:
                 # Include map quality metrics
                 map_metrics = {}
-                if hasattr(self.game_map, 'get_quality_metrics'):
-                    try:
-                        map_metrics = self.game_map.get_quality_metrics()
-                    except Exception as e:
-                        self.log_warning(f"Failed to get map quality metrics: {e}")
+                try:
+                    map_metrics = self.map_manager.get_quality_metrics()
+                except Exception as e:
+                    self.log_warning(f"Failed to get map quality metrics: {e}")
                 
                 # Perform final knowledge update
                 success = self.adaptive_knowledge_manager.update_knowledge_from_turns(
@@ -294,18 +292,15 @@ class KnowledgeManager(BaseManager):
     def update_map_in_knowledge_base(self) -> None:
         """Update the mermaid map in knowledge base."""
         try:
-            if hasattr(self.game_map, 'to_mermaid'):
-                mermaid_map = self.game_map.to_mermaid()
-                if mermaid_map:
-                    self.adaptive_knowledge_manager.update_knowledge_with_map(
-                        mermaid_content=mermaid_map,
-                        episode_id=self.game_state.episode_id
-                    )
-                    self.log_debug("Updated map in knowledge base")
-                else:
-                    self.log_warning("No mermaid map content available")
+            mermaid_map = self.map_manager.game_map.render_mermaid()
+            if mermaid_map:
+                self.adaptive_knowledge_manager.update_knowledge_with_map(
+                    mermaid_content=mermaid_map,
+                    episode_id=self.game_state.episode_id
+                )
+                self.log_debug("Updated map in knowledge base")
             else:
-                self.log_warning("Game map does not support mermaid export")
+                self.log_warning("No mermaid map content available")
                 
         except Exception as e:
             self.log_error(f"Failed to update map in knowledge base: {e}")
@@ -381,11 +376,10 @@ class KnowledgeManager(BaseManager):
             }
             
             # Add map metrics if available
-            if hasattr(self.game_map, 'get_quality_metrics'):
-                try:
-                    episode_data["map_metrics"] = self.game_map.get_quality_metrics()
-                except Exception as e:
-                    self.log_warning(f"Failed to get map metrics for synthesis: {e}")
+            try:
+                episode_data["map_metrics"] = self.map_manager.get_quality_metrics()
+            except Exception as e:
+                self.log_warning(f"Failed to get map metrics for synthesis: {e}")
             
             self.logger.info(
                 f"Inter-episode synthesis starting",
@@ -467,7 +461,7 @@ class KnowledgeManager(BaseManager):
     
     def get_llm_client(self):
         """Access LLM client for knowledge-related analysis."""
-        if hasattr(self.adaptive_knowledge_manager, 'client'):
+        if self.adaptive_knowledge_manager:
             return self.adaptive_knowledge_manager.client
         return None
     

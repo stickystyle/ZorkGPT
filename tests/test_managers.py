@@ -194,22 +194,26 @@ class TestKnowledgeManager(TestBaseManagerSetup):
         return agent
     
     @pytest.fixture
-    def mock_game_map(self):
-        """Create a mock game map."""
-        game_map = Mock()
-        game_map.to_mermaid.return_value = "graph TD\n  A --> B"
-        game_map.get_quality_metrics.return_value = {"confidence": 0.8}
-        return game_map
+    def mock_map_manager(self):
+        """Create a mock map manager."""
+        map_manager = Mock()
+        # Mock the game_map attribute
+        mock_game_map = Mock()
+        mock_game_map.render_mermaid.return_value = "graph TD\n  A --> B"
+        map_manager.game_map = mock_game_map
+        # Mock the get_quality_metrics method
+        map_manager.get_quality_metrics.return_value = {"confidence": 0.8}
+        return map_manager
     
     @pytest.fixture
-    def knowledge_manager(self, mock_logger, game_config, game_state, mock_agent, mock_game_map):
+    def knowledge_manager(self, mock_logger, game_config, game_state, mock_agent, mock_map_manager):
         """Create a KnowledgeManager instance for testing."""
         return KnowledgeManager(
             logger=mock_logger,
             config=game_config,
             game_state=game_state,
             agent=mock_agent,
-            game_map=mock_game_map,
+            game_map=mock_map_manager,
             json_log_file="test.jsonl"
         )
     
@@ -231,10 +235,10 @@ class TestKnowledgeManager(TestBaseManagerSetup):
         knowledge_manager.last_knowledge_update_turn = 0
         assert knowledge_manager.should_process_turn()
     
-    def test_update_map_in_knowledge_base(self, knowledge_manager, mock_game_map):
+    def test_update_map_in_knowledge_base(self, knowledge_manager, mock_map_manager):
         """Test map update in knowledge base."""
         knowledge_manager.update_map_in_knowledge_base()
-        mock_game_map.to_mermaid.assert_called_once()
+        mock_map_manager.game_map.render_mermaid.assert_called_once()
     
     def test_reload_agent_knowledge(self, knowledge_manager, mock_agent):
         """Test agent knowledge reloading."""

@@ -170,13 +170,13 @@ class ZorkOrchestratorV2:
             llm_client=self.agent.client  # Share LLM client
         )
         
-        # Knowledge manager (needs agent and map references)
+        # Knowledge manager (needs agent and map manager references)
         self.knowledge_manager = KnowledgeManager(
             logger=self.logger,
             config=self.config,
             game_state=self.game_state,
             agent=self.agent,
-            game_map=self.map_manager.game_map,
+            game_map=self.map_manager,
             json_log_file=self.config.json_log_file
         )
         

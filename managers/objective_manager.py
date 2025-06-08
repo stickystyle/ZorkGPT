@@ -220,103 +220,102 @@ OBJECTIVES:
 Focus on objectives the agent has actually discovered through gameplay patterns or its own novel reasoning, not general Zork knowledge."""
 
             # Get LLM response using adaptive knowledge manager's client
-            if hasattr(self.adaptive_knowledge_manager, 'client') and self.adaptive_knowledge_manager.client:
-                messages = [{"role": "user", "content": prompt}]
+            if not self.adaptive_knowledge_manager:
+                raise ValueError("Adaptive knowledge manager is required for objective completion evaluation")
                 
-                if not self.adaptive_knowledge_manager:
-                    raise ValueError("Adaptive knowledge manager is required for objective completion evaluation")
-                model_to_use = self.adaptive_knowledge_manager.analysis_model
+            messages = [{"role": "user", "content": prompt}]
+            model_to_use = self.adaptive_knowledge_manager.analysis_model
+            self.log_debug(
+                f"Using model: {model_to_use}, prompt length: {len(prompt)} characters",
+                details=f"Model: {model_to_use}, prompt length: {len(prompt)}"
+            )
+            
+            # Log that we're about to make the LLM call
+            self.logger.info(
+                f"Making LLM call for objective discovery with model {model_to_use}",
+                extra={
+                    "event_type": "objective_llm_call_start",
+                    "episode_id": self.game_state.episode_id,
+                    "turn": self.game_state.turn_count,
+                    "model": model_to_use,
+                    "prompt_length": len(prompt),
+                }
+            )
+            
+            try:
+                response = self.adaptive_knowledge_manager.client.chat.completions.create(
+                    model=model_to_use,
+                    messages=messages,
+                    **self.adaptive_knowledge_manager.analysis_sampling.model_dump(exclude_unset=True) if self.adaptive_knowledge_manager else {"temperature": 0.3, "max_tokens": 5000}
+                )
+                
+                response_content = response.content
                 self.log_debug(
-                    f"Using model: {model_to_use}, prompt length: {len(prompt)} characters",
-                    details=f"Model: {model_to_use}, prompt length: {len(prompt)}"
+                    f"LLM call successful, response length: {len(response_content)}",
+                    details=f"Response type: {type(response)}, content length: {len(response_content)}"
                 )
                 
-                # Log that we're about to make the LLM call
-                self.logger.info(
-                    f"Making LLM call for objective discovery with model {model_to_use}",
-                    extra={
-                        "event_type": "objective_llm_call_start",
-                        "episode_id": self.game_state.episode_id,
-                        "turn": self.game_state.turn_count,
-                        "model": model_to_use,
-                        "prompt_length": len(prompt),
-                    }
+                # Parse objectives from response
+                updated_objectives = self._parse_objectives_from_response(response_content)
+                
+                self.log_debug(
+                    f"Parsed objectives from LLM response: {updated_objectives}",
+                    details=f"Raw response: '{response_content}', parsed: {updated_objectives}"
                 )
                 
-                try:
-                    response = self.adaptive_knowledge_manager.client.chat.completions.create(
-                        model=model_to_use,
-                        messages=messages,
-                        **self.adaptive_knowledge_manager.analysis_sampling.model_dump(exclude_unset=True) if self.adaptive_knowledge_manager else {"temperature": 0.3, "max_tokens": 5000}
+                if updated_objectives:
+                    self.game_state.discovered_objectives = updated_objectives
+                    self.game_state.objective_update_turn = self.game_state.turn_count
+                    
+                    self.log_progress(
+                        f"Objectives updated: {len(updated_objectives)} objectives discovered",
+                        stage="objective_update",
+                        details=f"Updated {len(updated_objectives)} objectives: {updated_objectives[:3]}"
                     )
                     
-                    response_content = response.content
-                    self.log_debug(
-                        f"LLM call successful, response length: {len(response_content)}",
-                        details=f"Response type: {type(response)}, content length: {len(response_content)}"
-                    )
-                    
-                    # Parse objectives from response
-                    updated_objectives = self._parse_objectives_from_response(response_content)
-                    
-                    self.log_debug(
-                        f"Parsed objectives from LLM response: {updated_objectives}",
-                        details=f"Raw response: '{response_content}', parsed: {updated_objectives}"
-                    )
-                    
-                    if updated_objectives:
-                        self.game_state.discovered_objectives = updated_objectives
-                        self.game_state.objective_update_turn = self.game_state.turn_count
-                        
-                        self.log_progress(
-                            f"Objectives updated: {len(updated_objectives)} objectives discovered",
-                            stage="objective_update",
-                            details=f"Updated {len(updated_objectives)} objectives: {updated_objectives[:3]}"
-                        )
-                        
-                        # Log the update
-                        self.logger.info(
-                            "Discovered objectives updated",
-                            extra={
-                                "event_type": "objectives_updated",
-                                "episode_id": self.game_state.episode_id,
-                                "turn": self.game_state.turn_count,
-                                "objective_count": len(updated_objectives),
-                                "objectives": updated_objectives,
-                            }
-                        )
-                    else:
-                        self.log_warning(
-                            "No objectives parsed from LLM response",
-                            details="LLM response did not contain parseable objectives"
-                        )
-                        
-                        self.logger.warning(
-                            "No objectives parsed from LLM response",
-                            extra={
-                                "event_type": "objectives_parsing_failed",
-                                "episode_id": self.game_state.episode_id,
-                                "turn": self.game_state.turn_count,
-                                "llm_response": response_content,
-                            }
-                        )
-                        
-                except Exception as llm_error:
-                    self.log_error(
-                        f"LLM call failed: {llm_error}",
-                        details=f"LLM call failed with error: {llm_error}"
-                    )
-                    
-                    self.logger.error(
-                        f"Objective LLM call failed: {llm_error}",
+                    # Log the update
+                    self.logger.info(
+                        "Discovered objectives updated",
                         extra={
-                            "event_type": "objective_llm_call_failed",
+                            "event_type": "objectives_updated",
                             "episode_id": self.game_state.episode_id,
                             "turn": self.game_state.turn_count,
-                            "error": str(llm_error),
-                            "model": model_to_use,
+                            "objective_count": len(updated_objectives),
+                            "objectives": updated_objectives,
                         }
                     )
+                else:
+                    self.log_warning(
+                        "No objectives parsed from LLM response",
+                        details="LLM response did not contain parseable objectives"
+                    )
+                    
+                    self.logger.warning(
+                        "No objectives parsed from LLM response",
+                        extra={
+                            "event_type": "objectives_parsing_failed",
+                            "episode_id": self.game_state.episode_id,
+                            "turn": self.game_state.turn_count,
+                            "llm_response": response_content,
+                        }
+                    )
+                    
+            except Exception as llm_error:
+                self.log_error(
+                    f"LLM call failed: {llm_error}",
+                    details=f"LLM call failed with error: {llm_error}"
+                )
+                
+                self.logger.error(
+                    f"Objective LLM call failed: {llm_error}",
+                    extra={
+                        "event_type": "objective_llm_call_failed",
+                        "episode_id": self.game_state.episode_id,
+                        "turn": self.game_state.turn_count,
+                        "error": str(llm_error),
+                        "model": model_to_use,
+                    }
+                )
             else:
                 self.log_warning(
                     "No LLM client available for objective analysis",
@@ -329,9 +328,9 @@ Focus on objectives the agent has actually discovered through gameplay patterns 
                         "event_type": "objective_no_client",
                         "episode_id": self.game_state.episode_id,
                         "turn": self.game_state.turn_count,
-                        "has_adaptive_manager": hasattr(self, 'adaptive_knowledge_manager'),
-                        "has_client": hasattr(self.adaptive_knowledge_manager, 'client') if hasattr(self, 'adaptive_knowledge_manager') else False,
-                        "client_value": str(self.adaptive_knowledge_manager.client) if hasattr(self, 'adaptive_knowledge_manager') and hasattr(self.adaptive_knowledge_manager, 'client') else "N/A",
+                        "has_adaptive_manager": self.adaptive_knowledge_manager is not None,
+                        "has_client": self.adaptive_knowledge_manager.client is not None if self.adaptive_knowledge_manager else False,
+                        "client_value": str(self.adaptive_knowledge_manager.client) if self.adaptive_knowledge_manager and self.adaptive_knowledge_manager.client else "N/A",
                     }
                 )
                 
@@ -432,7 +431,7 @@ Focus on objectives the agent has actually discovered through gameplay patterns 
         completion_signals = []
         
         # Score increase signals
-        if extracted_info and hasattr(extracted_info, 'score'):
+        if extracted_info and extracted_info.score is not None:
             if extracted_info.score and extracted_info.score > self.game_state.previous_zork_score:
                 completion_signals.append(f"Score increased from {self.game_state.previous_zork_score} to {extracted_info.score}")
         
@@ -474,7 +473,7 @@ COMPLETED:
 - [objective text exactly as listed above]
 - [another objective if applicable]"""
 
-        if hasattr(self.adaptive_knowledge_manager, 'client') and self.adaptive_knowledge_manager.client:
+        if self.adaptive_knowledge_manager and self.adaptive_knowledge_manager.client:
             try:
                 response = self.adaptive_knowledge_manager.client.chat.completions.create(
                     model=self.adaptive_knowledge_manager.analysis_model,
@@ -637,7 +636,7 @@ REFINED OBJECTIVES:
 - [objective 2]
 ..."""
 
-        if hasattr(self.adaptive_knowledge_manager, 'client') and self.adaptive_knowledge_manager.client:
+        if self.adaptive_knowledge_manager and self.adaptive_knowledge_manager.client:
             try:
                 response = self.adaptive_knowledge_manager.client.chat.completions.create(
                     model=self.adaptive_knowledge_manager.analysis_model,
