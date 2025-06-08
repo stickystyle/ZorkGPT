@@ -447,13 +447,14 @@ Keep the summary under 500 words and focus on actionable information for continu
             recent_reasoning = self.game_state.action_reasoning_history[-num_entries:]
             
             for i, (action, response) in enumerate(recent_actions):
-                reasoning = recent_reasoning[i] if i < len(recent_reasoning) else ""
+                reasoning_data = recent_reasoning[i] if i < len(recent_reasoning) else {}
+                reasoning_text = reasoning_data.get("reasoning", "") if isinstance(reasoning_data, dict) else str(reasoning_data)
                 
                 log_entry = {
                     "turn": self.game_state.turn_count - len(recent_actions) + i + 1,
                     "action": action,
                     "response": response[:200],  # Truncate long responses
-                    "reasoning": reasoning[:100] if reasoning else ""  # Truncate reasoning
+                    "reasoning": reasoning_text[:100] if reasoning_text else ""  # Truncate reasoning
                 }
                 recent_log.append(log_entry)
             
