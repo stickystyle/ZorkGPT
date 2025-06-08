@@ -225,8 +225,12 @@ class ZorkOrchestratorV2:
             Final score achieved in the episode
         """
         try:
-            # Initialize new episode
-            episode_id = self.episode_synthesizer.initialize_episode(
+            # Generate new episode ID (orchestrator owns episode lifecycle)
+            episode_id = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+            
+            # Initialize new episode across all managers
+            self.episode_synthesizer.initialize_episode(
+                episode_id=episode_id,
                 agent=self.agent,
                 extractor=self.extractor,
                 critic=self.critic
@@ -368,8 +372,10 @@ class ZorkOrchestratorV2:
                 action_counts=self.game_state.action_counts
             )
             
-            action_to_take = critic_result["action"]
-            confidence = critic_result.get("confidence", 0.5)
+            # Critic evaluates the action but doesn't change it
+            # For now, we'll use the proposed action (could add rejection logic later)
+            action_to_take = proposed_action
+            confidence = critic_result.confidence
             self.critic_confidence_history.append(confidence)
             
             # Update action counts

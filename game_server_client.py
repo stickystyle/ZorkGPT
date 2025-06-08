@@ -96,36 +96,6 @@ class GameServerClient:
         except requests.RequestException as e:
             logger.warning(f"Failed to rebuild state from history: {e}")
             
-    def send_command(self, command: str) -> str:
-        """Send a command to the game.
-        
-        Args:
-            command: Command to send
-            
-        Returns:
-            Raw game response
-        """
-        if not self.session_id:
-            raise RuntimeError("No active session")
-            
-        try:
-            response = requests.post(
-                f"{self.base_url}/sessions/{self.session_id}/command",
-                json={"command": command},
-                timeout=self.timeout
-            )
-            response.raise_for_status()
-            
-            data = response.json()
-            self._last_response = data
-            self.turn_number = data.get("turn_number", self.turn_number + 1)
-            
-            return data.get("raw_response", "")
-            
-        except requests.RequestException as e:
-            logger.error(f"Failed to send command: {e}")
-            raise RuntimeError(f"Failed to send command: {e}")
-            
     def get_history(self) -> List[Tuple[str, str]]:
         """Get the full command/response history.
         
@@ -173,6 +143,100 @@ class GameServerClient:
         except requests.RequestException:
             return False
             
+    def start_session(self, session_id: Optional[str] = None) -> dict:
+        """Start a new session, compatible with orchestrator interface.
+        
+        Args:
+            session_id: Session ID to use
+            
+        Returns:
+            Dict with success status and response
+        """
+        try:
+            intro_text = self.start(session_id)
+            return {
+                "success": True,
+                "response": intro_text,
+                "session_id": self.session_id
+            }
+        except Exception as e:
+            logger.error(f"Failed to start session: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    def stop_session(self) -> dict:
+        """Stop the current session, compatible with orchestrator interface.
+        
+        Returns:
+            Dict with success status
+        """
+        try:
+            self.close()
+            return {
+                "success": True
+            }
+        except Exception as e:
+            logger.error(f"Failed to stop session: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    def send_command(self, command: str) -> dict:
+        """Send a command to the game, with orchestrator-compatible response format.
+        
+        Args:
+            command: Command to send
+            
+        Returns:
+            Dict with success status and response
+        """
+        try:
+            response = self._send_command_raw(command)
+            return {
+                "success": True,
+                "response": response
+            }
+        except Exception as e:
+            logger.error(f"Failed to send command: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "response": ""
+            }
+
+    def _send_command_raw(self, command: str) -> str:
+        """Send a command and return raw response (original implementation).
+        
+        Args:
+            command: Command to send
+            
+        Returns:
+            Raw game response
+        """
+        if not self.session_id:
+            raise RuntimeError("No active session")
+            
+        try:
+            response = requests.post(
+                f"{self.base_url}/sessions/{self.session_id}/command",
+                json={"command": command},
+                timeout=self.timeout
+            )
+            response.raise_for_status()
+            
+            data = response.json()
+            self._last_response = data
+            self.turn_number = data.get("turn_number", self.turn_number + 1)
+            
+            return data.get("raw_response", "")
+            
+        except requests.RequestException as e:
+            logger.error(f"Failed to send command: {e}")
+            raise RuntimeError(f"Failed to send command: {e}")
+
     def close(self):
         """Close the session."""
         if self.session_id:
@@ -188,7 +252,7 @@ class GameServerClient:
                 logger.warning(f"Failed to close session: {e}")
                 
             self.session_id = None
-            
+
     def score(self, score_text=None) -> Tuple[int, int]:
         """Extract score from game text or last response.
         

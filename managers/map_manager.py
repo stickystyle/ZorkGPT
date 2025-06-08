@@ -236,12 +236,12 @@ class MapManager(BaseManager):
         """Run map consolidation to merge similar locations and clean up fragmentation."""
         try:
             # Perform base name variant consolidation
-            consolidation_results = self.game_map.consolidate_base_name_variants()
+            consolidated_count = self.game_map.consolidate_base_name_variants()
             
-            if consolidation_results.get("consolidated_count", 0) > 0:
+            if consolidated_count > 0:
                 self.log_debug(
-                    f"Map consolidation merged {consolidation_results['consolidated_count']} rooms",
-                    details=f"Consolidation results: {consolidation_results}"
+                    f"Map consolidation merged {consolidated_count} rooms",
+                    details=f"Consolidated {consolidated_count} rooms"
                 )
                 
                 self.logger.info(
@@ -250,7 +250,7 @@ class MapManager(BaseManager):
                         "event_type": "map_consolidation",
                         "episode_id": self.game_state.episode_id,
                         "turn": self.game_state.turn_count,
-                        "consolidated_count": consolidation_results.get("consolidated_count", 0),
+                        "consolidated_count": consolidated_count,
                         "total_rooms": len(self.game_map.rooms),
                     }
                 )

@@ -625,13 +625,18 @@ class TestEpisodeSynthesizer(TestBaseManagerSetup):
         mock_agent = Mock()
         mock_agent.update_episode_id = Mock()
         
-        episode_id = episode_synthesizer.initialize_episode(agent=mock_agent)
+        # Test episode ID (provided by orchestrator)
+        test_episode_id = "2025-06-08T15:45:00"
         
-        # Episode ID should be in ISO8601 format (YYYY-MM-DDTHH:MM:SS)
-        import re
-        assert re.match(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}', episode_id)
-        assert game_state.episode_id == episode_id
-        mock_agent.update_episode_id.assert_called_once_with(episode_id)
+        returned_episode_id = episode_synthesizer.initialize_episode(
+            episode_id=test_episode_id, 
+            agent=mock_agent
+        )
+        
+        # Should return the same episode ID and set it in game state
+        assert returned_episode_id == test_episode_id
+        assert game_state.episode_id == test_episode_id
+        mock_agent.update_episode_id.assert_called_once_with(test_episode_id)
     
     def test_is_death_episode(self, episode_synthesizer, game_state):
         """Test death episode detection."""

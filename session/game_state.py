@@ -55,15 +55,22 @@ class GameState:
     # Session-persistent state (survives episode resets)
     death_count: int = 0  # Cumulative deaths across all episodes
     
-    def reset_episode(self) -> None:
+    def reset_episode(self, episode_id: str = None) -> None:
         """
         Reset all episode-specific state while preserving session-persistent state.
+        
+        Args:
+            episode_id: Episode ID to use (if None, generates one - for backward compatibility)
         
         This is called at the start of each new episode to clean the slate
         while maintaining things like death_count that persist across episodes.
         """
-        # Core game state
-        self.episode_id = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+        # Core game state - use provided episode ID or generate one as fallback
+        if episode_id:
+            self.episode_id = episode_id
+        else:
+            # Fallback for backward compatibility
+            self.episode_id = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
         self.turn_count = 0
         self.current_room_name_for_map = ""
         self.current_inventory.clear()

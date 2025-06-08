@@ -17,7 +17,6 @@ from datetime import datetime
 from managers.base_manager import BaseManager
 from session.game_state import GameState
 from session.game_configuration import GameConfiguration
-from utils.llm_utils import extract_llm_content
 
 
 class EpisodeSynthesizer(BaseManager):
@@ -60,15 +59,21 @@ class EpisodeSynthesizer(BaseManager):
         """Check if episode synthesis needs processing this turn."""
         return False  # Episode synthesis is event-driven
     
-    def initialize_episode(self, agent=None, extractor=None, critic=None) -> str:
-        """Initialize a new episode and coordinate component updates."""
-        try:
-            # Generate new episode ID (ISO8601 format for consistency)
-            episode_id = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    def initialize_episode(self, episode_id: str, agent=None, extractor=None, critic=None) -> str:
+        """Initialize a new episode and coordinate component updates.
+        
+        Args:
+            episode_id: Episode ID provided by orchestrator
+            agent: Agent component to update
+            extractor: Extractor component to update  
+            critic: Critic component to update
             
-            # Reset episode state in GameState
-            self.game_state.reset_episode()
-            self.game_state.episode_id = episode_id
+        Returns:
+            The episode ID (for convenience)
+        """
+        try:
+            # Reset episode state in GameState with the provided episode ID
+            self.game_state.reset_episode(episode_id=episode_id)
             
             self.log_progress(
                 f"Initializing new episode: {episode_id}",
@@ -100,7 +105,7 @@ class EpisodeSynthesizer(BaseManager):
             
         except Exception as e:
             self.log_error(f"Failed to initialize episode: {e}")
-            return f"{datetime.now().strftime('%Y-%m-%dT%H:%M:%S')}_error"
+            return f"{episode_id}_error"
     
     def finalize_episode(self, final_score: int, critic_confidence_history: List[float] = None) -> None:
         """Finalize the current episode with synthesis and cleanup."""
@@ -330,7 +335,7 @@ Keep it under 200 words."""
                 max_tokens=500
             )
             
-            return extract_llm_content(response) or self.generate_fallback_episode_summary(final_score, is_death)
+            return response.content or self.generate_fallback_episode_summary(final_score, is_death)
             
         except Exception as e:
             self.log_error(f"LLM episode summary failed: {e}")

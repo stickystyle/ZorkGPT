@@ -19,7 +19,6 @@ from collections import defaultdict, Counter
 from managers.base_manager import BaseManager
 from session.game_state import GameState
 from session.game_configuration import GameConfiguration
-from utils.llm_utils import extract_llm_content
 
 
 class StateManager(BaseManager):
@@ -60,8 +59,9 @@ class StateManager(BaseManager):
         """Reset episode-specific state for a new episode."""
         self.log_debug("Resetting episode state")
         
-        # Reset episode-specific state in GameState
-        self.game_state.reset_episode()
+        # NOTE: Do NOT call game_state.reset_episode() here!
+        # Episode ID generation and GameState reset is handled by EpisodeSynthesizer
+        # This method only resets StateManager's internal state
         
         # Reset manager-specific tracking
         self.last_summarization_turn = 0
@@ -237,7 +237,7 @@ Keep the summary under 500 words and focus on actionable information for continu
                     max_tokens=1000
                 )
                 
-                return extract_llm_content(response) or ""
+                return response.content or ""
                 
             except Exception as llm_error:
                 self.log_warning(f"LLM summarization failed: {llm_error}")

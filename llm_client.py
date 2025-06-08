@@ -17,7 +17,7 @@ from enum import Enum
 
 @dataclass
 class LLMResponse:
-    """Response object that mimics OpenAI's response structure."""
+    """Response object for LLM completions."""
     content: str
     model: str
     usage: Optional[Dict[str, int]] = None

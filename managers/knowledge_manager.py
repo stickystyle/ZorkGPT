@@ -18,7 +18,6 @@ from session.game_state import GameState
 from session.game_configuration import GameConfiguration
 from zork_strategy_generator import AdaptiveKnowledgeManager
 from config import get_config
-from utils.llm_utils import extract_llm_content
 
 
 class KnowledgeManager(BaseManager):
