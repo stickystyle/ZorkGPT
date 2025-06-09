@@ -11,7 +11,6 @@ Handles all state management responsibilities:
 """
 
 import json
-import boto3
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 from collections import defaultdict, Counter
@@ -19,6 +18,13 @@ from collections import defaultdict, Counter
 from managers.base_manager import BaseManager
 from session.game_state import GameState
 from session.game_configuration import GameConfiguration
+
+# Import boto3 only when needed
+try:
+    import boto3
+    BOTO3_AVAILABLE = True
+except ImportError:
+    BOTO3_AVAILABLE = False
 
 
 class StateManager(BaseManager):
@@ -46,11 +52,13 @@ class StateManager(BaseManager):
         
         # S3 client for state uploads
         self.s3_client = None
-        if config.s3_bucket:
+        if config.s3_bucket and BOTO3_AVAILABLE:
             try:
                 self.s3_client = boto3.client('s3')
             except Exception as e:
                 self.log_warning(f"Failed to initialize S3 client: {e}")
+        elif config.s3_bucket and not BOTO3_AVAILABLE:
+            self.log_warning("S3 bucket configured but boto3 not available. Install with: uv sync --extra s3")
         
         # Context management tracking
         self.last_summarization_turn = 0

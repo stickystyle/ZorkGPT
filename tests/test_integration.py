@@ -431,5 +431,78 @@ class TestManagerInteractions:
         assert episode_synthesizer.state_manager is not None
 
 
+class TestRealDfrotzIntegration:
+    """Test with real dfrotz process for score parsing validation."""
+    
+    def test_real_score_parsing_with_dfrotz(self):
+        """Test that score parsing works correctly with real dfrotz output.
+        
+        Executes the sequence: south, east, open window, enter window, take sack
+        which should result in a score of 10 points.
+        """
+        import requests
+        import time
+        from hybrid_zork_extractor import HybridZorkExtractor
+        from llm_client import LLMClient
+        from session.game_configuration import GameConfiguration
+        
+        # Check if game server is running
+        try:
+            response = requests.get("http://localhost:8000/health", timeout=5)
+            if response.status_code != 200:
+                pytest.skip("Game server not running - start with 'docker-compose up -d'")
+        except requests.exceptions.RequestException:
+            pytest.skip("Game server not running - start with 'docker-compose up -d'")
+        
+        # Start a new game session
+        session_response = requests.post("http://localhost:8000/sessions/score_test_session")
+        assert session_response.status_code == 200
+        session_data = session_response.json()
+        assert "session_id" in session_data
+        
+        try:
+            # Initialize extractor for score parsing
+            import logging
+            logger = logging.getLogger("test_extractor")
+            config = GameConfiguration()
+            extractor = HybridZorkExtractor(logger=logger)
+            
+            # Execute the scoring sequence
+            commands = ["south", "east", "open window", "enter window", "take sack"]
+            
+            for command in commands:
+                # Send command
+                command_response = requests.post("http://localhost:8000/sessions/score_test_session/command",
+                                               json={"command": command})
+                assert command_response.status_code == 200
+                
+                response_data = command_response.json()
+                assert "raw_response" in response_data
+                
+                # Brief pause between commands
+                time.sleep(0.1)
+            
+            # Get final game state and check score
+            final_response = requests.post("http://localhost:8000/sessions/score_test_session/command",
+                                         json={"command": "score"})
+            assert final_response.status_code == 200
+            
+            final_data = final_response.json()
+            final_output = final_data["raw_response"]
+            
+            # Extract score using the real extractor
+            extracted_info = extractor.extract_info(final_output)
+            
+            # Verify score is 10
+            assert extracted_info.score == 10, f"Expected score 10, got {extracted_info.score}. Output: {final_output}"
+            
+            # Verify score parsing worked by checking the output contains score info
+            assert "10" in final_output.lower() or "ten" in final_output.lower()
+            
+        finally:
+            # Clean up session
+            requests.delete("http://localhost:8000/sessions/score_test_session")
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

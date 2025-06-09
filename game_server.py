@@ -37,6 +37,7 @@ class CommandRequest(BaseModel):
 class CommandResponse(BaseModel):
     session_id: str
     turn_number: int
+    score: Optional[int]
     raw_response: str
     parsed: dict
     game_over: bool
@@ -71,7 +72,7 @@ class GameSession:
     def __init__(self, session_id: str, working_directory: str):
         self.session_id = session_id
         self.working_directory = working_directory
-        self.zork = None
+        self.zork: Optional[ZorkInterface] = None
         self.parser = StructuredZorkParser()
         self.turn_number = 0
         self.history: List[HistoryEntry] = []
@@ -97,7 +98,7 @@ class GameSession:
         # Start Zork process
         self.zork = ZorkInterface(working_directory=self.working_directory)
         intro_text = self.zork.start()
-        
+
         # Check for save file (try both extensions)
         save_exists = os.path.exists(save_path_qzl) or os.path.exists(save_path_no_ext)
         actual_save_path = save_path_qzl if os.path.exists(save_path_qzl) else save_path_no_ext
@@ -118,7 +119,7 @@ class GameSession:
                 return response
             else:
                 logger.warning(f"Failed to restore session {self.session_id}, starting new game")
-                
+
         self.active = True
         return intro_text
         
@@ -160,6 +161,7 @@ class GameSession:
         return CommandResponse(
             session_id=self.session_id,
             turn_number=self.turn_number,
+            score=parsed.score,
             raw_response=raw_response,
             parsed={
                 "room_name": parsed.room_name,
