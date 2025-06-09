@@ -21,7 +21,7 @@ class LLMConfig(BaseModel):
     agent_model: str = "qwen3-30b-a3b-mlx"
     info_ext_model: str = "qwen3-30b-a3b-mlx" 
     critic_model: str = "qwen3-30b-a3b-mlx"
-    analysis_model: str = "gpt-4"
+    analysis_model: str = "meta-llama/llama-4-scout"  # Should be configured in pyproject.toml
     
     # Per-model base URLs (optional, falls back to client_base_url if not specified)
     agent_base_url: Optional[str] = None

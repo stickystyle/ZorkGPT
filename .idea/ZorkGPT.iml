@@ -4,6 +4,7 @@
     <content url="file://$MODULE_DIR$">
       <excludeFolder url="file://$MODULE_DIR$/.venv" />
       <excludeFolder url="file://$MODULE_DIR$/infrastructure/.venv" />
+      <excludeFolder url="file://$MODULE_DIR$/infrastructure/cdk.out" />
     </content>
     <orderEntry type="jdk" jdkName="Python 3.11 (ZorkGPT)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />

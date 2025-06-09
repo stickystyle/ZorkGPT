@@ -54,6 +54,9 @@ class ZorkAgent:
         self.logger = logger
         self.episode_id = episode_id
         
+        # Create sampling params object for LLM calls
+        self.sampling_params = config.agent_sampling
+        
         # Prompt logging counter for temporary evaluation
         self.prompt_counter = 0
         self.enable_prompt_logging = config.logging.enable_prompt_logging
@@ -228,7 +231,7 @@ The following strategic guide has been compiled from analyzing previous episodes
                 messages=messages,
                 **self.sampling_params.model_dump(exclude_unset=True),
             )
-            action_response = llm_response.choices[0].message.content
+            action_response = llm_response.content
 
             # Log the response for debugging
             self.logger.info(

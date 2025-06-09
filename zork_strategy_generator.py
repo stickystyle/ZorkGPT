@@ -36,9 +36,11 @@ class AdaptiveKnowledgeManager:
         self,
         log_file: str = "zork_episode_log.jsonl",
         output_file: str = "knowledgebase.md",
+        logger=None,
     ):
         self.log_file = log_file
         self.output_file = output_file
+        self.logger = logger
 
         # Initialize LLM client
         config = get_config()
@@ -89,7 +91,11 @@ class AdaptiveKnowledgeManager:
                     f.write(message['content'])
                     f.write("\n\n")
         except Exception as e:
-            print(f"Failed to log prompt to {filename}: {e}")
+            if self.logger:
+                self.logger.warning(
+                    f"Failed to log prompt to {filename}: {e}",
+                    extra={"event_type": "knowledge_update"}
+                )
 
     def _load_agent_instructions(self) -> str:
         """Load the agent.md prompt to understand what's already covered."""
@@ -97,7 +103,11 @@ class AdaptiveKnowledgeManager:
             with open("agent.md", "r", encoding="utf-8") as f:
                 return f.read()
         except Exception as e:
-            print(f"  ⚠️ Could not load agent.md: {e}")
+            if self.logger:
+                self.logger.warning(
+                    f"Could not load agent.md: {e}",
+                    extra={"event_type": "knowledge_update"}
+                )
             return ""
 
     def _is_first_meaningful_update(self) -> bool:
@@ -170,7 +180,11 @@ class AdaptiveKnowledgeManager:
             return False
             
         except Exception as e:
-            print(f"  ⚠️ Error checking knowledge base content: {e}")
+            if self.logger:
+                self.logger.warning(
+                    f"Error checking knowledge base content: {e}",
+                    extra={"event_type": "knowledge_update"}
+                )
             # If we can't read it, assume it's not meaningful yet
             return True
 
@@ -193,12 +207,26 @@ class AdaptiveKnowledgeManager:
         Returns:
             True if knowledge was updated, False if skipped
         """
-        print(f"🧠 Evaluating knowledge update for turns {start_turn}-{end_turn}...")
+        if self.logger:
+            self.logger.info(
+                f"Evaluating knowledge update for turns {start_turn}-{end_turn}",
+                extra={
+                    "event_type": "knowledge_update",
+                    "details": f"Analyzing turn window {start_turn}-{end_turn}"
+                }
+            )
 
         # Extract turn window data
         turn_data = self._extract_turn_window_data(episode_id, start_turn, end_turn)
         if not turn_data:
-            print("  ⚠️ No turn data found for analysis")
+            if self.logger:
+                self.logger.warning(
+                    "No turn data found for analysis",
+                    extra={
+                        "event_type": "knowledge_update",
+                        "details": f"Turn window {start_turn}-{end_turn} had no data"
+                    }
+                )
             return False
 
         # Check if this is the very first knowledge update (no meaningful knowledge exists)
@@ -208,9 +236,14 @@ class AdaptiveKnowledgeManager:
         quality_score, quality_reason = self._assess_knowledge_update_quality(
             turn_data, is_final_update
         )
-        print(
-            f"  📊 Knowledge quality score: {quality_score:.1f}/10 - {quality_reason}"
-        )
+        if self.logger:
+            self.logger.info(
+                f"Knowledge quality score: {quality_score:.1f}/10",
+                extra={
+                    "event_type": "knowledge_update",
+                    "details": quality_reason
+                }
+            )
 
         # Use lower threshold for final episode updates to capture important death/danger scenarios
         effective_threshold = self.min_quality_threshold
@@ -218,37 +251,62 @@ class AdaptiveKnowledgeManager:
             effective_threshold = max(
                 3.0, self.min_quality_threshold - 2.0
             )  # Lower threshold for final updates
-            print(
-                f"  🎯 Using final update threshold: {effective_threshold:.1f} (vs normal {self.min_quality_threshold:.1f})"
-            )
+            if self.logger:
+                self.logger.info(
+                    f"Using final update threshold: {effective_threshold:.1f} (vs normal {self.min_quality_threshold:.1f})",
+                    extra={"event_type": "knowledge_update"}
+                )
 
         # Allow first update regardless of quality to bootstrap learning
         if is_first_update:
-            print(
-                f"  🌱 First knowledge update - proceeding regardless of quality score to bootstrap learning"
-            )
+            if self.logger:
+                self.logger.info(
+                    "First knowledge update - proceeding regardless of quality score to bootstrap learning",
+                    extra={"event_type": "knowledge_update"}
+                )
         elif quality_score < effective_threshold:
-            print(
-                f"  ⏭️ Skipping update - quality below threshold ({effective_threshold})"
-            )
+            if self.logger:
+                self.logger.info(
+                    f"Skipping update - quality below threshold ({effective_threshold})",
+                    extra={"event_type": "knowledge_update"}
+                )
             return False
 
         # Method 2 Optimization: Always use comprehensive analysis since we have full episode context
         # The strategy determination system was designed for incremental windows with limited context
-        print(f"  🎯 Using comprehensive analysis (Method 2: full episode context)")
+        if self.logger:
+            self.logger.info(
+                "Using comprehensive analysis",
+                extra={
+                    "event_type": "knowledge_update",
+                    "details": "Method 2: full episode context"
+                }
+            )
 
         # Step 2: Perform comprehensive analysis with full episode context
         new_insights = self._analyze_full_insights(turn_data)
         if not new_insights:
-            print("  ⚠️ Comprehensive analysis failed to generate insights")
+            if self.logger:
+                self.logger.warning(
+                    "Comprehensive analysis failed to generate insights",
+                    extra={"event_type": "knowledge_update"}
+                )
             return False
 
         # Step 3: Intelligent knowledge merging with comprehensive strategy
         success = self._intelligent_knowledge_merge(new_insights, "FULL_UPDATE")
         if success:
-            print("  ✅ Knowledge base updated successfully")
+            if self.logger:
+                self.logger.info(
+                    "Knowledge base updated successfully",
+                    extra={"event_type": "knowledge_update"}
+                )
         else:
-            print("  ⚠️ Knowledge merge failed")
+            if self.logger:
+                self.logger.error(
+                    "Knowledge merge failed",
+                    extra={"event_type": "knowledge_update"}
+                )
 
         return success
 
@@ -398,7 +456,11 @@ class AdaptiveKnowledgeManager:
                         continue
 
         except FileNotFoundError:
-            print(f"  ⚠️ Log file {self.log_file} not found")
+            if self.logger:
+                self.logger.warning(
+                    f"Log file {self.log_file} not found",
+                    extra={"event_type": "knowledge_update"}
+                )
             return None
         
         # Apply stored death messages to death events
@@ -534,7 +596,11 @@ REASON: [brief explanation]"""
             return score, reason
 
         except Exception as e:
-            print(f"  ⚠️ Quality assessment failed: {e}")
+            if self.logger:
+                self.logger.error(
+                    f"Quality assessment failed: {e}",
+                    extra={"event_type": "knowledge_update"}
+                )
             return 5.0, "Assessment failed due to API error"
 
     def _analyze_selective_insights(self, turn_data: Dict) -> Optional[str]:
@@ -642,7 +708,11 @@ Focus on actionable insights that help the agent become better at recognizing op
             return response.content.strip()
 
         except Exception as e:
-            print(f"  ⚠️ Selective analysis failed: {e}")
+            if self.logger:
+                self.logger.error(
+                    f"Selective analysis failed: {e}",
+                    extra={"event_type": "knowledge_update"}
+                )
             return None
 
     def _analyze_escape_strategies(self, turn_data: Dict) -> Optional[str]:
@@ -711,7 +781,11 @@ Focus on CONCRETE DISCOVERIES from this specific gameplay session rather than ge
             return response.content.strip()
 
         except Exception as e:
-            print(f"  ⚠️ Escape analysis failed: {e}")
+            if self.logger:
+                self.logger.error(
+                    f"Escape analysis failed: {e}",
+                    extra={"event_type": "knowledge_update"}
+                )
             return None
 
     def _analyze_full_insights(self, turn_data: Dict) -> Optional[str]:
@@ -758,7 +832,11 @@ Focus on CONCRETE DISCOVERIES from this specific gameplay session rather than ge
             # No persistent wisdom file yet - this is fine for early episodes
             persistent_wisdom = ""
         except Exception as e:
-            print(f"  ⚠️ Could not load persistent wisdom for analysis: {e}")
+            if self.logger:
+                self.logger.warning(
+                    f"Could not load persistent wisdom for analysis: {e}",
+                    extra={"event_type": "knowledge_update"}
+                )
             persistent_wisdom = ""
 
         prompt = f"""Analyze this Zork gameplay data and provide comprehensive strategic insights.
@@ -819,7 +897,11 @@ Focus on actionable insights that help the agent become better at recognizing op
             return response.content.strip()
 
         except Exception as e:
-            print(f"  ⚠️ Full analysis failed: {e}")
+            if self.logger:
+                self.logger.error(
+                    f"Full analysis failed: {e}",
+                    extra={"event_type": "knowledge_update"}
+                )
             return None
 
     def _consolidate_existing_knowledge(self) -> Optional[str]:
@@ -854,7 +936,9 @@ Tasks:
 6. **Focus on algorithmic decision patterns** that an LLM can follow
 
 Maintain the same general structure but improve the content quality.
-Do not add new information - only reorganize and clarify existing knowledge for AI consumption."""
+Do not add new information - only reorganize and clarify existing knowledge for AI consumption.
+
+**IMPORTANT**: Do not add any meta-commentary about the knowledge base structure or organization. Do not include sections like "Updated Knowledge Base Structure" or explanations of how the content is organized. Simply provide the improved content directly."""
 
         # Incase using Qwen qwen3-30b-a3b
         prompt = r"\no_think " + prompt
@@ -878,7 +962,11 @@ Do not add new information - only reorganize and clarify existing knowledge for 
             return response.content.strip()
 
         except Exception as e:
-            print(f"  ⚠️ Knowledge consolidation failed: {e}")
+            if self.logger:
+                self.logger.error(
+                    f"Knowledge consolidation failed: {e}",
+                    extra={"event_type": "knowledge_update"}
+                )
             return None
 
     def _intelligent_knowledge_merge(self, new_insights: str, strategy: str) -> bool:
@@ -913,7 +1001,11 @@ Do not add new information - only reorganize and clarify existing knowledge for 
         
         if (self.enable_condensation and 
             len(knowledge_without_map) > self.condensation_threshold):
-            print(f"  📏 Knowledge base size ({len(knowledge_without_map)} chars) exceeds threshold ({self.condensation_threshold}), triggering condensation...")
+            if self.logger:
+                self.logger.info(
+                    f"Knowledge base size ({len(knowledge_without_map)} chars) exceeds threshold ({self.condensation_threshold}), triggering condensation",
+                    extra={"event_type": "knowledge_update"}
+                )
             
             # Apply condensation to the knowledge content (without map)
             condensed_knowledge = self._condense_knowledge_base(knowledge_without_map)
@@ -921,11 +1013,23 @@ Do not add new information - only reorganize and clarify existing knowledge for 
             if condensed_knowledge and condensed_knowledge != knowledge_without_map:
                 # Condensation was successful, restore map section
                 merged_knowledge = self._preserve_map_section(existing_knowledge, condensed_knowledge)
-                print(f"  ✨ Condensation complete: {len(knowledge_without_map)} -> {len(condensed_knowledge)} chars")
+                if self.logger:
+                    self.logger.info(
+                        f"Condensation complete: {len(knowledge_without_map)} -> {len(condensed_knowledge)} chars",
+                        extra={"event_type": "knowledge_update"}
+                    )
             else:
-                print(f"  ⚠️ Condensation failed or unnecessary, keeping original content")
+                if self.logger:
+                    self.logger.warning(
+                        "Condensation failed or unnecessary, keeping original content",
+                        extra={"event_type": "knowledge_update"}
+                    )
         elif not self.enable_condensation and len(knowledge_without_map) > self.condensation_threshold:
-            print(f"  ℹ️ Knowledge base size ({len(knowledge_without_map)} chars) exceeds threshold but condensation is disabled")
+            if self.logger:
+                self.logger.info(
+                    f"Knowledge base size ({len(knowledge_without_map)} chars) exceeds threshold but condensation is disabled",
+                    extra={"event_type": "knowledge_update"}
+                )
 
         # Save merged knowledge
         try:
@@ -933,7 +1037,11 @@ Do not add new information - only reorganize and clarify existing knowledge for 
                 f.write(merged_knowledge)
             return True
         except Exception as e:
-            print(f"  ⚠️ Failed to save knowledge: {e}")
+            if self.logger:
+                self.logger.error(
+                    f"Failed to save knowledge: {e}",
+                    extra={"event_type": "knowledge_update"}
+                )
             return False
 
     def _merge_insights_with_existing(
@@ -972,7 +1080,9 @@ Merge guidelines:
 7. **Focus on algorithmic decision patterns** that an LLM can follow
 
 The merged guide should be more comprehensive and accurate than either individual source.
-Maintain the existing structure but enhance it with the new insights."""
+Maintain the existing structure but enhance it with the new insights.
+
+**IMPORTANT**: Do not add any meta-commentary about the knowledge base structure or organization. Do not include sections like "Updated Knowledge Base Structure" or explanations of how the content is organized. Simply provide the merged content directly."""
         # Incase using Qwen qwen3-30b-a3b
         prompt = r"\no_think " + prompt
         try:
@@ -995,7 +1105,11 @@ Maintain the existing structure but enhance it with the new insights."""
             return response.content.strip()
 
         except Exception as e:
-            print(f"  ⚠️ Knowledge merging failed: {e}")
+            if self.logger:
+                self.logger.error(
+                    f"Knowledge merging failed: {e}",
+                    extra={"event_type": "knowledge_update"}
+                )
             return None
 
     def _create_new_knowledge_base(self, insights: str) -> str:
@@ -1055,7 +1169,11 @@ Create a strategy guide that prioritizes strategic discovery frameworks, objecti
             return response.content.strip()
 
         except Exception as e:
-            print(f"  ⚠️ New knowledge base creation failed: {e}")
+            if self.logger:
+                self.logger.error(
+                    f"New knowledge base creation failed: {e}",
+                    extra={"event_type": "knowledge_update"}
+                )
             return f"# Zork Strategy Guide\n\n{insights}"
 
     def _trim_map_section(self, knowledge_content: str) -> str:
@@ -1132,7 +1250,9 @@ Create a strategy guide that prioritizes strategic discovery frameworks, objecti
 
 **OUTPUT FORMAT**: Provide a condensed version that is 50-70% of the original length while maintaining 100% of the strategic value.
 
-Focus on creating a guide that is information-dense but highly readable for an AI agent during gameplay."""
+Focus on creating a guide that is information-dense but highly readable for an AI agent during gameplay.
+
+**IMPORTANT**: Do not add any meta-commentary about the knowledge base structure or organization. Do not include sections like "Updated Knowledge Base Structure" or explanations of how the content is organized. Simply provide the condensed content directly."""
 
         try:
             messages = [
@@ -1164,15 +1284,29 @@ Focus on creating a guide that is information-dense but highly readable for an A
                 original_tokens = estimate_tokens(verbose_knowledge)
                 condensed_tokens = estimate_tokens(condensed_content)
                 
-                print(f"  📝 Knowledge condensed: {len(verbose_knowledge)} -> {len(condensed_content)} characters ({len(condensed_content)/len(verbose_knowledge)*100:.1f}%)")
-                print(f"      Token estimate: {original_tokens} -> {condensed_tokens} tokens ({condensed_tokens/original_tokens*100:.1f}%)")
+                if self.logger:
+                    self.logger.info(
+                        f"Knowledge condensed: {len(verbose_knowledge)} -> {len(condensed_content)} characters ({len(condensed_content)/len(verbose_knowledge)*100:.1f}%)",
+                        extra={
+                            "event_type": "knowledge_update",
+                            "details": f"Token estimate: {original_tokens} -> {condensed_tokens} tokens ({condensed_tokens/original_tokens*100:.1f}%)"
+                        }
+                    )
                 return condensed_content
             else:
-                print(f"  ⚠️ Condensation failed or didn't reduce size - keeping original")
+                if self.logger:
+                    self.logger.warning(
+                        "Condensation failed or didn't reduce size - keeping original",
+                        extra={"event_type": "knowledge_update"}
+                    )
                 return verbose_knowledge
                 
         except Exception as e:
-            print(f"  ⚠️ Knowledge condensation failed: {e}")
+            if self.logger:
+                self.logger.error(
+                    f"Knowledge condensation failed: {e}",
+                    extra={"event_type": "knowledge_update"}
+                )
             return verbose_knowledge  # Return original on failure
 
     def update_knowledge_with_map(self, episode_id: str, game_map: MapGraph) -> bool:
@@ -1186,12 +1320,20 @@ Focus on creating a guide that is information-dense but highly readable for an A
         Returns:
             True if map was updated, False if skipped
         """
-        print("🗺️ Updating knowledge base with current map...")
+        if self.logger:
+            self.logger.info(
+                "Updating knowledge base with current map",
+                extra={"event_type": "knowledge_update"}
+            )
         
         # Generate mermaid diagram from current map
         mermaid_map = game_map.render_mermaid()
         if not mermaid_map or not mermaid_map.strip():
-            print("  ⚠️ No map data available to update")
+            if self.logger:
+                self.logger.warning(
+                    "No map data available to update",
+                    extra={"event_type": "knowledge_update"}
+                )
             return False
             
         # Load existing knowledge
@@ -1206,17 +1348,29 @@ Focus on creating a guide that is information-dense but highly readable for an A
         updated_knowledge = self._update_map_section(existing_knowledge, mermaid_map)
         
         if not updated_knowledge:
-            print("  ⚠️ Failed to update map section")
+            if self.logger:
+                self.logger.error(
+                    "Failed to update map section",
+                    extra={"event_type": "knowledge_update"}
+                )
             return False
             
         # Save updated knowledge
         try:
             with open(self.output_file, "w", encoding="utf-8") as f:
                 f.write(updated_knowledge)
-            print("  ✅ Map section updated in knowledge base")
+            if self.logger:
+                self.logger.info(
+                    "Map section updated in knowledge base",
+                    extra={"event_type": "knowledge_update"}
+                )
             return True
         except Exception as e:
-            print(f"  ⚠️ Failed to save updated knowledge: {e}")
+            if self.logger:
+                self.logger.error(
+                    f"Failed to save updated knowledge: {e}",
+                    extra={"event_type": "knowledge_update"}
+                )
             return False
 
     def _update_map_section(self, existing_knowledge: str, mermaid_map: str) -> Optional[str]:
@@ -1335,7 +1489,11 @@ This knowledge base contains discovered information about the Zork game world, i
             return mermaid_map if mermaid_map and mermaid_map.strip() else None
             
         except Exception as e:
-            print(f"  ⚠️ Failed to build map from logs: {e}")
+            if self.logger:
+                self.logger.error(
+                    f"Failed to build map from logs: {e}",
+                    extra={"event_type": "knowledge_update"}
+                )
             return None
 
     def update_knowledge_section(self, section_id: str, content: str, quality_score: float = None) -> bool:
@@ -1379,11 +1537,19 @@ This knowledge base contains discovered information about the Zork game world, i
             with open(self.output_file, "w", encoding="utf-8") as f:
                 f.write(updated_knowledge)
                 
-            print(f"  ✅ Updated knowledge section: {section_id}")
+            if self.logger:
+                self.logger.info(
+                    f"Updated knowledge section: {section_id}",
+                    extra={"event_type": "knowledge_update"}
+                )
             return True
             
         except Exception as e:
-            print(f"  ⚠️ Failed to update knowledge section {section_id}: {e}")
+            if self.logger:
+                self.logger.error(
+                    f"Failed to update knowledge section {section_id}: {e}",
+                    extra={"event_type": "knowledge_update"}
+                )
             return False
 
     def _parse_knowledge_sections(self, content: str) -> Dict[str, str]:
@@ -1412,7 +1578,7 @@ This knowledge base contains discovered information about the Zork game world, i
         """Reassemble sections into a complete knowledge base."""
         header = """# **Zork Game World Knowledge Base (Merged and Enhanced)**
 
-This knowledge base contains discovered information about the Zork game world, including specific items, puzzles, dangers, and strategic insights learned through gameplay. The guide is structured to reflect algorithmic decision-making patterns, precise command syntax, and computational approaches for optimal performance.
+This knowledge base contains discovered information about the Zork game world, including specific items, puzzles, dangers, and strategic insights learned through gameplay. All advice uses algorithmic decision-making patterns, precise command syntax, and computational approaches for optimal performance.
 
 ---
 
@@ -1456,7 +1622,11 @@ This knowledge base contains discovered information about the Zork game world, i
         
         persistent_wisdom_file = config.orchestrator.persistent_wisdom_file
         
-        print(f"🔄 Synthesizing inter-episode wisdom from episode {episode_data['episode_id']}...")
+        if self.logger:
+            self.logger.info(
+                f"Synthesizing inter-episode wisdom from episode {episode_data['episode_id']}",
+                extra={"event_type": "knowledge_update"}
+            )
         
         # Extract key episode data for synthesis
         episode_id = episode_data['episode_id']
@@ -1476,14 +1646,24 @@ This knowledge base contains discovered information about the Zork game world, i
         )
         
         if not should_synthesize:
-            print(f"  ⚠️ Episode not significant enough for wisdom synthesis")
-            print(f"     - Death: {episode_ended_in_death}, Score: {final_score}, Turns: {turn_count}, Avg Critic: {avg_critic_score:.2f}")
+            if self.logger:
+                self.logger.info(
+                    "Episode not significant enough for wisdom synthesis",
+                    extra={
+                        "event_type": "knowledge_update",
+                        "details": f"Death: {episode_ended_in_death}, Score: {final_score}, Turns: {turn_count}, Avg Critic: {avg_critic_score:.2f}"
+                    }
+                )
             return False
         
         # Extract turn-by-turn data for death analysis and major discoveries
         turn_data = self._extract_turn_window_data(episode_id, 1, turn_count)
         if not turn_data:
-            print(f"  ⚠️ Could not extract turn data for wisdom synthesis")
+            if self.logger:
+                self.logger.warning(
+                    "Could not extract turn data for wisdom synthesis",
+                    extra={"event_type": "knowledge_update"}
+                )
             return False
         
         # Load existing persistent wisdom
@@ -1495,7 +1675,11 @@ This knowledge base contains discovered information about the Zork game world, i
             # No existing wisdom file - this is fine for first episode
             existing_wisdom = ""
         except Exception as e:
-            print(f"  ⚠️ Could not load existing wisdom: {e}")
+            if self.logger:
+                self.logger.warning(
+                    f"Could not load existing wisdom: {e}",
+                    extra={"event_type": "knowledge_update"}
+                )
         
         # Prepare death event analysis if applicable
         death_analysis = ""
@@ -1576,7 +1760,11 @@ Provide the updated persistent wisdom as a well-organized markdown document. If 
             wisdom_response = response.content.strip()
             
             if wisdom_response == "NO_SIGNIFICANT_WISDOM":
-                print(f"  ⚠️ No significant wisdom to synthesize from this episode")
+                if self.logger:
+                    self.logger.info(
+                        "No significant wisdom to synthesize from this episode",
+                        extra={"event_type": "knowledge_update"}
+                    )
                 return False
             
             # Save the updated persistent wisdom
@@ -1584,15 +1772,29 @@ Provide the updated persistent wisdom as a well-organized markdown document. If 
                 with open(persistent_wisdom_file, "w", encoding="utf-8") as f:
                     f.write(wisdom_response)
                 
-                print(f"  ✅ Persistent wisdom updated and saved to {persistent_wisdom_file}")
-                print(f"     - Synthesized from episode with {turn_count} turns, score {final_score}")
+                if self.logger:
+                    self.logger.info(
+                        f"Persistent wisdom updated and saved to {persistent_wisdom_file}",
+                        extra={
+                            "event_type": "knowledge_update",
+                            "details": f"Synthesized from episode with {turn_count} turns, score {final_score}"
+                        }
+                    )
                 
                 return True
                 
             except Exception as e:
-                print(f"  ⚠️ Failed to save persistent wisdom: {e}")
+                if self.logger:
+                    self.logger.error(
+                        f"Failed to save persistent wisdom: {e}",
+                        extra={"event_type": "knowledge_update"}
+                    )
                 return False
             
         except Exception as e:
-            print(f"  ⚠️ Inter-episode wisdom synthesis failed: {e}")
+            if self.logger:
+                self.logger.error(
+                    f"Inter-episode wisdom synthesis failed: {e}",
+                    extra={"event_type": "knowledge_update"}
+                )
             return False

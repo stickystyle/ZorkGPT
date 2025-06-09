@@ -14,7 +14,7 @@ import os
 import sys
 
 
-def start_server(port=8000):
+def start_server(port=8001):
     """Start HTTP server in a separate thread."""
     handler = http.server.SimpleHTTPRequestHandler
 
@@ -30,7 +30,7 @@ def start_server(port=8000):
 
 
 def main():
-    port = 8000
+    port = 8001
 
     print("🎮 ZorkGPT Live Viewer Launcher")
     print("=" * 40)

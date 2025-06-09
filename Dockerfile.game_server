@@ -1,0 +1,34 @@
+# Dockerfile for ZorkGPT Game Server
+FROM python:3.11-slim
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    frotz \
+    && rm -rf /var/lib/apt/lists/*
+
+# Add /usr/games to PATH (where frotz installs its binaries)
+ENV PATH="/usr/games:${PATH}"
+
+# Set working directory
+WORKDIR /app
+
+# Copy required files
+COPY game_server.py .
+COPY zork_api.py .
+COPY structured_zork_parser.py .
+COPY infrastructure/zork.z5 ./infrastructure/
+
+# Install Python dependencies
+RUN pip install --no-cache-dir \
+    fastapi \
+    uvicorn \
+    pydantic
+
+# Create directory for game saves
+RUN mkdir -p /app/game_files
+
+# Expose port
+EXPOSE 8000
+
+# Run the server
+CMD ["python", "-u", "game_server.py"]
