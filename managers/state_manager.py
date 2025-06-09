@@ -80,6 +80,10 @@ class StateManager(BaseManager):
         """Process state management for the current turn."""
         # Check for context overflow
         self.check_context_overflow()
+        
+        # Export state after each turn if enabled
+        if self.config.enable_state_export:
+            self.export_current_state()
     
     def should_process_turn(self) -> bool:
         """Check if state needs processing this turn."""
@@ -391,24 +395,58 @@ Keep the summary under 500 words and focus on actionable information for continu
             return False
     
     def upload_state_to_s3(self, state_data: Dict[str, Any]) -> bool:
-        """Upload current state to S3."""
+        """
+        Upload current state to S3 using dual strategy for web viewer compatibility.
+        
+        This method uploads the state data to two S3 locations:
+        1. current_state.json - Always overwritten, used for live monitoring by zork_viewer.html
+        2. snapshots/{episode_id}/turn_{turn}.json - Historical preservation organized by episode
+        
+        This structure matches what the web viewer expects for both live monitoring
+        and historical episode browsing functionality.
+        
+        Returns:
+            bool: True if at least one upload succeeded, False if both failed or S3 not configured
+        """
         try:
             if not self.s3_client or not self.config.s3_bucket:
                 return False
             
-            # Create S3 key
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            s3_key = f"{self.config.s3_key_prefix}states/{self.game_state.episode_id}_{timestamp}.json"
+            json_content = json.dumps(state_data, indent=2)
+            upload_success_count = 0
             
-            # Upload to S3
-            self.s3_client.put_object(
-                Bucket=self.config.s3_bucket,
-                Key=s3_key,
-                Body=json.dumps(state_data, indent=2),
-                ContentType='application/json'
-            )
+            # 1. Upload current state (always overwritten for live monitoring)
+            current_state_key = f"{self.config.s3_key_prefix}current_state.json"
+            try:
+                self.s3_client.put_object(
+                    Bucket=self.config.s3_bucket,
+                    Key=current_state_key,
+                    Body=json_content,
+                    ContentType='application/json',
+                    CacheControl='no-cache, must-revalidate'  # Force fresh data for live monitoring
+                )
+                self.log_debug(f"Uploaded current state to S3: {current_state_key}")
+                upload_success_count += 1
+            except Exception as e:
+                self.log_warning(f"Failed to upload current state to S3: {e}")
             
-            return True
+            # 2. Upload historical snapshot (organized by episode and turn)
+            turn_count = self.game_state.turn_count
+            snapshot_key = f"{self.config.s3_key_prefix}snapshots/{self.game_state.episode_id}/turn_{turn_count}.json"
+            try:
+                self.s3_client.put_object(
+                    Bucket=self.config.s3_bucket,
+                    Key=snapshot_key,
+                    Body=json_content,
+                    ContentType='application/json'
+                )
+                self.log_debug(f"Uploaded snapshot to S3: {snapshot_key}")
+                upload_success_count += 1
+            except Exception as e:
+                self.log_warning(f"Failed to upload snapshot to S3: {e}")
+            
+            # Return True if at least one upload succeeded
+            return upload_success_count > 0
             
         except Exception as e:
             self.log_error(f"Failed to upload state to S3: {e}")
