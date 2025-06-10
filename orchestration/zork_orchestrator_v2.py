@@ -303,9 +303,8 @@ class ZorkOrchestratorV2:
             # Check periodic updates for managers
             self._check_periodic_updates()
             
-            # Export state periodically for live monitoring
-            if self.game_state.turn_count % 5 == 0:
-                self._export_coordinated_state()
+            # Export state after every turn for live monitoring
+            self._export_coordinated_state()
         
         # Log episode completion
         self.logger.info(
