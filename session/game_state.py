@@ -40,6 +40,10 @@ class GameState:
     memory_log_history: List[Dict[str, Any]] = field(default_factory=list)
     failed_actions_by_location: Dict[str, List[str]] = field(default_factory=dict)
     
+    # Critic evaluation tracking (for viewer compatibility)
+    critic_evaluation_history: List[Dict[str, Any]] = field(default_factory=list)
+    extracted_info_history: List[Dict[str, Any]] = field(default_factory=list)
+    
     # Objective management state
     discovered_objectives: List[str] = field(default_factory=list)
     completed_objectives: List[Dict[str, Any]] = field(default_factory=list)
@@ -88,6 +92,8 @@ class GameState:
         self.action_reasoning_history.clear()
         self.memory_log_history.clear()
         self.failed_actions_by_location.clear()
+        self.critic_evaluation_history.clear()
+        self.extracted_info_history.clear()
         
         # Objective management state
         self.discovered_objectives.clear()
