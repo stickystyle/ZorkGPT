@@ -131,9 +131,8 @@ class EpisodeSynthesizer(BaseManager):
             
             self.perform_inter_episode_synthesis(final_score, critic_confidence_history)
             
-            # Export final state if state manager available
-            if self.state_manager:
-                self.state_manager.export_current_state()
+            # Note: State export is handled by orchestrator coordination
+            # (orchestrator calls _export_coordinated_state after episode finalization)
             
             # Generate episode summary
             summary = self.generate_episode_summary(final_score, is_death)

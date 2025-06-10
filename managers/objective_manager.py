@@ -350,23 +350,6 @@ Focus on objectives the agent has actually discovered through gameplay patterns 
                         "model": model_to_use,
                     }
                 )
-            else:
-                self.log_warning(
-                    "No LLM client available for objective analysis",
-                    details="Adaptive knowledge manager LLM client not available"
-                )
-                
-                self.logger.error(
-                    "No LLM client available for objective analysis",
-                    extra={
-                        "event_type": "objective_no_client",
-                        "episode_id": self.game_state.episode_id,
-                        "turn": self.game_state.turn_count,
-                        "has_adaptive_manager": self.adaptive_knowledge_manager is not None,
-                        "has_client": self.adaptive_knowledge_manager.client is not None if self.adaptive_knowledge_manager else False,
-                        "client_value": str(self.adaptive_knowledge_manager.client) if self.adaptive_knowledge_manager and self.adaptive_knowledge_manager.client else "N/A",
-                    }
-                )
                 
         except Exception as e:
             self.log_error(

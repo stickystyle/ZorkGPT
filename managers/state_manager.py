@@ -81,9 +81,8 @@ class StateManager(BaseManager):
         # Check for context overflow
         self.check_context_overflow()
         
-        # Export state after each turn if enabled
-        if self.config.enable_state_export:
-            self.export_current_state()
+        # Note: State export is handled by orchestrator coordination
+        # via _export_coordinated_state() which gathers data from all managers
     
     def should_process_turn(self) -> bool:
         """Check if state needs processing this turn."""
@@ -324,34 +323,49 @@ Keep the summary under 500 words and focus on actionable information for continu
         except Exception as e:
             return False
     
-    def get_current_state(self) -> Dict[str, Any]:
+    def get_current_state(self, map_data: Dict[str, Any] = None, knowledge_data: Dict[str, Any] = None) -> Dict[str, Any]:
         """Get comprehensive current state for export."""
         try:
-            return {
+            # Build models structure (matching old orchestrator format)
+            models_data = {
+                "agent": self.config.agent_model,
+                "critic": self.config.critic_model,
+                "extractor": self.config.info_ext_model,
+                "knowledge_base": "Not available"  # Default fallback
+            }
+            
+            # Try to get knowledge_base model from adaptive knowledge manager
+            if knowledge_data and hasattr(self, 'knowledge_manager_ref'):
+                try:
+                    akm = getattr(self.knowledge_manager_ref, 'adaptive_knowledge_manager', None)
+                    if akm and hasattr(akm, 'analysis_model'):
+                        models_data["knowledge_base"] = akm.analysis_model
+                except:
+                    pass  # Keep default fallback
+            
+            state_data = {
                 "metadata": {
                     "episode_id": self.game_state.episode_id,
                     "timestamp": datetime.now().isoformat(),
                     "turn_count": self.game_state.turn_count,
                     "game_over": self.game_state.game_over_flag,
-                    "previous_score": self.game_state.previous_zork_score,
-                    "max_turns_per_episode": self.config.max_turns_per_episode,
-                    "agent_model": self.config.agent_model,
-                    "critic_model": self.config.critic_model,
-                    "info_ext_model": self.config.info_ext_model,
+                    "score": self.game_state.previous_zork_score,  # Viewer expects 'score'
+                    "max_turns": self.config.max_turns_per_episode,  # Viewer expects 'max_turns'
+                    "models": models_data,  # Structured models object
                 },
                 "current_state": {
-                    "current_location": self.game_state.current_room_name_for_map,
+                    "location": self.game_state.current_room_name_for_map,  # Viewer expects 'location'
                     "inventory": self.game_state.current_inventory,
                     "in_combat": self.get_combat_status(),
                     "death_count": self.game_state.death_count,
                     "discovered_objectives": self.game_state.discovered_objectives,
-                    "completed_objectives": len(self.game_state.completed_objectives),
+                    "completed_objectives": self.game_state.completed_objectives,  # Full objects, not count
+                    "objective_update_turn": self.game_state.objective_update_turn,
                 },
                 "recent_log": self.get_recent_log(),
                 "performance": {
                     "avg_critic_score": self.get_avg_critic_score(),
                     "recent_actions": self.get_recent_action_summary(),
-                    "total_actions": len(self.game_state.action_history),
                 },
                 "context_management": {
                     "memory_entries": len(self.game_state.memory_log_history),
@@ -360,17 +374,27 @@ Keep the summary under 500 words and focus on actionable information for continu
                 }
             }
             
+            # Add map data if provided
+            if map_data:
+                state_data["map"] = map_data
+            
+            # Add knowledge base data if provided  
+            if knowledge_data:
+                state_data["knowledge_base"] = knowledge_data
+                
+            return state_data
+            
         except Exception as e:
             self.log_error(f"Failed to get current state: {e}")
             return {}
     
-    def export_current_state(self) -> bool:
+    def export_current_state(self, map_data: Dict[str, Any] = None, knowledge_data: Dict[str, Any] = None) -> bool:
         """Export current state to file and optionally to S3."""
         try:
             if not self.config.enable_state_export:
                 return True
             
-            state_data = self.get_current_state()
+            state_data = self.get_current_state(map_data=map_data, knowledge_data=knowledge_data)
             if not state_data:
                 return False
             
@@ -491,6 +515,8 @@ Keep the summary under 500 words and focus on actionable information for continu
             # Get recent action history with reasoning
             recent_actions = self.game_state.action_history[-num_entries:]
             recent_reasoning = self.game_state.action_reasoning_history[-num_entries:]
+            recent_critic_evals = self.game_state.critic_evaluation_history[-num_entries:]
+            recent_extracted_info = self.game_state.extracted_info_history[-num_entries:]
             
             for i, (action, response) in enumerate(recent_actions):
                 reasoning_data = recent_reasoning[i] if i < len(recent_reasoning) else {}
@@ -499,9 +525,22 @@ Keep the summary under 500 words and focus on actionable information for continu
                 log_entry = {
                     "turn": self.game_state.turn_count - len(recent_actions) + i + 1,
                     "action": action,
-                    "response": response[:200],  # Truncate long responses
-                    "reasoning": reasoning_text[:100] if reasoning_text else ""  # Truncate reasoning
+                    "zork_response": response,  # Viewer expects 'zork_response'
+                    "reasoning": reasoning_text
                 }
+                
+                # Add critic data if available
+                if i < len(recent_critic_evals):
+                    critic_data = recent_critic_evals[i]
+                    log_entry["critic_score"] = critic_data.get("critic_score", 0.0)
+                    log_entry["critic_justification"] = critic_data.get("critic_justification", "")
+                    log_entry["was_overridden"] = critic_data.get("was_overridden", False)
+                    log_entry["rejected_actions"] = critic_data.get("rejected_actions", [])
+                
+                # Add extracted info if available
+                if i < len(recent_extracted_info):
+                    log_entry["extracted_info"] = recent_extracted_info[i]
+                
                 recent_log.append(log_entry)
             
             return recent_log

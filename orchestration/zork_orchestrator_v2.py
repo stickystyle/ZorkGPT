@@ -263,6 +263,9 @@ class ZorkOrchestratorV2:
                 critic_confidence_history=self.critic_confidence_history
             )
             
+            # Export final coordinated state (including map data)
+            self._export_coordinated_state()
+            
             # Stop game session
             game_interface.stop_session()
             
@@ -300,9 +303,9 @@ class ZorkOrchestratorV2:
             # Check periodic updates for managers
             self._check_periodic_updates()
             
-            # Export state periodically
-            if self.game_state.turn_count % 10 == 0:
-                self.state_manager.export_current_state()
+            # Export state periodically for live monitoring
+            if self.game_state.turn_count % 5 == 0:
+                self._export_coordinated_state()
         
         # Log episode completion
         self.logger.info(
@@ -378,6 +381,15 @@ class ZorkOrchestratorV2:
             confidence = critic_result.confidence
             self.critic_confidence_history.append(confidence)
             
+            # Store critic evaluation for viewer (state export)
+            critic_eval_data = {
+                "critic_score": confidence,
+                "critic_justification": getattr(critic_result, 'justification', ''),
+                "was_overridden": False,  # Since we're not overriding yet
+                "rejected_actions": []  # No rejection logic implemented yet
+            }
+            self.game_state.critic_evaluation_history.append(critic_eval_data)
+            
             # Update action counts
             self.game_state.action_counts[action_to_take] += 1
             
@@ -389,12 +401,25 @@ class ZorkOrchestratorV2:
             
             next_game_state = response["response"]
             
+            # Clean the game response before storing in history
+            clean_response = self.extractor.get_clean_game_text(next_game_state)
+            
             # Add action to history
-            self.context_manager.add_action(action_to_take, next_game_state)
+            self.context_manager.add_action(action_to_take, clean_response)
             
             # Extract information from response
             extracted_info = self.extractor.extract_info(next_game_state)
             self._process_extraction(extracted_info, action_to_take, next_game_state)
+            
+            # Store extracted info for viewer (state export)
+            # Convert to dict if it's a structured object
+            extracted_dict = {}
+            if hasattr(extracted_info, '__dict__'):
+                extracted_dict = {k: v for k, v in extracted_info.__dict__.items() 
+                                if not k.startswith('_')}
+            elif isinstance(extracted_info, dict):
+                extracted_dict = extracted_info
+            self.game_state.extracted_info_history.append(extracted_dict)
             
             # Check for objective completion
             self.objective_manager.check_objective_completion(
@@ -493,6 +518,30 @@ class ZorkOrchestratorV2:
         
         # State management (context overflow)
         self.state_manager.process_turn()
+    
+    def _export_coordinated_state(self) -> None:
+        """Coordinate data gathering from managers and export complete state."""
+        try:
+            # Gather data from specialized managers (orchestrator coordination)
+            map_data = self.map_manager.get_export_data()
+            knowledge_data = self.knowledge_manager.get_export_data()
+            
+            # Pass to StateManager for assembly and export (delegation)
+            self.state_manager.export_current_state(
+                map_data=map_data,
+                knowledge_data=knowledge_data
+            )
+            
+        except Exception as e:
+            self.logger.error(
+                f"Failed to export coordinated state: {e}",
+                extra={
+                    "event_type": "state_export_error",
+                    "episode_id": self.game_state.episode_id,
+                    "turn": self.game_state.turn_count,
+                    "error": str(e)
+                }
+            )
     
     def run_multiple_episodes(self, num_episodes: int = 1) -> List[int]:
         """

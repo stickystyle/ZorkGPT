@@ -465,6 +465,41 @@ class KnowledgeManager(BaseManager):
             return self.adaptive_knowledge_manager.client
         return None
     
+    def get_export_data(self) -> Dict[str, Any]:
+        """Get knowledge base data for state export (matching old orchestrator format)."""
+        try:
+            # Read knowledge base file (like old orchestrator did)
+            import os
+            with open("knowledgebase.md", "r") as f:
+                content = f.read()
+
+            # Remove the mermaid diagram section more precisely 
+            # (matching old orchestrator logic)
+            pattern = r'## CURRENT WORLD MAP\s*\n\s*```mermaid\s*\n.*?\n```'
+            knowledge_only = re.sub(pattern, '', content, flags=re.DOTALL)
+            
+            # Clean up any extra whitespace that might be left
+            knowledge_only = re.sub(r'\n\s*\n\s*\n', '\n\n', knowledge_only)
+
+            return {
+                "content": knowledge_only.strip(),
+                "last_updated": os.path.getmtime("knowledgebase.md")
+                if os.path.exists("knowledgebase.md")
+                else None,
+            }
+        except FileNotFoundError:
+            self.log_debug("Knowledge base file not found, returning empty content")
+            return {
+                "content": "# Zork Game World Knowledge Base\n\nNo knowledge base content available yet.",
+                "last_updated": None
+            }
+        except Exception as e:
+            self.log_error(f"Failed to get knowledge export data: {e}")
+            return {
+                "content": "# Zork Game World Knowledge Base\n\nError loading knowledge base content.",
+                "last_updated": None
+            }
+    
     def get_status(self) -> Dict[str, Any]:
         """Get current knowledge manager status."""
         status = super().get_status()

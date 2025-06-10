@@ -393,6 +393,42 @@ class MapManager(BaseManager):
             self.log_error(f"Failed to get navigation suggestions: {e}")
             return []
     
+    def get_export_data(self) -> Dict[str, Any]:
+        """Get map data for state export (matching old orchestrator format)."""
+        try:
+            return {
+                "mermaid_diagram": self.game_map.render_mermaid(),
+                "current_room": self.game_state.current_room_name_for_map,
+                "total_rooms": len(self.game_map.rooms),
+                "total_connections": sum(
+                    len(connections)
+                    for connections in self.game_map.connections.values()
+                ),
+                # Enhanced map metrics (like old orchestrator)
+                "quality_metrics": self.game_map.get_map_quality_metrics(),
+                "confidence_report": self.game_map.render_confidence_report(),
+                "fragmentation_report": self.game_map.get_fragmentation_report(),
+                # Exit failure tracking
+                "exit_failure_stats": self.game_map.get_exit_failure_stats(),
+                "exit_failure_report": self.game_map.render_exit_failure_report(),
+                # Optional: Include raw data for advanced frontends
+                "raw_data": {
+                    "rooms": {
+                        name: {"exits": list(room.exits)}
+                        for name, room in self.game_map.rooms.items()
+                    },
+                    "connections": self.game_map.connections,
+                }
+            }
+        except Exception as e:
+            self.log_error(f"Failed to get map export data: {e}")
+            return {
+                "mermaid_diagram": "graph LR\n    A[Error: Map unavailable]",
+                "current_room": self.game_state.current_room_name_for_map,
+                "total_rooms": 0,
+                "total_connections": 0
+            }
+    
     def get_status(self) -> Dict[str, Any]:
         """Get current map manager status."""
         status = super().get_status()

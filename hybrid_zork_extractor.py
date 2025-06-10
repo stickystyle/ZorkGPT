@@ -706,10 +706,7 @@ Respond only with the JSON, no other text."""
             game_text_from_zork: The raw text output from the Zork game.
 
         Returns:
-            Clean game text without structured header, or original text if no header found.
+            Clean game text without structured header or > prefix.
         """
         structured_result = self.structured_parser.parse_response(game_text_from_zork)
-        if structured_result.has_structured_header:
-            return structured_result.game_text
-
-        return game_text_from_zork
+        return structured_result.game_text

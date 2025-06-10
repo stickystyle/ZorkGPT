@@ -39,6 +39,13 @@ class StructuredZorkParser:
         self.header_pattern = re.compile(
             r"^>\s*(.+?)\s+Score:\s*(\d+)\s+Moves:\s*(\d+)\s*$", re.MULTILINE
         )
+        
+        # Pattern for location descriptions without score/moves
+        # Format: Location Name on its own line (not starting with >)
+        self.location_only_pattern = re.compile(r"^([A-Z][A-Za-z\s]+[A-Za-z])\s*$", re.MULTILINE)
+        
+        # Pattern for location descriptions that start with >
+        self.location_pattern = re.compile(r"^>\s*([A-Z][A-Za-z\s]+[A-Za-z])\s*$", re.MULTILINE)
 
         # Alternative pattern for responses without room names (like error messages)
         self.simple_pattern = re.compile(r"^>(.+)$", re.MULTILINE)
@@ -85,17 +92,81 @@ class StructuredZorkParser:
                 has_structured_header=True,
             )
 
+        # Check for location descriptions without score/moves
+        location_match = self.location_pattern.search(zork_response)
+        if location_match:
+            room_name = location_match.group(1).strip()
+            
+            # Only treat as location if there's additional content after the header
+            lines = zork_response.split("\n")
+            location_line_found = False
+            game_text_lines = []
+
+            for line in lines:
+                if location_line_found:
+                    game_text_lines.append(line)
+                elif self.location_pattern.match(line):
+                    location_line_found = True
+
+            game_text = "\n".join(game_text_lines).strip()
+            
+            # Only return as location if there's actual description text
+            if game_text:
+                return StructuredZorkResponse(
+                    room_name=room_name,
+                    game_text=game_text,
+                    has_structured_header=False,
+                )
+
+        # Check for location names that appear after >\n\n prefix
+        if zork_response.strip().startswith('>'):
+            # Remove the > prefix and check for location pattern
+            clean_response = zork_response.strip()[1:].lstrip('\n ')
+            location_only_match = self.location_only_pattern.search(clean_response)
+            
+            if location_only_match:
+                room_name = location_only_match.group(1).strip()
+                
+                # Extract game text after the location line
+                lines = clean_response.split("\n")
+                location_line_found = False
+                game_text_lines = []
+
+                for line in lines:
+                    if location_line_found:
+                        game_text_lines.append(line)
+                    elif self.location_only_pattern.match(line):
+                        location_line_found = True
+
+                game_text = "\n".join(game_text_lines).strip()
+                
+                # Only return as location if there's actual description text
+                if game_text:
+                    return StructuredZorkResponse(
+                        room_name=room_name,
+                        game_text=game_text,
+                        has_structured_header=False,
+                    )
+
         # If no structured header, check for simple command responses
         simple_match = self.simple_pattern.search(zork_response)
         if simple_match:
-            # This is likely an error message or simple response
+            # Clean up simple responses by removing the > prompt and leading newlines
+            clean_text = zork_response.strip()
+            if clean_text.startswith('>'):
+                clean_text = clean_text[1:].lstrip('\n ')
+            
             return StructuredZorkResponse(
-                game_text=zork_response.strip(), has_structured_header=False
+                game_text=clean_text, has_structured_header=False
             )
 
-        # Fallback: treat entire response as game text
+        # Fallback: treat entire response as game text, cleaning up > prefix
+        clean_text = zork_response.strip()
+        if clean_text.startswith('>'):
+            clean_text = clean_text[1:].lstrip('\n ')
+            
         return StructuredZorkResponse(
-            game_text=zork_response.strip(), has_structured_header=False
+            game_text=clean_text, has_structured_header=False
         )
 
     def extract_room_name(self, zork_response: str) -> Optional[str]:
@@ -186,6 +257,8 @@ def test_parser():
         "",
         # Multi-line game text
         "> Forest Clearing                                  Score: 5        Moves: 15\n\nYou are in a forest clearing.\nThere is a path to the north.\nA small cottage is visible to the east.",
+        # Location description without score/moves (turn 4 case)
+        ">\n\nNorth of House\nYou are facing the north side of a white house. There is no door here, and all\nthe windows are boarded up. To the north a narrow path winds through the trees.",
     ]
 
     for i, test_case in enumerate(test_cases):
