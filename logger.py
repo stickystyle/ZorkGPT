@@ -171,9 +171,53 @@ def setup_logging(
     json_handler = logging.FileHandler(json_log_file, mode="a", encoding="utf-8")
     json_handler.setLevel(log_level)
     json_handler.setFormatter(JSONFormatter())
+    json_handler.is_json_handler = True  # Mark for identification
     logger.addHandler(json_handler)
 
     return logger
+
+
+def setup_episode_logging(episode_id: str, workdir: str = "game_files", log_level: int = logging.INFO):
+    """
+    Setup logging for a specific episode.
+    Creates episode directory and configures JSON handler for episode-specific logging.
+    
+    Args:
+        episode_id: The episode identifier
+        workdir: Working directory for game files
+        log_level: Logging level (default: INFO)
+        
+    Returns:
+        Path to the episode log file
+    """
+    from pathlib import Path
+    
+    # Create episode directory
+    episode_dir = Path(workdir) / "episodes" / episode_id
+    episode_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Episode-specific log file
+    episode_log_file = episode_dir / "episode_log.jsonl"
+    
+    # Get existing logger
+    logger = logging.getLogger("zorkgpt")
+    logger.setLevel(log_level)
+    
+    # Remove existing JSON handler if present
+    for handler in logger.handlers[:]:
+        if isinstance(handler, logging.FileHandler) and hasattr(handler, 'is_json_handler'):
+            logger.removeHandler(handler)
+            handler.close()
+    
+    # Create episode-specific JSON handler
+    json_handler = logging.FileHandler(episode_log_file, mode='a', encoding='utf-8')
+    json_handler.setFormatter(JSONFormatter())
+    json_handler.setLevel(log_level)
+    json_handler.is_json_handler = True  # Mark for identification
+    
+    logger.addHandler(json_handler)
+    
+    return str(episode_log_file)
 
 
 # Create a global instance that can be imported directly
@@ -198,6 +242,66 @@ def parse_json_logs(json_log_file: str) -> List[Dict[str, Any]]:
             except json.JSONDecodeError:
                 continue
     return logs
+
+
+def parse_episode_logs(episode_id: str, workdir: str = "game_files") -> List[Dict[str, Any]]:
+    """
+    Parse logs from a specific episode.
+    
+    Args:
+        episode_id: The episode identifier
+        workdir: Working directory for game files
+        
+    Returns:
+        List of log entries for the episode
+    """
+    from pathlib import Path
+    
+    episode_log_file = Path(workdir) / "episodes" / episode_id / "episode_log.jsonl"
+    
+    if not episode_log_file.exists():
+        return []
+    
+    logs = []
+    try:
+        with open(episode_log_file, "r", encoding="utf-8") as f:
+            for line in f:
+                try:
+                    logs.append(json.loads(line.strip()))
+                except json.JSONDecodeError:
+                    continue
+    except IOError:
+        pass
+    
+    return logs
+
+
+def parse_all_episode_logs(workdir: str = "game_files") -> List[Dict[str, Any]]:
+    """
+    Parse logs from all episodes in chronological order.
+    
+    Args:
+        workdir: Working directory for game files
+        
+    Returns:
+        List of all log entries across all episodes
+    """
+    from pathlib import Path
+    
+    episodes_dir = Path(workdir) / "episodes"
+    if not episodes_dir.exists():
+        return []
+    
+    # Get all episode IDs in chronological order
+    episode_dirs = [d for d in episodes_dir.iterdir() if d.is_dir()]
+    episode_ids = sorted([d.name for d in episode_dirs])
+    
+    all_logs = []
+    for episode_id in episode_ids:
+        episode_logs = parse_episode_logs(episode_id, workdir)
+        all_logs.extend(episode_logs)
+    
+    return all_logs
 
 
 def render_logs_as_text(logs: List[Dict[str, Any]]) -> str:

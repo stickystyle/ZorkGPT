@@ -231,7 +231,7 @@ Extract key information from the game text and return it as JSON with these fiel
                 
                 # Log successful extraction
                 self.logger.info(
-                    f"[{self.episode_id}] Hybrid extraction successful: {parsed_response.current_location_name}",
+                    f"Hybrid extraction successful: {parsed_response.current_location_name}",
                     extra={
                         "event_type": "hybrid_extraction_success",
                         "episode_id": self.episode_id,

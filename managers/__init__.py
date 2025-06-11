@@ -7,6 +7,7 @@ from .map_manager import MapManager
 from .state_manager import StateManager
 from .context_manager import ContextManager
 from .episode_synthesizer import EpisodeSynthesizer
+from .rejection_manager import RejectionManager
 
 __all__ = [
     "BaseManager", 
@@ -16,5 +17,6 @@ __all__ = [
     "MapManager",
     "StateManager",
     "ContextManager",
-    "EpisodeSynthesizer"
+    "EpisodeSynthesizer",
+    "RejectionManager"
 ]

@@ -37,10 +37,12 @@ class AdaptiveKnowledgeManager:
         log_file: str = "zork_episode_log.jsonl",
         output_file: str = "knowledgebase.md",
         logger=None,
+        workdir: str = "game_files",
     ):
         self.log_file = log_file
         self.output_file = output_file
         self.logger = logger
+        self.workdir = workdir
 
         # Initialize LLM client
         config = get_config()
@@ -71,6 +73,58 @@ class AdaptiveKnowledgeManager:
         
         # Load agent instructions to avoid duplication
         self.agent_instructions = self._load_agent_instructions()
+
+    def _get_all_episode_ids(self) -> List[str]:
+        """
+        Scan episodes directory and return all episode IDs in chronological order.
+        """
+        episodes_dir = Path(self.workdir) / "episodes"
+        if not episodes_dir.exists():
+            return []
+        
+        # Get all episode directories
+        episode_dirs = [d for d in episodes_dir.iterdir() if d.is_dir()]
+        
+        # Sort chronologically (episode IDs are ISO8601 timestamps)
+        episode_ids = sorted([d.name for d in episode_dirs])
+        
+        return episode_ids
+
+    def _get_episode_log_file(self, episode_id: str) -> Path:
+        """Get the log file path for a specific episode."""
+        return Path(self.workdir) / "episodes" / episode_id / "episode_log.jsonl"
+
+    def process_all_episodes_chronologically(self) -> List[Dict]:
+        """
+        Process all episodes in chronological order.
+        """
+        all_episode_data = []
+        episode_ids = self._get_all_episode_ids()
+        
+        for episode_id in episode_ids:
+            # Get total turns for this episode
+            episode_log_file = self._get_episode_log_file(episode_id)
+            if not episode_log_file.exists():
+                continue
+                
+            # Extract data for entire episode
+            with open(episode_log_file, "r", encoding="utf-8") as f:
+                max_turn = 0
+                for line in f:
+                    try:
+                        log_entry = json.loads(line.strip())
+                        if log_entry.get("event_type") == "turn_start":
+                            turn = log_entry.get("turn", 0)
+                            max_turn = max(max_turn, turn)
+                    except json.JSONDecodeError:
+                        continue
+            
+            if max_turn > 0:
+                episode_data = self._extract_turn_window_data(episode_id, 1, max_turn)
+                if episode_data:
+                    all_episode_data.append(episode_data)
+        
+        return all_episode_data
 
     def _log_prompt_to_file(self, messages: List[Dict], prefix: str = "knowledge") -> None:
         """Log the full prompt to a temporary file for evaluation."""
@@ -326,8 +380,14 @@ class AdaptiveKnowledgeManager:
             "game_over_events": [],  # Track all game over events
         }
 
+        # Get episode-specific log file
+        episode_log_file = self._get_episode_log_file(episode_id)
+        if not episode_log_file.exists():
+            # Fall back to monolithic file for backward compatibility
+            episode_log_file = self.log_file
+
         try:
-            with open(self.log_file, "r", encoding="utf-8") as f:
+            with open(episode_log_file, "r", encoding="utf-8") as f:
                 current_turn = 0
                 current_score = 0
                 current_location = ""
@@ -340,8 +400,8 @@ class AdaptiveKnowledgeManager:
                     try:
                         log_entry = json.loads(line.strip())
 
-                        # Skip entries not from this episode
-                        if log_entry.get("episode_id") != episode_id:
+                        # Skip entries not from this episode only if reading from monolithic file
+                        if episode_log_file == self.log_file and log_entry.get("episode_id") != episode_id:
                             continue
 
                         event_type = log_entry.get("event_type", "")

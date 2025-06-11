@@ -18,7 +18,8 @@ from managers import (
     MapManager, 
     StateManager, 
     ContextManager, 
-    EpisodeSynthesizer
+    EpisodeSynthesizer,
+    RejectionManager
 )
 from zork_agent import ZorkAgent
 from zork_critic import ZorkCritic
@@ -43,63 +44,33 @@ class ZorkOrchestratorV2:
     
     def __init__(
         self,
-        agent_model: str = None,
-        critic_model: str = None,
-        info_ext_model: str = None,
-        episode_log_file: str = None,
-        json_log_file: str = None,
+        episode_id: str,
         max_turns_per_episode: int = None,
-        client_base_url: str = None,
-        client_api_key: str = None,
-        knowledge_update_interval: int = None,
-        map_update_interval: int = None,
-        objective_update_interval: int = None,
-        enable_state_export: bool = None,
-        state_export_file: str = None,
-        s3_bucket: str = None,
-        s3_key_prefix: str = None,
-        turn_delay_seconds: float = None,
-        game_server_url: str = None,
-        enable_objective_refinement: bool = None,
-        objective_refinement_interval: int = None,
-        max_objectives_before_forced_refinement: int = None,
-        refined_objectives_target_count: int = None,
     ):
-        """Initialize the orchestrator with configuration and dependencies."""
+        """Initialize the orchestrator with configuration loaded from TOML."""
         
-        # Create configuration object with proper precedence
-        self.config = GameConfiguration.create(
-            agent_model=agent_model,
-            critic_model=critic_model,
-            info_ext_model=info_ext_model,
-            episode_log_file=episode_log_file,
-            json_log_file=json_log_file,
-            max_turns_per_episode=max_turns_per_episode,
-            client_base_url=client_base_url,
-            client_api_key=client_api_key,
-            knowledge_update_interval=knowledge_update_interval,
-            map_update_interval=map_update_interval,
-            objective_update_interval=objective_update_interval,
-            enable_state_export=enable_state_export,
-            state_export_file=state_export_file,
-            s3_bucket=s3_bucket,
-            s3_key_prefix=s3_key_prefix,
-            turn_delay_seconds=turn_delay_seconds,
-            game_server_url=game_server_url,
-            enable_objective_refinement=enable_objective_refinement,
-            objective_refinement_interval=objective_refinement_interval,
-            max_objectives_before_forced_refinement=max_objectives_before_forced_refinement,
-            refined_objectives_target_count=refined_objectives_target_count,
-        )
+        # Load configuration from TOML file
+        self.config = GameConfiguration.from_toml()
+        
+        # Override max_turns_per_episode if explicitly provided
+        if max_turns_per_episode is not None:
+            self.config.max_turns_per_episode = max_turns_per_episode
         
         # Initialize logger
         self.logger = setup_logging(
             self.config.episode_log_file,
-            self.config.json_log_file
+            self.config.json_log_file,
+            log_level=logging.DEBUG
         )
         
         # Initialize shared game state
         self.game_state = GameState()
+        self.game_state.episode_id = episode_id
+        
+        # Setup episode-specific logging
+        from logger import setup_episode_logging
+        workdir = self.config.zork_game_workdir
+        self.episode_log_file = setup_episode_logging(episode_id, workdir)
         
         # Initialize core game components
         self._initialize_game_components()
@@ -114,6 +85,8 @@ class ZorkOrchestratorV2:
             "ZorkOrchestrator v2 initialized",
             extra={
                 "event_type": "orchestrator_init",
+                "episode_id": episode_id,
+                "episode_log_file": self.episode_log_file,
                 "agent_model": self.config.agent_model,
                 "critic_model": self.config.critic_model,
                 "info_ext_model": self.config.info_ext_model,
@@ -162,6 +135,13 @@ class ZorkOrchestratorV2:
             game_state=self.game_state
         )
         
+        # Rejection manager (no dependencies)
+        self.rejection_manager = RejectionManager(
+            logger=self.logger,
+            config=self.config,
+            game_state=self.game_state
+        )
+        
         # State manager (needs potential S3 client)
         self.state_manager = StateManager(
             logger=self.logger,
@@ -202,6 +182,7 @@ class ZorkOrchestratorV2:
         self.managers = [
             self.map_manager,
             self.context_manager,
+            self.rejection_manager,
             self.state_manager,
             self.objective_manager,
             self.knowledge_manager,
@@ -225,19 +206,20 @@ class ZorkOrchestratorV2:
             Final score achieved in the episode
         """
         try:
-            # Generate new episode ID (orchestrator owns episode lifecycle)
-            episode_id = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-            
             # Initialize new episode across all managers
             self.episode_synthesizer.initialize_episode(
-                episode_id=episode_id,
+                episode_id=self.game_state.episode_id,
                 agent=self.agent,
                 extractor=self.extractor,
                 critic=self.critic
             )
             
+            # Restore rejection state if available
+            if self.game_state.rejection_state:
+                self.rejection_manager.restore_state(self.game_state.rejection_state)
+            
             # Start new game session
-            session_response = game_interface.start_session(session_id=episode_id)
+            session_response = game_interface.start_session(session_id=self.game_state.episode_id)
             if not session_response["success"]:
                 self.logger.error(f"Failed to start game session: {session_response}")
                 return 0
@@ -374,18 +356,143 @@ class ZorkOrchestratorV2:
                 action_counts=self.game_state.action_counts
             )
             
-            # Critic evaluates the action but doesn't change it
-            # For now, we'll use the proposed action (could add rejection logic later)
+            # Start new turn for rejection tracking
+            self.rejection_manager.start_new_turn()
+            
+            # Implement rejection logic with retry loop
+            max_rejections = 3
+            rejected_actions_this_turn = []
             action_to_take = proposed_action
-            confidence = critic_result.confidence
-            self.critic_confidence_history.append(confidence)
+            final_critic_score = critic_result.score
+            final_critic_justification = critic_result.justification
+            final_critic_confidence = critic_result.confidence
+            was_overridden = False
+            
+            for rejection_attempt in range(max_rejections):
+                rejection_threshold = self.rejection_manager.get_rejection_threshold()
+                
+                if critic_result.score >= rejection_threshold:
+                    break  # Action is acceptable
+                    
+                # Check if we should override the rejection
+                override_context = {
+                    "recent_locations": [
+                        getattr(entry, "current_location_name", "")
+                        for entry in self.game_state.memory_log_history[-10:]
+                        if hasattr(entry, 'current_location_name')
+                    ],
+                    "recent_actions": [
+                        action for action, _ in self.game_state.action_history[-8:]
+                    ],
+                    "previous_actions_and_responses": self.game_state.action_history[-8:],
+                    "turns_since_movement": self.rejection_manager.state.turns_since_movement,
+                    "critic_confidence": critic_result.confidence
+                }
+                
+                should_override, override_reason = self.rejection_manager.should_override_rejection(
+                    action=action_to_take,
+                    current_location=self.game_state.current_room_name_for_map,
+                    failed_actions_by_location=self.game_state.failed_actions_by_location,
+                    context=override_context
+                )
+                
+                if should_override:
+                    was_overridden = True
+                    self.logger.info(
+                        f"Overriding critic rejection: {override_reason}",
+                        extra={
+                            "event_type": "critic_override",
+                            "episode_id": self.game_state.episode_id,
+                            "reason": override_reason,
+                            "turn": self.game_state.turn_count,
+                            "original_action": action_to_take,
+                            "original_score": critic_result.score,
+                            "original_reasoning": critic_result.justification
+                        }
+                    )
+                    break
+                    
+                # Action was rejected and not overridden
+                rejected_actions_this_turn.append({
+                    "action": action_to_take,
+                    "score": critic_result.score,
+                    "justification": critic_result.justification
+                })
+                
+                self.rejection_manager.add_rejected_action(
+                    action_to_take,
+                    critic_result.score,
+                    critic_result.justification
+                )
+                
+                # Log rejection
+                self.logger.info(
+                    f"Critic rejected action: {action_to_take} (score: {critic_result.score:.2f})",
+                    extra={
+                        "event_type": "action_rejected",
+                        "episode_id": self.game_state.episode_id,
+                        "turn": self.game_state.turn_count,
+                        "action": action_to_take,
+                        "score": critic_result.score,
+                        "justification": critic_result.justification,
+                        "rejection_attempt": rejection_attempt + 1
+                    }
+                )
+                
+                # Get new action from agent with rejection context
+                rejected_actions_context = ", ".join(self.rejection_manager.rejected_actions_this_turn)
+                rejection_feedback = f"\n\n[Previous action(s) '{rejected_actions_context}' were rejected by critic: {critic_result.justification}]"
+                
+                # Get new action with rejection context
+                agent_result = self.agent.get_action_with_reasoning(
+                    game_state_text=current_state + rejection_feedback,
+                    previous_actions_and_responses=agent_context.get('recent_actions', []),
+                    action_counts=agent_context.get('action_counts'),
+                    relevant_memories=formatted_context
+                )
+                
+                action_to_take = agent_result["action"]
+                agent_reasoning = agent_result.get("reasoning", "")
+                
+                # Re-evaluate new action
+                critic_result = self.critic.evaluate_action(
+                    game_state_text=current_state,
+                    proposed_action=action_to_take,
+                    available_exits=critic_context.get('available_exits', []),
+                    action_counts=self.game_state.action_counts
+                )
+                
+                final_critic_score = critic_result.score
+                final_critic_justification = critic_result.justification
+                final_critic_confidence = critic_result.confidence
+                
+            # Check if we exhausted all rejection attempts
+            if rejection_attempt == max_rejections - 1 and critic_result.score < rejection_threshold and not was_overridden:
+                self.logger.warning(
+                    f"Exhausted rejection attempts, proceeding with low-scoring action: {action_to_take} (score: {critic_result.score:.2f})",
+                    extra={
+                        "event_type": "rejection_attempts_exhausted",
+                        "episode_id": self.game_state.episode_id,
+                        "turn": self.game_state.turn_count,
+                        "final_action": action_to_take,
+                        "final_score": critic_result.score,
+                        "threshold": rejection_threshold
+                    }
+                )
+                
+            # Store rejected actions for this turn
+            if rejected_actions_this_turn:
+                self.game_state.rejected_actions_per_turn[self.game_state.turn_count] = rejected_actions_this_turn
+                
+            # Update confidence history
+            self.critic_confidence_history.append(final_critic_confidence)
             
             # Store critic evaluation for viewer (state export)
             critic_eval_data = {
-                "critic_score": confidence,
-                "critic_justification": getattr(critic_result, 'justification', ''),
-                "was_overridden": False,  # Since we're not overriding yet
-                "rejected_actions": []  # No rejection logic implemented yet
+                "critic_score": final_critic_score,
+                "critic_justification": final_critic_justification,
+                "was_overridden": was_overridden,
+                "rejected_actions": rejected_actions_this_turn
             }
             self.game_state.critic_evaluation_history.append(critic_eval_data)
             
@@ -437,7 +544,7 @@ class ZorkOrchestratorV2:
                     "action": action_to_take,
                     "score": self.game_state.previous_zork_score,
                     "location": self.game_state.current_room_name_for_map,
-                    "confidence": confidence
+                    "confidence": final_critic_confidence
                 }
             )
             
@@ -490,6 +597,12 @@ class ZorkOrchestratorV2:
             elif not self.game_state.current_room_name_for_map:
                 # Initial room
                 self.map_manager.add_initial_room(new_location)
+                
+            # Update rejection manager's movement tracking
+            if self.game_state.current_room_name_for_map != new_location:
+                self.rejection_manager.update_movement_tracking(moved=True)
+            else:
+                self.rejection_manager.update_movement_tracking(moved=False)
         
         # Track failed actions
         if action and response:
@@ -524,6 +637,10 @@ class ZorkOrchestratorV2:
             # Gather data from specialized managers (orchestrator coordination)
             map_data = self.map_manager.get_export_data()
             knowledge_data = self.knowledge_manager.get_export_data()
+            rejection_data = self.rejection_manager.get_state_for_export()
+            
+            # Store rejection state in GameState for persistence
+            self.game_state.rejection_state = rejection_data
             
             # Pass to StateManager for assembly and export (delegation)
             self.state_manager.export_current_state(

@@ -63,10 +63,17 @@ def find_latest_save_episode_id(game_files_dir="game_files"):
         return None
 
 
-def run_episode(episode_id=None):
+def run_episode(episode_id=None, max_turns=None):
     """Run a long episode with adaptive knowledge management."""
 
-    orchestrator = ZorkOrchestratorV2()
+    # Determine if we're restoring or creating new
+    is_restore = episode_id is not None
+    
+    # Generate episode_id if not provided
+    if episode_id is None:
+        episode_id = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    
+    orchestrator = ZorkOrchestratorV2(episode_id=episode_id, max_turns_per_episode=max_turns)
 
     print("🚀 Starting long episode with ZorkOrchestrator v2...")
     print(f"📋 Configuration:")
@@ -88,23 +95,23 @@ def run_episode(episode_id=None):
     game_interface = orchestrator.create_game_interface()
     
     # Check if we're restoring an existing episode
-    if episode_id:
-        print(f"🔄 Attempting to restore episode: {episode_id}")
-        restore_response = game_interface.start_session(session_id=episode_id)
+    restored_successfully = False
+    if is_restore:
+        print(f"🔄 Attempting to restore episode: {orchestrator.game_state.episode_id}")
+        restore_response = game_interface.start_session(session_id=orchestrator.game_state.episode_id)
         if restore_response["success"]:
-            print(f"✅ Successfully connected to episode {episode_id}")
-            # Update orchestrator state to match the restored episode
-            orchestrator.game_state.episode_id = episode_id
-            orchestrator.agent.update_episode_id(episode_id)
-            orchestrator.extractor.update_episode_id(episode_id)
-            orchestrator.critic.update_episode_id(episode_id)
+            print(f"✅ Successfully connected to episode {orchestrator.game_state.episode_id}")
+            restored_successfully = True
         else:
-            print(f"❌ Failed to restore episode {episode_id}: {restore_response.get('error', 'Unknown error')}")
+            print(f"❌ Failed to restore episode {orchestrator.game_state.episode_id}: {restore_response.get('error', 'Unknown error')}")
             print("🆕 Starting new episode instead...")
-            episode_id = None
+            # We need to generate a new episode ID and create a new orchestrator
+            new_episode_id = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+            orchestrator = ZorkOrchestratorV2(episode_id=new_episode_id, max_turns_per_episode=max_turns)
+            game_interface = orchestrator.create_game_interface()
     
     try:
-        if episode_id:
+        if restored_successfully:
             # For restored episodes, get current state and continue
             print("🎮 Continuing restored episode...")
             current_state_response = game_interface.send_command("look")
@@ -190,6 +197,18 @@ if __name__ == "__main__":
         action="store_true", 
         help="Automatically restore from the most recent save file in game_files/"
     )
+    parser.add_argument(
+        "--max-turns", 
+        type=int, 
+        default=None,
+        help="Maximum number of turns per episode"
+    )
+    parser.add_argument(
+        "--episodes", 
+        type=int, 
+        default=1,
+        help="Number of episodes to run"
+    )
     
     args = parser.parse_args()
     
@@ -206,12 +225,17 @@ if __name__ == "__main__":
         print("🔄 CONTINUOUS MODE with restore-last: Will restore latest save, then run new episodes")
     elif args.continuous:
         print("🔄 CONTINUOUS MODE: Will run new episodes indefinitely")
+    elif args.episodes > 1:
+        print(f"🎮 MULTIPLE EPISODES MODE: Will run {args.episodes} episodes")
     elif args.episode_id:
         print(f"🎯 SINGLE EPISODE MODE: Restoring specific episode {args.episode_id}")
     elif args.restore_last:
         print("🎯 SINGLE EPISODE MODE: Restoring from latest save")
     else:
         print("🎯 SINGLE EPISODE MODE: Starting new episode")
+    
+    if args.max_turns:
+        print(f"📏 Max turns per episode: {args.max_turns}")
     print()
     
     def get_episode_id_to_restore():
@@ -230,7 +254,7 @@ if __name__ == "__main__":
             try:
                 # Only attempt restore on the first episode if --restore-last is specified
                 episode_id_to_use = get_episode_id_to_restore() if first_episode else None
-                run_episode(episode_id=episode_id_to_use)
+                run_episode(episode_id=episode_id_to_use, max_turns=args.max_turns)
                 first_episode = False  # Subsequent episodes will be new
             except Exception as e:
                 print(f"❌ Error: {e}")
@@ -239,11 +263,24 @@ if __name__ == "__main__":
                 print("🔄 Retrying in 5 seconds...")
                 time.sleep(5)
                 first_episode = False  # Don't try to restore after errors
+    elif args.episodes > 1:
+        # Multiple episodes mode
+        for i in range(args.episodes):
+            try:
+                print(f"\n🎮 Starting episode {i+1} of {args.episodes}")
+                run_episode(max_turns=args.max_turns)
+            except Exception as e:
+                print(f"❌ Error in episode {i+1}: {e}")
+                import traceback
+                traceback.print_exc()
+                if i < args.episodes - 1:
+                    print("🔄 Starting next episode in 5 seconds...")
+                    time.sleep(5)
     else:
         # Single episode mode (with optional restore)
         try:
             episode_id_to_use = get_episode_id_to_restore()
-            run_episode(episode_id=episode_id_to_use)
+            run_episode(episode_id=episode_id_to_use, max_turns=args.max_turns)
         except Exception as e:
             print(f"❌ Error: {e}")
             import traceback

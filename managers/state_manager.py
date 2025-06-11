@@ -331,17 +331,8 @@ Keep the summary under 500 words and focus on actionable information for continu
                 "agent": self.config.agent_model,
                 "critic": self.config.critic_model,
                 "extractor": self.config.info_ext_model,
-                "knowledge_base": "Not available"  # Default fallback
+                "knowledge_base": self.config.analysis_model  # Use analysis model from config
             }
-            
-            # Try to get knowledge_base model from adaptive knowledge manager
-            if knowledge_data and hasattr(self, 'knowledge_manager_ref'):
-                try:
-                    akm = getattr(self.knowledge_manager_ref, 'adaptive_knowledge_manager', None)
-                    if akm and hasattr(akm, 'analysis_model'):
-                        models_data["knowledge_base"] = akm.analysis_model
-                except:
-                    pass  # Keep default fallback
             
             state_data = {
                 "metadata": {

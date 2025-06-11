@@ -411,9 +411,16 @@ Focus on objectives the agent has actually discovered through gameplay patterns 
         
         # Game response completion signals
         response_lower = game_response.lower()
+        
+        # "Taken" responses indicate successful item acquisition
+        if response_lower.strip() == "taken.":
+            completion_signals.append(f"Successfully acquired item via '{action_taken}'")
+        
+        # Other positive feedback signals
         if any(signal in response_lower for signal in [
             "you have earned", "points", "score", "treasure", "valuable", 
-            "well done", "excellent", "congratulations", "success"
+            "well done", "excellent", "congratulations", "success", "opened",
+            "unlocked", "activated", "turned on", "lit"
         ]):
             completion_signals.append("Positive feedback in game response")
         
@@ -438,6 +445,12 @@ COMPLETION SIGNALS:
 
 CURRENT SCORE: {self.game_state.previous_zork_score}
 CURRENT LOCATION: {self.game_state.current_room_name_for_map}
+
+**IMPORTANT ZORK GAME MECHANICS**:
+- "Taken." = Successfully picked up an item (positive completion)
+- Score increases indicate major objective completion
+- Actions like "opened", "unlocked", "activated" often complete specific objectives
+- Item acquisition objectives are completed when you successfully "take" the item
 
 Which objectives (if any) have been completed based on this action and the completion signals?
 

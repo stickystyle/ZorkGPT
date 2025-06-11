@@ -524,17 +524,6 @@ class ZorkInterface:
                     if not found_in_result and first_content:
                         result.append(f"A {container_name}: Containing {first_content}")
 
-        # Enhanced logging for debug - capture final parsed result
-        if self.logger:
-            self.logger.info(
-                f"[DEBUG] Inventory parsing result",
-                extra={
-                    "event_type": "inventory_parse_result",
-                    "parsed_items": result,
-                    "item_count": len(result),
-                },
-            )
-
         return result
 
 
