@@ -35,15 +35,45 @@ class TestBaseManagerSetup:
     def game_config(self):
         """Create a test game configuration."""
         return GameConfiguration(
+            # Core game settings
             max_turns_per_episode=1000,
+            turn_delay_seconds=0.0,
+            
+            # File paths
+            episode_log_file="test_episode.log",
+            json_log_file="test_episode.jsonl",
+            state_export_file="test_state.json",
+            zork_game_workdir="test_game_files",
+            
+            # LLM client settings
+            client_base_url="http://localhost:1234",
+            client_api_key="test_api_key",
+            
+            # Model specifications
+            agent_model="test-agent-model",
+            critic_model="test-critic-model",
+            info_ext_model="test-extractor-model",
+            analysis_model="test-analysis-model",
+            
+            # Update intervals
             knowledge_update_interval=100,
             map_update_interval=50,
             objective_update_interval=20,
-            enable_state_export=True,
-            state_export_file="test_state.json",
-            s3_bucket="test-bucket",
+            
+            # Objective refinement
+            enable_objective_refinement=True,
+            objective_refinement_interval=200,
+            max_objectives_before_forced_refinement=15,
+            refined_objectives_target_count=10,
+            
+            # Context management
             max_context_tokens=100000,
-            context_overflow_threshold=0.8
+            context_overflow_threshold=0.8,
+            
+            # State export
+            enable_state_export=True,
+            s3_bucket="test-bucket",
+            s3_key_prefix="test/"
         )
     
     @pytest.fixture

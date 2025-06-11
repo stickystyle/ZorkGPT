@@ -72,7 +72,10 @@ class TestZorkOrchestratorV2Integration:
     @pytest.fixture
     def orchestrator(self, temp_files):
         """Create an orchestrator instance with test configuration."""
+        import time
+        episode_id = f"test_episode_{int(time.time())}"
         return ZorkOrchestratorV2(
+            episode_id=episode_id,
             episode_log_file=temp_files["episode_log"],
             json_log_file=temp_files["json_log"],
             state_export_file=temp_files["state_export"],

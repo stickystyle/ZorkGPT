@@ -44,6 +44,10 @@ class GameState:
     critic_evaluation_history: List[Dict[str, Any]] = field(default_factory=list)
     extracted_info_history: List[Dict[str, Any]] = field(default_factory=list)
     
+    # Rejection tracking
+    rejected_actions_per_turn: Dict[int, List[Dict[str, Any]]] = field(default_factory=dict)
+    rejection_state: Optional[Dict[str, Any]] = None  # RejectionManager state for persistence
+    
     # Objective management state
     discovered_objectives: List[str] = field(default_factory=list)
     completed_objectives: List[Dict[str, Any]] = field(default_factory=list)
@@ -94,6 +98,10 @@ class GameState:
         self.failed_actions_by_location.clear()
         self.critic_evaluation_history.clear()
         self.extracted_info_history.clear()
+        
+        # Rejection tracking
+        self.rejected_actions_per_turn.clear()
+        self.rejection_state = None
         
         # Objective management state
         self.discovered_objectives.clear()
