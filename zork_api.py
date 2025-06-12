@@ -97,6 +97,11 @@ class ZorkInterface:
         # Clean up the response (remove extra whitespace and game prompt)
         response = response.strip()
         return response
+    
+    def clear_response_queue(self):
+        """Clear any pending responses from the queue."""
+        while not self.response_queue.empty():
+            self.response_queue.get()
 
     def is_running(self) -> bool:
         """Check if the Zork process is still running."""
@@ -214,14 +219,31 @@ class ZorkInterface:
             self.process.stdin.write(filename + "\n")
             self.process.stdin.flush()
             
-            # Wait longer for the save operation to complete
-            time.sleep(2.0)
+            # Wait a bit to see if we get an overwrite prompt
+            time.sleep(1.0)
             
             # Get the response
             response = self.get_response()
             
             if self.logger:
-                self.logger.debug(f"Save command response: {repr(response)}")
+                self.logger.debug(f"Save command initial response: {repr(response)}")
+            
+            # Check if we got an overwrite prompt
+            if "overwrite" in response.lower() and "?" in response:
+                if self.logger:
+                    self.logger.debug("Got overwrite prompt, sending 'y'")
+                # Send yes to overwrite
+                self.process.stdin.write("y\n")
+                self.process.stdin.flush()
+                
+                # Wait for the actual save to complete
+                time.sleep(1.0)
+                
+                # Get the final response
+                response = self.get_response()
+                
+                if self.logger:
+                    self.logger.debug(f"Save command final response after overwrite: {repr(response)}")
             
             # Check for various success indicators
             response_lower = response.lower()
@@ -255,12 +277,16 @@ class ZorkInterface:
             if has_success:
                 if self.logger:
                     self.logger.info(f"Save succeeded - success indicator found: {response}")
+                # Clear any remaining save-related output from the queue
+                self.clear_response_queue()
                 return True
             
             # If response is very short or empty, might have worked
             if len(response.strip()) < 20:
                 if self.logger:
                     self.logger.info(f"Save may have succeeded - minimal response: {response}")
+                # Clear any remaining save-related output from the queue
+                self.clear_response_queue()
                 return True
             
             # Default to failure if unclear
