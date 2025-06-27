@@ -128,6 +128,8 @@ class GameSession:
         if not self.active or not self.zork:
             raise RuntimeError("Session not active")
             
+        # Removed automatic save - orchestrator now controls save timing
+            
         # Execute command
         raw_response = self.zork.send_command(command)
         self.turn_number += 1
@@ -148,14 +150,9 @@ class GameSession:
         )
         self.history.append(history_entry)
         
-        # Check if we need to save
-        score_changed = parsed.score is not None and parsed.score != self.last_score
-        turns_since_save = self.turn_number - self.last_save_turn
-        
-        if score_changed or turns_since_save >= 10:
-            self._trigger_save()
-            if parsed.score is not None:
-                self.last_score = parsed.score
+        # Update score if changed (save now controlled by orchestrator)
+        if parsed.score is not None and parsed.score != self.last_score:
+            self.last_score = parsed.score
                 
         # Build response
         return CommandResponse(

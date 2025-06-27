@@ -286,6 +286,21 @@ class ZorkOrchestratorV2:
             # Check periodic updates for managers
             self._check_periodic_updates()
             
+            # Trigger save every 20 turns
+            if self.game_state.turn_count % 20 == 0:
+                self.logger.info(
+                    f"Triggering periodic save at turn {self.game_state.turn_count}",
+                    extra={
+                        "event_type": "periodic_save",
+                        "episode_id": self.game_state.episode_id,
+                        "turn": self.game_state.turn_count
+                    }
+                )
+                if game_interface.force_save():
+                    self.logger.info(f"Periodic save successful at turn {self.game_state.turn_count}")
+                else:
+                    self.logger.warning(f"Periodic save failed at turn {self.game_state.turn_count}")
+            
             # Export state after every turn for live monitoring
             self._export_coordinated_state()
         
@@ -500,6 +515,21 @@ class ZorkOrchestratorV2:
             # Update action counts
             self.game_state.action_counts[action_to_take] += 1
             
+            # Log final action selection (for knowledge manager compatibility)
+            self.logger.info(
+                f"SELECTED ACTION: {action_to_take} (Score: {final_critic_score:.2f}, Confidence: {final_critic_confidence:.2f}, Override: {was_overridden})",
+                extra={
+                    "event_type": "final_action_selection",
+                    "episode_id": self.game_state.episode_id,
+                    "turn": self.game_state.turn_count,
+                    "agent_action": action_to_take,
+                    "agent_reasoning": agent_reasoning,
+                    "critic_score": final_critic_score,
+                    "critic_confidence": final_critic_confidence,
+                    "was_overridden": was_overridden,
+                },
+            )
+            
             # Execute action
             response = game_interface.send_command(action_to_take)
             if not response["success"]:
@@ -510,6 +540,19 @@ class ZorkOrchestratorV2:
             
             # Clean the game response before storing in history
             clean_response = self.extractor.get_clean_game_text(next_game_state)
+            
+            # Log zork response (for knowledge manager compatibility)
+            self.logger.info(
+                f"ZORK RESPONSE for '{action_to_take}':\n{clean_response}\n",
+                extra={
+                    "event_type": "zork_response",
+                    "episode_id": self.game_state.episode_id,
+                    "turn": self.game_state.turn_count,
+                    "action": action_to_take,
+                    "zork_response": clean_response,  # Store clean text for display
+                    "raw_zork_response": next_game_state,  # Keep raw for parsing if needed
+                },
+            )
             
             # Add action to history
             self.context_manager.add_action(action_to_take, clean_response)

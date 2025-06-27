@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep:*)",
+      "Bash(find:*)",
+      "Bash(docker-compose logs:*)",
+      "Bash(ls:*)",
+      "Bash(docker-compose down:*)",
+      "Bash(docker-compose build:*)",
+      "Bash(docker-compose up:*)",
+      "Bash(python test_save_restore.py:*)",
+      "Bash(cat:*)",
+      "Bash(python:*)",
+      "Bash(docker build:*)",
+      "Bash(docker run:*)",
+      "Bash(docker stop:*)",
+      "Bash(rg:*)",
+      "Bash(mkdir:*)",
+      "Bash(awk:*)",
+      "Bash(docker-compose ps:*)",
+      "Bash(pytest:*)",
+      "Bash(jq:*)",
+      "mcp__context7__resolve-library-id",
+      "mcp__context7__get-library-docs",
+      "mcp__brave-search__brave_web_search",
+      "mcp__fetch__fetch"
+    ],
+    "deny": []
+  }
+}

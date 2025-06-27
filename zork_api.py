@@ -27,6 +27,8 @@ class ZorkInterface:
         self.running = False
         self.current_score = 0
         self.max_score = 0
+        # Add synchronization lock to prevent race conditions between save and game commands
+        self.command_lock = threading.Lock()
 
     def __enter__(self):
         """Support for context manager protocol."""
@@ -100,8 +102,43 @@ class ZorkInterface:
     
     def clear_response_queue(self):
         """Clear any pending responses from the queue."""
+        # First clear what's currently in the queue
         while not self.response_queue.empty():
             self.response_queue.get()
+        
+        # Wait a bit for any remaining output to arrive from the reader thread
+        time.sleep(0.1)
+        
+        # Clear again to catch any new output that arrived during the delay
+        while not self.response_queue.empty():
+            self.response_queue.get()
+    
+    def _drain_queue_completely(self) -> str:
+        """Drain the response queue completely, waiting for all output to arrive.
+        
+        This method ensures we capture ALL output from dfrotz, including any delayed
+        output that arrives after an initial queue check. Critical for save operations.
+        
+        Returns:
+            str: All output that was in the queue
+        """
+        response = ""
+        
+        # First pass - get everything currently in queue
+        while not self.response_queue.empty():
+            response += self.response_queue.get()
+        
+        # Wait for any delayed output from dfrotz and check again
+        time.sleep(0.3)
+        while not self.response_queue.empty():
+            response += self.response_queue.get()
+        
+        # One more shorter wait to catch any final stragglers
+        time.sleep(0.1)
+        while not self.response_queue.empty():
+            response += self.response_queue.get()
+            
+        return response.strip()
 
     def is_running(self) -> bool:
         """Check if the Zork process is still running."""
@@ -121,12 +158,14 @@ class ZorkInterface:
         if not self.is_running():
             raise RuntimeError("Zork process is not running")
 
-        # Send the command to the game
-        self.process.stdin.write(command + "\n")
-        self.process.stdin.flush()
+        # Use lock to prevent race conditions with save operations
+        with self.command_lock:
+            # Send the command to the game
+            self.process.stdin.write(command + "\n")
+            self.process.stdin.flush()
 
-        # Get the response
-        response = self.get_response().strip()
+            # Get the response
+            response = self.get_response().strip()
         
         # Enhanced logging for debug - capture all game responses
         if self.logger:
@@ -206,98 +245,118 @@ class ZorkInterface:
                 self.logger.error("Save failed: Zork process not running")
             return False
             
-        # Try a more robust save approach
-        try:
-            # Send save command
-            self.process.stdin.write("save\n")
-            self.process.stdin.flush()
-            
-            # Wait a moment for prompt
-            time.sleep(0.5)
-            
-            # Send filename
-            self.process.stdin.write(filename + "\n")
-            self.process.stdin.flush()
-            
-            # Wait a bit to see if we get an overwrite prompt
-            time.sleep(1.0)
-            
-            # Get the response
-            response = self.get_response()
-            
-            if self.logger:
-                self.logger.debug(f"Save command initial response: {repr(response)}")
-            
-            # Check if we got an overwrite prompt
-            if "overwrite" in response.lower() and "?" in response:
+        # Use the same lock as send_command to ensure complete synchronization
+        with self.command_lock:
+            try:
                 if self.logger:
-                    self.logger.debug("Got overwrite prompt, sending 'y'")
-                # Send yes to overwrite
-                self.process.stdin.write("y\n")
+                    self.logger.debug(f"Starting save operation with filename: {filename}")
+                
+                # Clear queue first to start fresh
+                self.clear_response_queue()
+                
+                # Send save command
+                self.process.stdin.write("save\n")
                 self.process.stdin.flush()
                 
-                # Wait for the actual save to complete
-                time.sleep(1.0)
-                
-                # Get the final response
-                response = self.get_response()
+                # Wait and collect initial response
+                time.sleep(0.8)
+                initial_response = self._drain_queue_completely()
                 
                 if self.logger:
-                    self.logger.debug(f"Save command final response after overwrite: {repr(response)}")
-            
-            # Check for various success indicators
-            response_lower = response.lower()
-            success_indicators = [
-                "ok.",
-                "saved",
-                "done",
-                ".qzl",  # Zork mentions the .qzl file extension
-            ]
-            
-            # Check for failure indicators
-            failure_indicators = [
-                "can't",
-                "cannot",
-                "unable",
-                "error",
-                "failed",
-                "invalid"
-            ]
-            
-            has_success = any(indicator in response_lower for indicator in success_indicators)
-            has_failure = any(indicator in response_lower for indicator in failure_indicators)
-            
-            # If we see failure indicators, definitely failed
-            if has_failure:
+                    self.logger.debug(f"Save initial response: {repr(initial_response)}")
+                
+                # Send filename
+                self.process.stdin.write(filename + "\n")
+                self.process.stdin.flush()
+                
+                # Wait and collect response after filename
+                # Increased wait time to ensure dfrotz has time to present overwrite prompt
+                time.sleep(3.0)
+                filename_response = self._drain_queue_completely()
+                
                 if self.logger:
-                    self.logger.error(f"Save failed - failure indicator found: {response}")
+                    self.logger.debug(f"Save filename response: {repr(filename_response)}")
+                
+                # Check if we got an overwrite prompt
+                combined_response = initial_response + " " + filename_response
+                if "overwrite" in combined_response.lower() and "?" in combined_response:
+                    if self.logger:
+                        self.logger.debug("Got overwrite prompt, sending 'y'")
+                    
+                    # Send yes to overwrite
+                    self.process.stdin.write("y\n")
+                    self.process.stdin.flush()
+                    
+                    # Wait and collect final response
+                    time.sleep(1.5)
+                    final_response = self._drain_queue_completely()
+                    
+                    if self.logger:
+                        self.logger.debug(f"Save final response after overwrite: {repr(final_response)}")
+                    
+                    combined_response += " " + final_response
+                
+                # Send a marker command to ensure we're completely done with save
+                # Use "score" as it's harmless and gives us a clean response
+                self.process.stdin.write("score\n")
+                self.process.stdin.flush()
+                
+                # Wait for marker response
+                time.sleep(0.5)
+                marker_response = self._drain_queue_completely()
+                
+                if self.logger:
+                    self.logger.debug(f"Save marker response: {repr(marker_response)}")
+                
+                # Analyze the save response (excluding marker)
+                save_response = combined_response.lower()
+                
+                # Check for success indicators
+                success_indicators = [
+                    "ok.",
+                    "saved",
+                    "done",
+                    ".qzl",
+                ]
+                
+                # Check for failure indicators
+                failure_indicators = [
+                    "can't",
+                    "cannot", 
+                    "unable",
+                    "error",
+                    "failed",
+                    "invalid"
+                ]
+                
+                has_success = any(indicator in save_response for indicator in success_indicators)
+                has_failure = any(indicator in save_response for indicator in failure_indicators)
+                
+                if has_failure:
+                    if self.logger:
+                        self.logger.error(f"Save failed - failure indicator found: {combined_response}")
+                    return False
+                
+                if has_success:
+                    if self.logger:
+                        self.logger.info(f"Save succeeded - success indicator found: {combined_response}")
+                    return True
+                
+                # If response is very short and no failure indicators, assume success
+                if len(combined_response.strip()) < 50 and not has_failure:
+                    if self.logger:
+                        self.logger.info(f"Save likely succeeded - minimal response: {combined_response}")
+                    return True
+                
+                # Default to failure if unclear
+                if self.logger:
+                    self.logger.warning(f"Save status unclear - defaulting to failure: {combined_response}")
                 return False
-            
-            # If we see success indicators, probably succeeded
-            if has_success:
+                
+            except Exception as e:
                 if self.logger:
-                    self.logger.info(f"Save succeeded - success indicator found: {response}")
-                # Clear any remaining save-related output from the queue
-                self.clear_response_queue()
-                return True
-            
-            # If response is very short or empty, might have worked
-            if len(response.strip()) < 20:
-                if self.logger:
-                    self.logger.info(f"Save may have succeeded - minimal response: {response}")
-                # Clear any remaining save-related output from the queue
-                self.clear_response_queue()
-                return True
-            
-            # Default to failure if unclear
-            if self.logger:
-                self.logger.warning(f"Save status unclear - defaulting to failure: {response}")
-            return False
-            
-        except Exception as e:
-            if self.logger:
-                self.logger.error(f"Save failed with exception: {e}")
-            return False
+                    self.logger.error(f"Save failed with exception: {e}")
+                return False
 
     def trigger_zork_restore(self, filename: str) -> bool:
         """Restore a Zork game state from a file.
