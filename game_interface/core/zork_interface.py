@@ -1,3 +1,7 @@
+"""
+ABOUTME: Core interface for managing the Zork game process through dfrotz
+ABOUTME: Provides low-level communication with the text adventure game engine
+"""
 import subprocess
 import threading
 import queue
@@ -45,8 +49,9 @@ class ZorkInterface:
             raise RuntimeError("Zork process is already running")
 
         # Get absolute path to zork.z5 file to ensure it works regardless of working directory
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        zork_file_path = os.path.join(script_dir, "infrastructure", "zork.z5")
+        # Get project root (two levels up from game_interface/core)
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        zork_file_path = os.path.join(project_root, "infrastructure", "zork.z5")
 
         self.process = subprocess.Popen(
             ["dfrotz", zork_file_path],

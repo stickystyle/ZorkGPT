@@ -169,18 +169,6 @@ class StructuredZorkParser:
             game_text=clean_text, has_structured_header=False
         )
 
-    def extract_room_name(self, zork_response: str) -> Optional[str]:
-        """
-        Quick extraction of just the room name from a Zork response.
-
-        Args:
-            zork_response: Raw response text from Zork
-
-        Returns:
-            Room name if found, None otherwise
-        """
-        parsed = self.parse_response(zork_response)
-        return parsed.room_name
 
     def extract_score_and_moves(
         self, zork_response: str
@@ -196,18 +184,6 @@ class StructuredZorkParser:
         """
         parsed = self.parse_response(zork_response)
         return parsed.score, parsed.moves
-
-    def is_structured_response(self, zork_response: str) -> bool:
-        """
-        Check if the response has the new structured format.
-
-        Args:
-            zork_response: Raw response text from Zork
-
-        Returns:
-            True if response has structured header, False otherwise
-        """
-        return self.parse_response(zork_response).has_structured_header
 
     def get_canonical_room_name(self, room_name: str) -> str:
         """

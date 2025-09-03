@@ -23,7 +23,13 @@
       "mcp__context7__resolve-library-id",
       "mcp__context7__get-library-docs",
       "mcp__brave-search__brave_web_search",
-      "mcp__fetch__fetch"
+      "mcp__fetch__fetch",
+      "WebSearch",
+      "WebFetch(domain:docs.mem0.ai)",
+      "WebFetch(domain:openrouter.ai)",
+      "mcp__sequential-thinking__sequentialthinking",
+      "Bash(tree:*)",
+      "Bash(git add:*)"
     ],
     "deny": []
   }

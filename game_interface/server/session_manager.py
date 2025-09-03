@@ -1,69 +1,19 @@
-"""
-Game Server for ZorkGPT
-Manages dfrotz processes and provides REST API for game interaction.
-"""
+# ABOUTME: GameSession class for managing individual Zork game sessions within the game server
+# ABOUTME: Handles session lifecycle, state persistence, save/restore operations, and command execution
 
 import os
 import json
-import asyncio
 import time
 from datetime import datetime
-from typing import Dict, List, Optional, Any
+from typing import Optional, List
 from pathlib import Path
 import logging
 
-from fastapi import FastAPI, HTTPException, Response
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel
-import uvicorn
+from ..core.zork_interface import ZorkInterface
+from ..core.structured_parser import StructuredZorkParser
+from .models import CommandResponse, HistoryEntry, SessionState, SessionHistory
 
-from zork_api import ZorkInterface
-from structured_zork_parser import StructuredZorkParser
-
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
 logger = logging.getLogger(__name__)
-
-
-# Request/Response models
-class CommandRequest(BaseModel):
-    command: str
-
-
-class CommandResponse(BaseModel):
-    session_id: str
-    turn_number: int
-    score: Optional[int]
-    raw_response: str
-    parsed: dict
-    game_over: bool
-    game_over_reason: Optional[str]
-
-
-class SessionState(BaseModel):
-    session_id: str
-    turn_number: int
-    last_score: int
-    last_save_turn: int
-    active: bool
-    start_time: str
-    last_command_time: str
-
-
-class HistoryEntry(BaseModel):
-    turn_number: int
-    command: str
-    raw_response: str
-    timestamp: str
-
-
-class SessionHistory(BaseModel):
-    session_id: str
-    turns: List[HistoryEntry]
 
 
 class GameSession:
@@ -127,9 +77,7 @@ class GameSession:
         """Execute a command and return the response."""
         if not self.active or not self.zork:
             raise RuntimeError("Session not active")
-            
-        # Removed automatic save - orchestrator now controls save timing
-            
+
         # Execute command
         raw_response = self.zork.send_command(command)
         self.turn_number += 1
@@ -170,24 +118,7 @@ class GameSession:
             game_over=game_over,
             game_over_reason=game_over_reason
         )
-        
-    def _trigger_save(self):
-        """Trigger an auto-save."""
-        try:
-            save_filename = f"autosave_{self.session_id}"
-            success = self.zork.trigger_zork_save(save_filename)
-            
-            if success:
-                # Also save the session history as JSON
-                self._save_session_metadata()
-                self.last_save_turn = self.turn_number
-                logger.info(f"Auto-saved session {self.session_id} at turn {self.turn_number}")
-            else:
-                logger.warning(f"Failed to auto-save session {self.session_id}")
-                
-        except Exception as e:
-            logger.error(f"Error during auto-save for session {self.session_id}: {e}")
-            
+
     def _save_session_metadata(self):
         """Save session metadata including history."""
         try:
@@ -283,103 +214,3 @@ class GameSession:
                 
         except Exception as e:
             logger.error(f"Error during force-save for session {self.session_id}: {e}")
-
-
-class GameServer:
-    """Main game server managing multiple sessions."""
-    
-    def __init__(self, working_directory: str = "./game_files"):
-        self.working_directory = working_directory
-        self.sessions: Dict[str, GameSession] = {}
-        
-    async def create_or_restore_session(self, session_id: str) -> str:
-        """Create a new session or restore existing one."""
-        if session_id in self.sessions and self.sessions[session_id].active:
-            # Session already active
-            return "Session already active"
-            
-        # Create new session
-        session = GameSession(session_id, self.working_directory)
-        intro_text = await session.start()
-        self.sessions[session_id] = session
-        
-        logger.info(f"Created/restored session: {session_id}")
-        return intro_text
-        
-    def get_session(self, session_id: str) -> GameSession:
-        """Get a session by ID."""
-        if session_id not in self.sessions:
-            raise HTTPException(status_code=404, detail="Session not found")
-        
-        session = self.sessions[session_id]
-        if not session.active:
-            raise HTTPException(status_code=400, detail="Session not active")
-            
-        return session
-        
-    def close_session(self, session_id: str):
-        """Close a session."""
-        if session_id in self.sessions:
-            self.sessions[session_id].close()
-            del self.sessions[session_id]
-            
-
-# Create FastAPI app
-app = FastAPI(title="ZorkGPT Game Server")
-
-# Create game server instance
-game_server = GameServer()
-
-
-@app.post("/sessions/{session_id}")
-async def create_session(session_id: str) -> Dict[str, str]:
-    """Create or restore a game session."""
-    intro_text = await game_server.create_or_restore_session(session_id)
-    return {"session_id": session_id, "intro_text": intro_text}
-
-
-@app.post("/sessions/{session_id}/command")
-async def send_command(session_id: str, request: CommandRequest) -> CommandResponse:
-    """Send a command to the game."""
-    session = game_server.get_session(session_id)
-    return session.execute_command(request.command)
-
-
-@app.get("/sessions/{session_id}/history")
-async def get_history(session_id: str) -> SessionHistory:
-    """Get full session history."""
-    session = game_server.get_session(session_id)
-    return session.get_history()
-
-
-@app.get("/sessions/{session_id}/state")
-async def get_state(session_id: str) -> SessionState:
-    """Get current session state."""
-    session = game_server.get_session(session_id)
-    return session.get_state()
-
-
-@app.post("/sessions/{session_id}/save")
-async def force_save(session_id: str) -> Dict[str, str]:
-    """Force an immediate save for the session."""
-    session = game_server.get_session(session_id)
-    session._force_save()
-    return {"message": f"Save triggered for session {session_id}", "turn": str(session.turn_number)}
-
-
-@app.delete("/sessions/{session_id}")
-async def close_session(session_id: str) -> Dict[str, str]:
-    """Close a session."""
-    game_server.close_session(session_id)
-    return {"message": f"Session {session_id} closed"}
-
-
-@app.get("/health")
-async def health_check():
-    """Health check endpoint."""
-    return {"status": "healthy", "active_sessions": len(game_server.sessions)}
-
-
-if __name__ == "__main__":
-    # Run the server
-    uvicorn.run(app, host="0.0.0.0", port=8000)

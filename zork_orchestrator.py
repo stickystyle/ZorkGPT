@@ -17,7 +17,7 @@ import json
 import time
 import re
 
-from zork_api import ZorkInterface
+from game_interface.core.zork_interface import ZorkInterface
 from llm_client import LLMClientWrapper
 from map_graph import MapGraph
 from movement_analyzer import MovementAnalyzer, MovementContext
@@ -30,7 +30,7 @@ from hybrid_zork_extractor import HybridZorkExtractor
 from zork_critic import ZorkCritic, CriticResponse
 from zork_strategy_generator import AdaptiveKnowledgeManager
 from config import get_config, get_client_api_key
-from game_server_client import GameServerClient
+from game_interface.client.game_server_client import GameServerClient
 
 # Optional S3 support
 try:
@@ -1964,7 +1964,7 @@ class ZorkOrchestrator:
         
         reason_lower = game_over_reason.lower()
         
-        # Death indicators from zork_api.py
+        # Death indicators from game_interface.core.zork_interface.py
         death_indicators = [
             "you have died",
             "you are dead",

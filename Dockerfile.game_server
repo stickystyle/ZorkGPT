@@ -13,9 +13,7 @@ ENV PATH="/usr/games:${PATH}"
 WORKDIR /app
 
 # Copy required files
-COPY game_server.py .
-COPY zork_api.py .
-COPY structured_zork_parser.py .
+COPY game_interface/ ./game_interface/
 COPY infrastructure/zork.z5 ./infrastructure/
 
 # Install Python dependencies
@@ -31,4 +29,4 @@ RUN mkdir -p /app/game_files
 EXPOSE 8000
 
 # Run the server
-CMD ["python", "-u", "game_server.py"]
+CMD ["python", "-u", "-m", "game_interface.server.game_server"]

@@ -7,7 +7,7 @@ Focused test to verify combat detection and inventory skipping.
 import unittest
 from zork_agent import ZorkAgent
 from hybrid_zork_extractor import ExtractorResponse
-from zork_api import ZorkInterface
+from game_interface.core.zork_interface import ZorkInterface
 
 
 class TestCombatScenario(unittest.TestCase):

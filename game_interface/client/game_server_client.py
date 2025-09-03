@@ -1,6 +1,6 @@
 """
-REST API client for the ZorkGPT Game Server.
-Provides a ZorkInterface-compatible API for the orchestrator.
+ABOUTME: REST API client for communicating with the ZorkGPT Game Server
+ABOUTME: Provides ZorkInterface-compatible API for orchestrators to use
 """
 
 import requests
@@ -343,28 +343,7 @@ class GameServerClient:
                 items.append(line)
                 
         return items
-        
-    # Compatibility methods for save/restore (no-ops since server handles this)
-    def trigger_zork_save(self, filename: str) -> bool:
-        """Trigger a manual save via the game server."""
-        if not self.session_id:
-            logger.warning("No active session for manual save")
-            return False
-            
-        try:
-            logger.info(f"Manual save triggered for session {self.session_id} (filename: {filename})")
-            # Use the force_save method which calls the dedicated endpoint
-            return self.force_save()
-            
-        except Exception as e:
-            logger.error(f"Failed to trigger manual save: {e}")
-            return False
-        
-    def trigger_zork_restore(self, filename: str) -> bool:
-        """Compatibility method - restores are handled by server."""
-        logger.info(f"Restore request for {filename} - handled by server")
-        return True
-        
+
     def force_save(self) -> bool:
         """Force an immediate save via the REST API."""
         if not self.session_id:

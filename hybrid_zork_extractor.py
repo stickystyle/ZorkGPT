@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from llm_client import LLMClientWrapper
 import os
 
-from structured_zork_parser import StructuredZorkParser, StructuredZorkResponse
+from game_interface.core.structured_parser import StructuredZorkParser, StructuredZorkResponse
 from shared_utils import create_json_schema
 from config import get_config, get_client_api_key
 

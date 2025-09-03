@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import List, Dict, Any
 import pytest
 
-from game_server_client import GameServerClient
+from game_interface.client.game_server_client import GameServerClient
 
 
 def setup_test_session(base_url: str = "http://localhost:8000") -> GameServerClient:

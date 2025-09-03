@@ -1,6 +1,6 @@
 import unittest
 from unittest.mock import MagicMock
-from zork_api import ZorkInterface
+from game_interface.core.zork_interface import ZorkInterface
 
 
 class TestZorkInterfaceInventory(unittest.TestCase):

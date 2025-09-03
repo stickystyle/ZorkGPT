@@ -25,7 +25,7 @@ from managers import (
 from zork_agent import ZorkAgent
 from zork_critic import ZorkCritic
 from hybrid_zork_extractor import HybridZorkExtractor
-from game_server_client import GameServerClient
+from game_interface.client.game_server_client import GameServerClient
 from logger import setup_logging
 from collections import Counter
 
@@ -287,19 +287,19 @@ class ZorkOrchestratorV2:
             self._check_periodic_updates()
             
             # Trigger save every 20 turns
-            if self.game_state.turn_count % 20 == 0:
-                self.logger.info(
-                    f"Triggering periodic save at turn {self.game_state.turn_count}",
-                    extra={
-                        "event_type": "periodic_save",
-                        "episode_id": self.game_state.episode_id,
-                        "turn": self.game_state.turn_count
-                    }
-                )
-                if game_interface.force_save():
-                    self.logger.info(f"Periodic save successful at turn {self.game_state.turn_count}")
-                else:
-                    self.logger.warning(f"Periodic save failed at turn {self.game_state.turn_count}")
+            # if self.game_state.turn_count % 20 == 0:
+            #     self.logger.info(
+            #         f"Triggering periodic save at turn {self.game_state.turn_count}",
+            #         extra={
+            #             "event_type": "periodic_save",
+            #             "episode_id": self.game_state.episode_id,
+            #             "turn": self.game_state.turn_count
+            #         }
+            #     )
+            #     if game_interface.force_save():
+            #         self.logger.info(f"Periodic save successful at turn {self.game_state.turn_count}")
+            #     else:
+            #         self.logger.warning(f"Periodic save failed at turn {self.game_state.turn_count}")
             
             # Export state after every turn for live monitoring
             self._export_coordinated_state()
