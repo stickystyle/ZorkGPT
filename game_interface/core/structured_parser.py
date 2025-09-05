@@ -39,13 +39,17 @@ class StructuredZorkParser:
         self.header_pattern = re.compile(
             r"^>\s*(.+?)\s+Score:\s*(\d+)\s+Moves:\s*(\d+)\s*$", re.MULTILINE
         )
-        
+
         # Pattern for location descriptions without score/moves
         # Format: Location Name on its own line (not starting with >)
-        self.location_only_pattern = re.compile(r"^([A-Z][A-Za-z\s]+[A-Za-z])\s*$", re.MULTILINE)
-        
+        self.location_only_pattern = re.compile(
+            r"^([A-Z][A-Za-z\s]+[A-Za-z])\s*$", re.MULTILINE
+        )
+
         # Pattern for location descriptions that start with >
-        self.location_pattern = re.compile(r"^>\s*([A-Z][A-Za-z\s]+[A-Za-z])\s*$", re.MULTILINE)
+        self.location_pattern = re.compile(
+            r"^>\s*([A-Z][A-Za-z\s]+[A-Za-z])\s*$", re.MULTILINE
+        )
 
         # Alternative pattern for responses without room names (like error messages)
         self.simple_pattern = re.compile(r"^>(.+)$", re.MULTILINE)
@@ -96,7 +100,7 @@ class StructuredZorkParser:
         location_match = self.location_pattern.search(zork_response)
         if location_match:
             room_name = location_match.group(1).strip()
-            
+
             # Only treat as location if there's additional content after the header
             lines = zork_response.split("\n")
             location_line_found = False
@@ -109,7 +113,7 @@ class StructuredZorkParser:
                     location_line_found = True
 
             game_text = "\n".join(game_text_lines).strip()
-            
+
             # Only return as location if there's actual description text
             if game_text:
                 return StructuredZorkResponse(
@@ -119,14 +123,14 @@ class StructuredZorkParser:
                 )
 
         # Check for location names that appear after >\n\n prefix
-        if zork_response.strip().startswith('>'):
+        if zork_response.strip().startswith(">"):
             # Remove the > prefix and check for location pattern
-            clean_response = zork_response.strip()[1:].lstrip('\n ')
+            clean_response = zork_response.strip()[1:].lstrip("\n ")
             location_only_match = self.location_only_pattern.search(clean_response)
-            
+
             if location_only_match:
                 room_name = location_only_match.group(1).strip()
-                
+
                 # Extract game text after the location line
                 lines = clean_response.split("\n")
                 location_line_found = False
@@ -139,7 +143,7 @@ class StructuredZorkParser:
                         location_line_found = True
 
                 game_text = "\n".join(game_text_lines).strip()
-                
+
                 # Only return as location if there's actual description text
                 if game_text:
                     return StructuredZorkResponse(
@@ -153,22 +157,19 @@ class StructuredZorkParser:
         if simple_match:
             # Clean up simple responses by removing the > prompt and leading newlines
             clean_text = zork_response.strip()
-            if clean_text.startswith('>'):
-                clean_text = clean_text[1:].lstrip('\n ')
-            
+            if clean_text.startswith(">"):
+                clean_text = clean_text[1:].lstrip("\n ")
+
             return StructuredZorkResponse(
                 game_text=clean_text, has_structured_header=False
             )
 
         # Fallback: treat entire response as game text, cleaning up > prefix
         clean_text = zork_response.strip()
-        if clean_text.startswith('>'):
-            clean_text = clean_text[1:].lstrip('\n ')
-            
-        return StructuredZorkResponse(
-            game_text=clean_text, has_structured_header=False
-        )
+        if clean_text.startswith(">"):
+            clean_text = clean_text[1:].lstrip("\n ")
 
+        return StructuredZorkResponse(game_text=clean_text, has_structured_header=False)
 
     def extract_score_and_moves(
         self, zork_response: str

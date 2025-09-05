@@ -27,7 +27,7 @@ dev = [
 [tool.zorkgpt.llm]
 # LLM Configuration
 client_base_url = "https://openrouter.ai/api/v1"
-agent_model = "google/gemini-2.5-flash"
+agent_model = "anthropic/claude-sonnet-4"
 #info_ext_model = "gemma-3-12b-it-qat"
 info_ext_model = "mistralai/mistral-nemo"
 #critic_model = "gemma-3-12b-it-qat"

@@ -9,7 +9,7 @@ import os
 import pytest
 
 # Add the parent directory to the path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from tests.test_utils import game_client, skip_if_server_unavailable, run_test_commands
 from game_interface.core.zork_interface import ZorkInterface
@@ -66,13 +66,12 @@ The troll swings his axe, but it misses."""
                 is_over, reason = self.zork.is_game_over(msg)
                 self.assertTrue(is_over, f"Death message should be game over: '{msg}'")
 
-
     def test_real_game_death_scenario(self, game_client):
         """Test game over detection with actual death scenario."""
         # This is a known death sequence in Zork
         commands = [
             "north",  # To North of House
-            "north",  # To Forest Path  
+            "north",  # To Forest Path
             "climb tree",  # Up the tree
             "take egg",  # Get the jeweled egg
             "down",  # Back to Forest Path
@@ -85,22 +84,22 @@ The troll swings his axe, but it misses."""
             "down",  # To Cellar
             "north",  # To Troll Room - triggers combat
         ]
-        
+
         # Run commands up to troll room
         responses = run_test_commands(game_client, commands[:-1])
-        
+
         # Enter troll room multiple times to potentially trigger death
         death_occurred = False
         for _ in range(10):  # Try up to 10 times
             response = game_client.send_command("north")
-            if response.get('game_over', False):
+            if response.get("game_over", False):
                 death_occurred = True
-                self.assertTrue(response['game_over'])
-                self.assertIsNotNone(response.get('game_over_reason'))
+                self.assertTrue(response["game_over"])
+                self.assertIsNotNone(response.get("game_over_reason"))
                 break
             # If not dead, try to leave and re-enter
             game_client.send_command("south")
-        
+
         # Note: Death from troll is probabilistic, so we just verify the detection works
         # when it does occur
 

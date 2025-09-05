@@ -11,52 +11,56 @@ from datetime import datetime
 
 def find_latest_save_episode_id(game_files_dir="game_files"):
     """Find the most recent save file and extract its episode ID.
-    
+
     Args:
         game_files_dir: Directory containing save files
-        
+
     Returns:
         Episode ID string if found, None otherwise
     """
     if not os.path.exists(game_files_dir):
         print(f"📁 Game files directory '{game_files_dir}' not found")
         return None
-    
+
     # Look for metadata files which contain episode info
     metadata_pattern = os.path.join(game_files_dir, "*_metadata.json")
     metadata_files = glob.glob(metadata_pattern)
-    
+
     if not metadata_files:
         print(f"📁 No save metadata files found in '{game_files_dir}'")
         return None
-    
+
     latest_file = None
     latest_time = None
     latest_episode_id = None
-    
+
     for metadata_file in metadata_files:
         try:
-            with open(metadata_file, 'r') as f:
+            with open(metadata_file, "r") as f:
                 metadata = json.load(f)
-            
-            session_id = metadata.get('session_id')
-            last_command_time = metadata.get('last_command_time')
-            
+
+            session_id = metadata.get("session_id")
+            last_command_time = metadata.get("last_command_time")
+
             if session_id and last_command_time:
                 # Parse the timestamp
-                command_time = datetime.fromisoformat(last_command_time.replace('Z', '+00:00'))
-                
+                command_time = datetime.fromisoformat(
+                    last_command_time.replace("Z", "+00:00")
+                )
+
                 if latest_time is None or command_time > latest_time:
                     latest_time = command_time
                     latest_file = metadata_file
                     latest_episode_id = session_id
-                    
+
         except (json.JSONDecodeError, KeyError, ValueError) as e:
             print(f"⚠️  Warning: Could not parse metadata file {metadata_file}: {e}")
             continue
-    
+
     if latest_episode_id:
-        print(f"🔍 Found latest save: {latest_episode_id} (last activity: {latest_time})")
+        print(
+            f"🔍 Found latest save: {latest_episode_id} (last activity: {latest_time})"
+        )
         return latest_episode_id
     else:
         print(f"📁 No valid save files found in '{game_files_dir}'")
@@ -68,12 +72,14 @@ def run_episode(episode_id=None, max_turns=None):
 
     # Determine if we're restoring or creating new
     is_restore = episode_id is not None
-    
+
     # Generate episode_id if not provided
     if episode_id is None:
         episode_id = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-    
-    orchestrator = ZorkOrchestratorV2(episode_id=episode_id, max_turns_per_episode=max_turns)
+
+    orchestrator = ZorkOrchestratorV2(
+        episode_id=episode_id, max_turns_per_episode=max_turns
+    )
 
     print("🚀 Starting long episode with ZorkOrchestrator v2...")
     print(f"📋 Configuration:")
@@ -93,23 +99,31 @@ def run_episode(episode_id=None, max_turns=None):
 
     # Create game interface using the orchestrator's method
     game_interface = orchestrator.create_game_interface()
-    
+
     # Check if we're restoring an existing episode
     restored_successfully = False
     if is_restore:
         print(f"🔄 Attempting to restore episode: {orchestrator.game_state.episode_id}")
-        restore_response = game_interface.start_session(session_id=orchestrator.game_state.episode_id)
+        restore_response = game_interface.start_session(
+            session_id=orchestrator.game_state.episode_id
+        )
         if restore_response["success"]:
-            print(f"✅ Successfully connected to episode {orchestrator.game_state.episode_id}")
+            print(
+                f"✅ Successfully connected to episode {orchestrator.game_state.episode_id}"
+            )
             restored_successfully = True
         else:
-            print(f"❌ Failed to restore episode {orchestrator.game_state.episode_id}: {restore_response.get('error', 'Unknown error')}")
+            print(
+                f"❌ Failed to restore episode {orchestrator.game_state.episode_id}: {restore_response.get('error', 'Unknown error')}"
+            )
             print("🆕 Starting new episode instead...")
             # We need to generate a new episode ID and create a new orchestrator
             new_episode_id = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-            orchestrator = ZorkOrchestratorV2(episode_id=new_episode_id, max_turns_per_episode=max_turns)
+            orchestrator = ZorkOrchestratorV2(
+                episode_id=new_episode_id, max_turns_per_episode=max_turns
+            )
             game_interface = orchestrator.create_game_interface()
-    
+
     try:
         if restored_successfully:
             # For restored episodes, get current state and continue
@@ -135,12 +149,16 @@ def run_episode(episode_id=None, max_turns=None):
 
         # Calculate knowledge updates more accurately
         regular_updates = (
-            orchestrator.game_state.turn_count // orchestrator.config.knowledge_update_interval
+            orchestrator.game_state.turn_count
+            // orchestrator.config.knowledge_update_interval
         )
         turns_since_last = (
-            orchestrator.game_state.turn_count - orchestrator.knowledge_manager.last_knowledge_update_turn
+            orchestrator.game_state.turn_count
+            - orchestrator.knowledge_manager.last_knowledge_update_turn
         )
-        min_final_threshold = max(10, orchestrator.config.knowledge_update_interval // 4)
+        min_final_threshold = max(
+            10, orchestrator.config.knowledge_update_interval // 4
+        )
         final_update_eligible = turns_since_last >= min_final_threshold
 
         print(f"  - Regular knowledge updates: {regular_updates}")
@@ -183,46 +201,43 @@ def run_episode(episode_id=None, max_turns=None):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run ZorkGPT episodes")
     parser.add_argument(
-        "--episode-id", 
-        type=str, 
-        help="Episode ID to restore and continue (ISO8601 format: YYYY-MM-DDTHH:MM:SS)"
+        "--episode-id",
+        type=str,
+        help="Episode ID to restore and continue (ISO8601 format: YYYY-MM-DDTHH:MM:SS)",
     )
     parser.add_argument(
-        "--continuous", 
-        action="store_true", 
-        help="Run episodes continuously in a loop"
+        "--continuous", action="store_true", help="Run episodes continuously in a loop"
     )
     parser.add_argument(
-        "--restore-last", 
-        action="store_true", 
-        help="Automatically restore from the most recent save file in game_files/"
+        "--restore-last",
+        action="store_true",
+        help="Automatically restore from the most recent save file in game_files/",
     )
     parser.add_argument(
-        "--max-turns", 
-        type=int, 
+        "--max-turns",
+        type=int,
         default=None,
-        help="Maximum number of turns per episode"
+        help="Maximum number of turns per episode",
     )
     parser.add_argument(
-        "--episodes", 
-        type=int, 
-        default=1,
-        help="Number of episodes to run"
+        "--episodes", type=int, default=1, help="Number of episodes to run"
     )
-    
+
     args = parser.parse_args()
-    
+
     # Validate argument combinations
     if args.episode_id and args.restore_last:
         print("❌ Error: Cannot use both --episode-id and --restore-last")
         parser.print_help()
         exit(1)
-    
+
     print("=" * 60)
-    
+
     # Show mode information
     if args.continuous and args.restore_last:
-        print("🔄 CONTINUOUS MODE with restore-last: Will restore latest save, then run new episodes")
+        print(
+            "🔄 CONTINUOUS MODE with restore-last: Will restore latest save, then run new episodes"
+        )
     elif args.continuous:
         print("🔄 CONTINUOUS MODE: Will run new episodes indefinitely")
     elif args.episodes > 1:
@@ -233,11 +248,11 @@ if __name__ == "__main__":
         print("🎯 SINGLE EPISODE MODE: Restoring from latest save")
     else:
         print("🎯 SINGLE EPISODE MODE: Starting new episode")
-    
+
     if args.max_turns:
         print(f"📏 Max turns per episode: {args.max_turns}")
     print()
-    
+
     def get_episode_id_to_restore():
         """Get the episode ID to restore, considering --restore-last and --episode-id."""
         if args.episode_id:
@@ -246,19 +261,22 @@ if __name__ == "__main__":
             return find_latest_save_episode_id()
         else:
             return None
-    
+
     if args.continuous:
         # Continuous mode with optional restore capability
         first_episode = True
         while True:
             try:
                 # Only attempt restore on the first episode if --restore-last is specified
-                episode_id_to_use = get_episode_id_to_restore() if first_episode else None
+                episode_id_to_use = (
+                    get_episode_id_to_restore() if first_episode else None
+                )
                 run_episode(episode_id=episode_id_to_use, max_turns=args.max_turns)
                 first_episode = False  # Subsequent episodes will be new
             except Exception as e:
                 print(f"❌ Error: {e}")
                 import traceback
+
                 traceback.print_exc()
                 print("🔄 Retrying in 5 seconds...")
                 time.sleep(5)
@@ -267,11 +285,12 @@ if __name__ == "__main__":
         # Multiple episodes mode
         for i in range(args.episodes):
             try:
-                print(f"\n🎮 Starting episode {i+1} of {args.episodes}")
+                print(f"\n🎮 Starting episode {i + 1} of {args.episodes}")
                 run_episode(max_turns=args.max_turns)
             except Exception as e:
-                print(f"❌ Error in episode {i+1}: {e}")
+                print(f"❌ Error in episode {i + 1}: {e}")
                 import traceback
+
                 traceback.print_exc()
                 if i < args.episodes - 1:
                     print("🔄 Starting next episode in 5 seconds...")
@@ -284,4 +303,5 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"❌ Error: {e}")
             import traceback
+
             traceback.print_exc()

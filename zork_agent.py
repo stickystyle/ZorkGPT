@@ -44,19 +44,23 @@ class ZorkAgent:
             episode_id: Current episode ID for logging
         """
         config = get_config()
-        
+
         self.model = model or config.llm.agent_model
         self.max_tokens = max_tokens or config.agent_sampling.max_tokens
-        self.temperature = temperature if temperature is not None else config.agent_sampling.temperature
+        self.temperature = (
+            temperature
+            if temperature is not None
+            else config.agent_sampling.temperature
+        )
         self.top_p = top_p if top_p is not None else config.agent_sampling.top_p
         self.top_k = top_k if top_k is not None else config.agent_sampling.top_k
         self.min_p = min_p if min_p is not None else config.agent_sampling.min_p
         self.logger = logger
         self.episode_id = episode_id
-        
+
         # Create sampling params object for LLM calls
         self.sampling_params = config.agent_sampling
-        
+
         # Prompt logging counter for temporary evaluation
         self.prompt_counter = 0
         self.enable_prompt_logging = config.logging.enable_prompt_logging
@@ -64,7 +68,7 @@ class ZorkAgent:
         # Initialize LLM client if not provided
         if client is None:
             self.client = LLMClientWrapper(
-                base_url=config.llm.get_base_url_for_model('agent'),
+                base_url=config.llm.get_base_url_for_model("agent"),
                 api_key=get_client_api_key(),
             )
         else:
@@ -77,12 +81,12 @@ class ZorkAgent:
         """Log the full prompt to a temporary file for evaluation."""
         if not self.enable_prompt_logging:
             return
-            
+
         self.prompt_counter += 1
         filename = f"tmp/{prefix}_{self.prompt_counter:03d}.txt"
-        
+
         try:
-            with open(filename, 'w', encoding='utf-8') as f:
+            with open(filename, "w", encoding="utf-8") as f:
                 f.write(f"=== {prefix.upper()} PROMPT #{self.prompt_counter} ===\n")
                 f.write(f"Model: {self.model}\n")
                 f.write(f"Temperature: {self.temperature}\n")
@@ -92,16 +96,17 @@ class ZorkAgent:
                 f.write(f"Max Tokens: {self.max_tokens}\n")
                 f.write(f"Episode ID: {self.episode_id}\n")
                 f.write("=" * 50 + "\n\n")
-                
+
                 for i, message in enumerate(messages):
-                    f.write(f"--- MESSAGE {i+1} ({message['role'].upper()}) ---\n")
-                    f.write(message['content'])
+                    f.write(f"--- MESSAGE {i + 1} ({message['role'].upper()}) ---\n")
+                    f.write(message["content"])
                     f.write("\n\n")
         except Exception as e:
             if self.logger:
-                self.logger.warning(f"Failed to log prompt to {filename}: {e}", extra={
-                    "episode_id": self.episode_id
-                })
+                self.logger.warning(
+                    f"Failed to log prompt to {filename}: {e}",
+                    extra={"episode_id": self.episode_id},
+                )
 
     def _load_system_prompt(self) -> None:
         """Load agent system prompt from markdown files and enhance with knowledge."""
@@ -115,9 +120,10 @@ class ZorkAgent:
 
         except FileNotFoundError as e:
             if self.logger:
-                self.logger.error(f"Failed to load agent prompt file: {e}", extra={
-                    "episode_id": self.episode_id
-                })
+                self.logger.error(
+                    f"Failed to load agent prompt file: {e}",
+                    extra={"episode_id": self.episode_id},
+                )
             raise
 
     def _enhance_prompt_with_knowledge(self, base_prompt: str) -> str:
@@ -380,23 +386,57 @@ The following strategic guide has been compiled from analyzing previous episodes
             # Fallback: if no reasoning found in tags, try to extract reasoning from the response
             if not reasoning_parts:
                 # Look for reasoning patterns that might not be in tags
-                lines = raw_response.split('\n')
+                lines = raw_response.split("\n")
                 potential_reasoning = []
-                
+
                 for line in lines:
                     line = line.strip()
                     # Skip if it looks like a command
-                    if len(line.split()) <= 3 and any(word.lower() in line.lower() for word in 
-                        ['north', 'south', 'east', 'west', 'up', 'down', 'look', 'examine', 'take', 'open', 'close', 'enter', 'exit', 'climb', 'go']):
+                    if len(line.split()) <= 3 and any(
+                        word.lower() in line.lower()
+                        for word in [
+                            "north",
+                            "south",
+                            "east",
+                            "west",
+                            "up",
+                            "down",
+                            "look",
+                            "examine",
+                            "take",
+                            "open",
+                            "close",
+                            "enter",
+                            "exit",
+                            "climb",
+                            "go",
+                        ]
+                    ):
                         continue
                     # Skip empty lines
                     if not line:
                         continue
                     # If it's a longer explanatory line, consider it reasoning
-                    if len(line) > 20 or any(reasoning_word in line.lower() for reasoning_word in 
-                        ['should', 'need', 'want', 'will', 'can', 'might', 'could', 'seems', 'appears', 'because', 'since', 'to explore', 'to find']):
+                    if len(line) > 20 or any(
+                        reasoning_word in line.lower()
+                        for reasoning_word in [
+                            "should",
+                            "need",
+                            "want",
+                            "will",
+                            "can",
+                            "might",
+                            "could",
+                            "seems",
+                            "appears",
+                            "because",
+                            "since",
+                            "to explore",
+                            "to find",
+                        ]
+                    ):
                         potential_reasoning.append(line)
-                
+
                 if potential_reasoning:
                     reasoning_parts.extend(potential_reasoning)
 
@@ -411,17 +451,21 @@ The following strategic guide has been compiled from analyzing previous episodes
             action = re.sub(
                 r"<reflection>.*?</reflection>\s*", "", action, flags=re.DOTALL
             )
-            
+
             # Remove any remaining markup tags (like <s>, </s>, etc.)
             action = re.sub(r"<[^>]*>", "", action)
-            
+
             # Remove backticks and other formatting
-            action = re.sub(r"`([^`]*)`", r"\1", action)  # Remove backticks but keep content
-            action = re.sub(r"```[^`]*```", "", action, flags=re.DOTALL)  # Remove code blocks
-            
+            action = re.sub(
+                r"`([^`]*)`", r"\1", action
+            )  # Remove backticks but keep content
+            action = re.sub(
+                r"```[^`]*```", "", action, flags=re.DOTALL
+            )  # Remove code blocks
+
             # Basic cleaning: Zork commands are usually lowercase
             action = action.lower().strip()
-            
+
             # Remove any leading/trailing punctuation that might interfere
             action = action.strip(".,!?;:")
 
@@ -440,9 +484,10 @@ The following strategic guide has been compiled from analyzing previous episodes
             }
         except Exception as e:
             if self.logger:
-                self.logger.error(f"Error getting agent action: {e}", extra={
-                    "episode_id": self.episode_id
-                })
+                self.logger.error(
+                    f"Error getting agent action: {e}",
+                    extra={"episode_id": self.episode_id},
+                )
             return {
                 "action": "look",
                 "reasoning": None,
@@ -483,11 +528,13 @@ The following strategic guide has been compiled from analyzing previous episodes
             for obs in memory_log_history[-5:]:
                 if obs.current_location_name:
                     recent_locations.append(obs.current_location_name)
-        
+
         # Count how many of the recent turns were in current location
-        current_location_count = recent_locations.count(current_location_name_from_current_extraction)
+        current_location_count = recent_locations.count(
+            current_location_name_from_current_extraction
+        )
         is_stuck_in_loop = current_location_count >= 3
-        
+
         map_context_str = ""
         if game_map:
             map_info = game_map.get_context_for_prompt(
@@ -495,24 +542,28 @@ The following strategic guide has been compiled from analyzing previous episodes
                 previous_room_name=previous_room_name_for_map_context,
                 action_taken_to_current=action_taken_to_current_room,
             )
-            
+
             # Add navigation suggestions to the map context
-            nav_suggestions = game_map.get_navigation_suggestions(current_location_name_from_current_extraction)
+            nav_suggestions = game_map.get_navigation_suggestions(
+                current_location_name_from_current_extraction
+            )
             if nav_suggestions:
-                nav_text = "Available exits: " + ", ".join([
-                    f"{suggestion['exit']} (to {suggestion['destination']})" 
-                    for suggestion in nav_suggestions
-                ])
-                
+                nav_text = "Available exits: " + ", ".join(
+                    [
+                        f"{suggestion['exit']} (to {suggestion['destination']})"
+                        for suggestion in nav_suggestions
+                    ]
+                )
+
                 # If stuck in loop, make navigation more prominent
                 if is_stuck_in_loop:
                     nav_text = f"🚨 LOOP DETECTED - PRIORITIZE MOVEMENT! 🚨\n{nav_text}\n⚠️  You've been in {current_location_name_from_current_extraction} for {current_location_count} recent turns. Try these exits NOW!"
-                
+
                 if map_info:
                     map_info += f"\n{nav_text}"
                 else:
                     map_info = f"--- Map Information ---\n{nav_text}"
-            
+
             if map_info:
                 map_context_str = map_info
 
@@ -609,7 +660,7 @@ The following strategic guide has been compiled from analyzing previous episodes
 
     def reload_knowledge_base(self) -> bool:
         """Reload the knowledge base from file and update the system prompt.
-        
+
         Returns:
             True if knowledge base was successfully reloaded, False otherwise
         """
@@ -620,12 +671,14 @@ The following strategic guide has been compiled from analyzing previous episodes
 
             # Re-enhance with current knowledge base
             new_system_prompt = self._enhance_prompt_with_knowledge(base_agent_prompt)
-            
+
             # Update the system prompt
-            old_length = len(self.system_prompt) if hasattr(self, 'system_prompt') else 0
+            old_length = (
+                len(self.system_prompt) if hasattr(self, "system_prompt") else 0
+            )
             self.system_prompt = new_system_prompt
             new_length = len(self.system_prompt)
-            
+
             if self.logger:
                 self.logger.info(
                     f"Knowledge base reloaded successfully (prompt: {old_length} -> {new_length} chars)",
@@ -634,14 +687,15 @@ The following strategic guide has been compiled from analyzing previous episodes
                         "episode_id": self.episode_id,
                         "old_prompt_length": old_length,
                         "new_prompt_length": new_length,
-                    }
+                    },
                 )
-            
+
             return True
-            
+
         except Exception as e:
             if self.logger:
-                self.logger.warning(f"Failed to reload knowledge base: {e}", extra={
-                    "episode_id": self.episode_id
-                })
+                self.logger.warning(
+                    f"Failed to reload knowledge base: {e}",
+                    extra={"episode_id": self.episode_id},
+                )
             return False

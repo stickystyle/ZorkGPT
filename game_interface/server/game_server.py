@@ -21,50 +21,49 @@ from .session_manager import GameSession
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
 
 class GameServer:
     """Main game server managing multiple sessions."""
-    
+
     def __init__(self, working_directory: str = "./game_files"):
         self.working_directory = working_directory
         self.sessions: Dict[str, GameSession] = {}
-        
+
     async def create_or_restore_session(self, session_id: str) -> str:
         """Create a new session or restore existing one."""
         if session_id in self.sessions and self.sessions[session_id].active:
             # Session already active
             return "Session already active"
-            
+
         # Create new session
         session = GameSession(session_id, self.working_directory)
         intro_text = await session.start()
         self.sessions[session_id] = session
-        
+
         logger.info(f"Created/restored session: {session_id}")
         return intro_text
-        
+
     def get_session(self, session_id: str) -> GameSession:
         """Get a session by ID."""
         if session_id not in self.sessions:
             raise HTTPException(status_code=404, detail="Session not found")
-        
+
         session = self.sessions[session_id]
         if not session.active:
             raise HTTPException(status_code=400, detail="Session not active")
-            
+
         return session
-        
+
     def close_session(self, session_id: str):
         """Close a session."""
         if session_id in self.sessions:
             self.sessions[session_id].close()
             del self.sessions[session_id]
-            
+
 
 # Create FastAPI app
 app = FastAPI(title="ZorkGPT Game Server")
@@ -106,7 +105,10 @@ async def force_save(session_id: str) -> Dict[str, str]:
     """Force an immediate save for the session."""
     session = game_server.get_session(session_id)
     session._force_save()
-    return {"message": f"Save triggered for session {session_id}", "turn": str(session.turn_number)}
+    return {
+        "message": f"Save triggered for session {session_id}",
+        "turn": str(session.turn_number),
+    }
 
 
 @app.delete("/sessions/{session_id}")

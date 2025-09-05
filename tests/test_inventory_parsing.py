@@ -4,7 +4,7 @@ import os
 import pytest
 
 # Add the parent directory to the path to import modules
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from tests.test_utils import game_client, skip_if_server_unavailable, run_test_commands
 from hybrid_zork_extractor import HybridZorkExtractor
@@ -26,7 +26,9 @@ class TestInventoryParsing(unittest.TestCase):
         )
         parsed = self.extractor.extract(raw_text)
         result = parsed.inventory
-        self.assertEqual(result, [], "Should return empty list for empty-handed inventory")
+        self.assertEqual(
+            result, [], "Should return empty list for empty-handed inventory"
+        )
 
     def test_single_item_with_status_line(self):
         """Test parsing inventory with one item and status line."""
@@ -65,7 +67,9 @@ class TestInventoryParsing(unittest.TestCase):
         result = parsed.inventory
         # The atmospheric text should be included as it's not a status line
         expected = ["A leaflet", "You hear in the distance the chirping of a song bird"]
-        self.assertEqual(result, expected, "Should include atmospheric text but filter status line")
+        self.assertEqual(
+            result, expected, "Should include atmospheric text but filter status line"
+        )
 
     def test_container_items_with_status_line(self):
         """Test parsing inventory with items in containers and status line."""
@@ -81,7 +85,9 @@ class TestInventoryParsing(unittest.TestCase):
         result = parsed.inventory
         # Should handle container relationships
         expected = ["A brown sack: Containing A lunch"]
-        self.assertEqual(result, expected, "Should parse container relationships correctly")
+        self.assertEqual(
+            result, expected, "Should parse container relationships correctly"
+        )
 
     def test_status_line_variations(self):
         """Test different status line formats are properly filtered."""
@@ -92,7 +98,9 @@ class TestInventoryParsing(unittest.TestCase):
             "  A leaflet"
         )
         result1 = self.zork._parse_inventory(raw_text1)
-        self.assertEqual(result1, ["A leaflet"], "Should handle different location names")
+        self.assertEqual(
+            result1, ["A leaflet"], "Should handle different location names"
+        )
 
         raw_text2 = (
             "> Clearing                                         Score: 15       Moves: 123\n\n"
@@ -103,11 +111,7 @@ class TestInventoryParsing(unittest.TestCase):
 
     def test_no_status_line(self):
         """Test parsing inventory without status line (edge case)."""
-        raw_text = (
-            "You are carrying:\n"
-            "  A leaflet\n"
-            "  A sword"
-        )
+        raw_text = "You are carrying:\n  A leaflet\n  A sword"
         parsed = self.extractor.extract(raw_text)
         result = parsed.inventory
         expected = ["A leaflet", "A sword"]
@@ -150,9 +154,13 @@ class TestInventoryParsing(unittest.TestCase):
         result = parsed.inventory
         expected = [
             "A book titled 'High Score: Gaming Adventures'",
-            "A manual about 'Chess Moves: Advanced Tactics'"
+            "A manual about 'Chess Moves: Advanced Tactics'",
         ]
-        self.assertEqual(result, expected, "Should not filter valid items containing Score: or Moves:")
+        self.assertEqual(
+            result,
+            expected,
+            "Should not filter valid items containing Score: or Moves:",
+        )
 
     def test_complex_container_scenario(self):
         """Test complex scenario with multiple containers and status line."""
@@ -169,39 +177,37 @@ class TestInventoryParsing(unittest.TestCase):
         )
         parsed = self.extractor.extract(raw_text)
         result = parsed.inventory
-        expected = [
-            "A brown sack: Containing A lunch", 
-            "A bottle: Containing Water"
-        ]
-        self.assertEqual(result, expected, "Should handle complex container relationships")
-
+        expected = ["A brown sack: Containing A lunch", "A bottle: Containing Water"]
+        self.assertEqual(
+            result, expected, "Should handle complex container relationships"
+        )
 
     def test_real_game_inventory_sequence(self, game_client):
         """Test inventory parsing with actual game commands."""
         # Execute test sequence
         commands = [
             "south",
-            "east", 
+            "east",
             "open window",
             "enter window",
             "take sack",
             "take garlic",
-            "inventory"
+            "inventory",
         ]
-        
+
         responses = run_test_commands(game_client, commands)
-        
+
         # Parse the final inventory response
-        inventory_response = responses[-1]['raw_response']
+        inventory_response = responses[-1]["raw_response"]
         parsed = self.extractor.extract(inventory_response)
-        
+
         # Should have both sack and garlic
         self.assertIn("brown sack", [item.lower() for item in parsed.inventory])
         self.assertIn("clove of garlic", [item.lower() for item in parsed.inventory])
-        
+
         # Check that we got score increase from taking items
         self.assertGreater(parsed.score, 0)
 
 
-if __name__ == '__main__':
-    unittest.main() 
+if __name__ == "__main__":
+    unittest.main()

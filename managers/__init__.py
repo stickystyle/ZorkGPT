@@ -10,7 +10,7 @@ from .episode_synthesizer import EpisodeSynthesizer
 from .rejection_manager import RejectionManager
 
 __all__ = [
-    "BaseManager", 
+    "BaseManager",
     "ManagerProtocol",
     "ObjectiveManager",
     "KnowledgeManager",
@@ -18,5 +18,5 @@ __all__ = [
     "StateManager",
     "ContextManager",
     "EpisodeSynthesizer",
-    "RejectionManager"
+    "RejectionManager",
 ]

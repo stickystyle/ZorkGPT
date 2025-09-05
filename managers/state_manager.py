@@ -22,6 +22,7 @@ from session.game_configuration import GameConfiguration
 # Import boto3 only when needed
 try:
     import boto3
+
     BOTO3_AVAILABLE = True
 except ImportError:
     BOTO3_AVAILABLE = False
@@ -30,7 +31,7 @@ except ImportError:
 class StateManager(BaseManager):
     """
     Manages all state-related functionality for ZorkGPT.
-    
+
     Responsibilities:
     - Episode lifecycle and state management
     - State export and import to files and S3
@@ -39,72 +40,72 @@ class StateManager(BaseManager):
     - Cross-episode persistent state tracking
     - State queries and reporting
     """
-    
+
     def __init__(
-        self, 
-        logger, 
-        config: GameConfiguration, 
-        game_state: GameState,
-        llm_client=None
+        self, logger, config: GameConfiguration, game_state: GameState, llm_client=None
     ):
         super().__init__(logger, config, game_state, "state_manager")
         self.llm_client = llm_client
-        
+
         # S3 client for state uploads
         self.s3_client = None
         if config.s3_bucket and BOTO3_AVAILABLE:
             try:
-                self.s3_client = boto3.client('s3')
+                self.s3_client = boto3.client("s3")
             except Exception as e:
                 self.log_warning(f"Failed to initialize S3 client: {e}")
         elif config.s3_bucket and not BOTO3_AVAILABLE:
-            self.log_warning("S3 bucket configured but boto3 not available. Install with: uv sync --extra s3")
-        
+            self.log_warning(
+                "S3 bucket configured but boto3 not available. Install with: uv sync --extra s3"
+            )
+
         # Context management tracking
         self.last_summarization_turn = 0
-    
+
     def reset_episode(self) -> None:
         """Reset episode-specific state for a new episode."""
         self.log_debug("Resetting episode state")
-        
+
         # NOTE: Do NOT call game_state.reset_episode() here!
         # Episode ID generation and GameState reset is handled by EpisodeSynthesizer
         # This method only resets StateManager's internal state
-        
+
         # Reset manager-specific tracking
         self.last_summarization_turn = 0
-        
+
         self.log_debug("Episode state reset completed")
-    
+
     def process_turn(self) -> None:
         """Process state management for the current turn."""
         # Check for context overflow
         self.check_context_overflow()
-        
+
         # Note: State export is handled by orchestrator coordination
         # via _export_coordinated_state() which gathers data from all managers
-    
+
     def should_process_turn(self) -> bool:
         """Check if state needs processing this turn."""
         # Always process for context management
         return True
-    
+
     def check_context_overflow(self) -> None:
         """Check if context is approaching token limits and trigger summarization if needed."""
         try:
             # Estimate current context tokens
             estimated_tokens = self.estimate_context_tokens()
-            
+
             # Check if we're approaching the limit
-            threshold = int(self.config.max_context_tokens * self.config.context_overflow_threshold)
-            
+            threshold = int(
+                self.config.max_context_tokens * self.config.context_overflow_threshold
+            )
+
             if estimated_tokens > threshold:
                 self.log_progress(
                     f"Context overflow detected: {estimated_tokens}/{self.config.max_context_tokens} tokens",
                     stage="context_management",
-                    details=f"Triggering context summarization at turn {self.game_state.turn_count}"
+                    details=f"Triggering context summarization at turn {self.game_state.turn_count}",
                 )
-                
+
                 self.logger.info(
                     f"Context overflow - triggering summarization",
                     extra={
@@ -114,79 +115,83 @@ class StateManager(BaseManager):
                         "estimated_tokens": estimated_tokens,
                         "threshold": threshold,
                         "max_tokens": self.config.max_context_tokens,
-                    }
+                    },
                 )
-                
+
                 self.trigger_context_summarization()
-            
+
         except Exception as e:
             self.log_error(f"Failed to check context overflow: {e}")
-    
+
     def estimate_context_tokens(self) -> int:
         """Estimate total context tokens based on memory log history."""
         try:
             # Rough estimation: ~3-4 tokens per word
             total_chars = 0
-            
+
             # Count characters in memory history
             for memory in self.game_state.memory_log_history:
                 if isinstance(memory, dict):
                     total_chars += len(str(memory))
                 else:
                     total_chars += len(str(memory))
-            
+
             # Count characters in action history
             for action, response in self.game_state.action_history:
                 total_chars += len(action) + len(response)
-            
+
             # Rough conversion: 4 characters per token
             estimated_tokens = total_chars // 4
-            
+
             return estimated_tokens
-            
+
         except Exception as e:
             self.log_error(f"Failed to estimate context tokens: {e}")
             return 0
-    
+
     def trigger_context_summarization(self) -> None:
         """Generate a summary of recent gameplay and reset context."""
         try:
             self.log_progress(
                 "Starting context summarization",
                 stage="context_summarization",
-                details=f"Summarizing context at turn {self.game_state.turn_count}"
+                details=f"Summarizing context at turn {self.game_state.turn_count}",
             )
-            
+
             # Generate summary of recent gameplay
             summary = self.generate_gameplay_summary()
-            
+
             if summary:
                 # Extract critical memories before clearing
                 critical_memories = self.extract_critical_memories()
-                
+
                 # Clear old memory log history but keep recent critical memories
-                self.game_state.memory_log_history = critical_memories[-10:]  # Keep last 10 critical memories
-                
+                self.game_state.memory_log_history = critical_memories[
+                    -10:
+                ]  # Keep last 10 critical memories
+
                 # Add summary as a memory entry
                 summary_memory = {
                     "turn": self.game_state.turn_count,
                     "type": "context_summary",
                     "summary": summary,
-                    "summarized_turns": f"1-{self.game_state.turn_count - 10}"
+                    "summarized_turns": f"1-{self.game_state.turn_count - 10}",
                 }
                 self.game_state.memory_log_history.insert(0, summary_memory)
-                
+
                 # Keep recent action history but truncate older entries
-                self.game_state.action_history = self.game_state.action_history[-20:]  # Keep last 20 actions
-                
+                self.game_state.action_history = self.game_state.action_history[
+                    -20:
+                ]  # Keep last 20 actions
+
                 self.last_summarization_turn = self.game_state.turn_count
-                
+
                 self.log_progress(
                     "Context summarization completed",
                     stage="context_summarization",
-                    details=f"Generated summary, retained {len(critical_memories)} critical memories"
+                    details=f"Generated summary, retained {len(critical_memories)} critical memories",
                 )
-                
+
                 self.logger.info(
                     "Context summarization completed",
                     extra={
@@ -195,24 +200,26 @@ class StateManager(BaseManager):
                         "turn": self.game_state.turn_count,
                         "critical_memories_retained": len(critical_memories),
                         "actions_retained": len(self.game_state.action_history),
-                    }
+                    },
                 )
             else:
                 self.log_warning("Failed to generate context summary")
-                
+
         except Exception as e:
             self.log_error(f"Failed to trigger context summarization: {e}")
-    
+
     def generate_gameplay_summary(self) -> str:
         """Generate a comprehensive summary of recent gameplay progress."""
         try:
             if not self.llm_client:
                 return self.generate_fallback_summary()
-            
+
             # Prepare context for summarization
             recent_actions = self.game_state.action_history[-30:]  # Last 30 actions
-            recent_memories = self.game_state.memory_log_history[-20:]  # Last 20 memories
-            
+            recent_memories = self.game_state.memory_log_history[
+                -20:
+            ]  # Last 20 memories
+
             # Create prompt for summarization
             prompt = f"""Summarize the recent gameplay progress in Zork for context preservation.
 
@@ -223,7 +230,7 @@ CURRENT LOCATION: {self.game_state.current_room_name_for_map}
 CURRENT INVENTORY: {self.game_state.current_inventory}
 
 RECENT ACTIONS ({len(recent_actions)} actions):
-{chr(10).join([f"Turn {i}: {action} -> {response[:100]}..." for i, (action, response) in enumerate(recent_actions, start=max(1, self.game_state.turn_count-len(recent_actions)+1))])}
+{chr(10).join([f"Turn {i}: {action} -> {response[:100]}..." for i, (action, response) in enumerate(recent_actions, start=max(1, self.game_state.turn_count - len(recent_actions) + 1))])}
 
 DISCOVERED OBJECTIVES:
 {chr(10).join([f"- {obj}" for obj in self.game_state.discovered_objectives])}
@@ -245,19 +252,19 @@ Keep the summary under 500 words and focus on actionable information for continu
                     model=self.config.llm.analysis_model,
                     messages=messages,
                     temperature=0.3,
-                    max_tokens=1000
+                    max_tokens=1000,
                 )
-                
+
                 return response.content or ""
-                
+
             except Exception as llm_error:
                 self.log_warning(f"LLM summarization failed: {llm_error}")
                 return self.generate_fallback_summary()
-                
+
         except Exception as e:
             self.log_error(f"Failed to generate gameplay summary: {e}")
             return self.generate_fallback_summary()
-    
+
     def generate_fallback_summary(self) -> str:
         """Generate a basic summary without LLM assistance."""
         try:
@@ -268,62 +275,73 @@ Keep the summary under 500 words and focus on actionable information for continu
                 f"Inventory: {', '.join(self.game_state.current_inventory) if self.game_state.current_inventory else 'empty'}",
                 f"Discovered objectives: {len(self.game_state.discovered_objectives)}",
                 f"Completed objectives: {len(self.game_state.completed_objectives)}",
-                f"Recent actions: {len(self.game_state.action_history[-10:])} logged"
+                f"Recent actions: {len(self.game_state.action_history[-10:])} logged",
             ]
-            
+
             return "\n".join(summary_parts)
-            
+
         except Exception as e:
             self.log_error(f"Failed to generate fallback summary: {e}")
             return f"Context summarized at turn {self.game_state.turn_count}"
-    
+
     def extract_critical_memories(self) -> List[Dict[str, Any]]:
         """Extract the most critical memories from recent turns."""
         try:
             critical_memories = []
-            
+
             for memory in self.game_state.memory_log_history:
                 if self.is_critical_memory(memory):
                     critical_memories.append(memory)
-            
+
             # Sort by importance and return top memories
             critical_memories.sort(key=lambda m: m.get("turn", 0), reverse=True)
             return critical_memories[:15]  # Keep top 15 critical memories
-            
+
         except Exception as e:
             self.log_error(f"Failed to extract critical memories: {e}")
             return []
-    
+
     def is_critical_memory(self, memory: Any) -> bool:
         """Determine if a memory contains critical information."""
         try:
             if not isinstance(memory, dict):
                 return False
-            
+
             # Check for score increases
             if memory.get("score", 0) > 0:
                 return True
-            
+
             # Check for death events
             if memory.get("game_over") or "died" in str(memory).lower():
                 return True
-            
+
             # Check for new items or significant discoveries
             memory_text = str(memory).lower()
             critical_keywords = [
-                "treasure", "valuable", "points", "earned", "found", "took",
-                "opened", "unlocked", "solved", "completed", "achieved"
+                "treasure",
+                "valuable",
+                "points",
+                "earned",
+                "found",
+                "took",
+                "opened",
+                "unlocked",
+                "solved",
+                "completed",
+                "achieved",
             ]
-            
+
             if any(keyword in memory_text for keyword in critical_keywords):
                 return True
-            
+
             return False
-            
+
         except Exception as e:
             return False
-    
-    def get_current_state(self, map_data: Dict[str, Any] = None, knowledge_data: Dict[str, Any] = None) -> Dict[str, Any]:
+
+    def get_current_state(
+        self, map_data: Dict[str, Any] = None, knowledge_data: Dict[str, Any] = None
+    ) -> Dict[str, Any]:
         """Get comprehensive current state for export."""
         try:
             # Build models structure (matching old orchestrator format)
@@ -331,9 +349,9 @@ Keep the summary under 500 words and focus on actionable information for continu
                 "agent": self.config.agent_model,
                 "critic": self.config.critic_model,
                 "extractor": self.config.info_ext_model,
-                "knowledge_base": self.config.analysis_model  # Use analysis model from config
+                "knowledge_base": self.config.analysis_model,  # Use analysis model from config
             }
-            
+
             state_data = {
                 "metadata": {
                     "episode_id": self.game_state.episode_id,
@@ -362,39 +380,43 @@ Keep the summary under 500 words and focus on actionable information for continu
                     "memory_entries": len(self.game_state.memory_log_history),
                     "last_summarization_turn": self.last_summarization_turn,
                     "estimated_tokens": self.estimate_context_tokens(),
-                }
+                },
             }
-            
+
             # Add map data if provided
             if map_data:
                 state_data["map"] = map_data
-            
-            # Add knowledge base data if provided  
+
+            # Add knowledge base data if provided
             if knowledge_data:
                 state_data["knowledge_base"] = knowledge_data
-                
+
             return state_data
-            
+
         except Exception as e:
             self.log_error(f"Failed to get current state: {e}")
             return {}
-    
-    def export_current_state(self, map_data: Dict[str, Any] = None, knowledge_data: Dict[str, Any] = None) -> bool:
+
+    def export_current_state(
+        self, map_data: Dict[str, Any] = None, knowledge_data: Dict[str, Any] = None
+    ) -> bool:
         """Export current state to file and optionally to S3."""
         try:
             if not self.config.enable_state_export:
                 return True
-            
-            state_data = self.get_current_state(map_data=map_data, knowledge_data=knowledge_data)
+
+            state_data = self.get_current_state(
+                map_data=map_data, knowledge_data=knowledge_data
+            )
             if not state_data:
                 return False
-            
+
             # Export to local file
-            with open(self.config.state_export_file, 'w') as f:
+            with open(self.config.state_export_file, "w") as f:
                 json.dump(state_data, f, indent=2)
-            
+
             self.log_debug(f"State exported to {self.config.state_export_file}")
-            
+
             # Upload to S3 if configured
             if self.config.s3_bucket and self.s3_client:
                 success = self.upload_state_to_s3(state_data)
@@ -402,34 +424,34 @@ Keep the summary under 500 words and focus on actionable information for continu
                     self.log_debug("State uploaded to S3")
                 else:
                     self.log_warning("Failed to upload state to S3")
-            
+
             return True
-            
+
         except Exception as e:
             self.log_error(f"Failed to export current state: {e}")
             return False
-    
+
     def upload_state_to_s3(self, state_data: Dict[str, Any]) -> bool:
         """
         Upload current state to S3 using dual strategy for web viewer compatibility.
-        
+
         This method uploads the state data to two S3 locations:
         1. current_state.json - Always overwritten, used for live monitoring by zork_viewer.html
         2. snapshots/{episode_id}/turn_{turn}.json - Historical preservation organized by episode
-        
+
         This structure matches what the web viewer expects for both live monitoring
         and historical episode browsing functionality.
-        
+
         Returns:
             bool: True if at least one upload succeeded, False if both failed or S3 not configured
         """
         try:
             if not self.s3_client or not self.config.s3_bucket:
                 return False
-            
+
             json_content = json.dumps(state_data, indent=2)
             upload_success_count = 0
-            
+
             # 1. Upload current state (always overwritten for live monitoring)
             current_state_key = f"{self.config.s3_key_prefix}current_state.json"
             try:
@@ -437,14 +459,14 @@ Keep the summary under 500 words and focus on actionable information for continu
                     Bucket=self.config.s3_bucket,
                     Key=current_state_key,
                     Body=json_content,
-                    ContentType='application/json',
-                    CacheControl='no-cache, must-revalidate'  # Force fresh data for live monitoring
+                    ContentType="application/json",
+                    CacheControl="no-cache, must-revalidate",  # Force fresh data for live monitoring
                 )
                 self.log_debug(f"Uploaded current state to S3: {current_state_key}")
                 upload_success_count += 1
             except Exception as e:
                 self.log_warning(f"Failed to upload current state to S3: {e}")
-            
+
             # 2. Upload historical snapshot (organized by episode and turn)
             turn_count = self.game_state.turn_count
             snapshot_key = f"{self.config.s3_key_prefix}snapshots/{self.game_state.episode_id}/turn_{turn_count}.json"
@@ -453,16 +475,16 @@ Keep the summary under 500 words and focus on actionable information for continu
                     Bucket=self.config.s3_bucket,
                     Key=snapshot_key,
                     Body=json_content,
-                    ContentType='application/json'
+                    ContentType="application/json",
                 )
                 self.log_debug(f"Uploaded snapshot to S3: {snapshot_key}")
                 upload_success_count += 1
             except Exception as e:
                 self.log_warning(f"Failed to upload snapshot to S3: {e}")
-            
+
             # Return True if at least one upload succeeded
             return upload_success_count > 0
-            
+
         except Exception as e:
             self.log_error(f"Failed to upload state to S3: {e}")
             return False
@@ -471,86 +493,109 @@ Keep the summary under 500 words and focus on actionable information for continu
         """Get recent game log entries with reasoning."""
         try:
             recent_log = []
-            
+
             # Get recent action history with reasoning
             recent_actions = self.game_state.action_history[-num_entries:]
             recent_reasoning = self.game_state.action_reasoning_history[-num_entries:]
-            recent_critic_evals = self.game_state.critic_evaluation_history[-num_entries:]
-            recent_extracted_info = self.game_state.extracted_info_history[-num_entries:]
-            
+            recent_critic_evals = self.game_state.critic_evaluation_history[
+                -num_entries:
+            ]
+            recent_extracted_info = self.game_state.extracted_info_history[
+                -num_entries:
+            ]
+
             for i, (action, response) in enumerate(recent_actions):
-                reasoning_data = recent_reasoning[i] if i < len(recent_reasoning) else {}
-                reasoning_text = reasoning_data.get("reasoning", "") if isinstance(reasoning_data, dict) else str(reasoning_data)
-                
+                reasoning_data = (
+                    recent_reasoning[i] if i < len(recent_reasoning) else {}
+                )
+                reasoning_text = (
+                    reasoning_data.get("reasoning", "")
+                    if isinstance(reasoning_data, dict)
+                    else str(reasoning_data)
+                )
+
                 log_entry = {
                     "turn": self.game_state.turn_count - len(recent_actions) + i + 1,
                     "action": action,
                     "zork_response": response,  # Viewer expects 'zork_response'
-                    "reasoning": reasoning_text
+                    "reasoning": reasoning_text,
                 }
-                
+
                 # Add critic data if available
                 if i < len(recent_critic_evals):
                     critic_data = recent_critic_evals[i]
                     log_entry["critic_score"] = critic_data.get("critic_score", 0.0)
-                    log_entry["critic_justification"] = critic_data.get("critic_justification", "")
-                    log_entry["was_overridden"] = critic_data.get("was_overridden", False)
-                    log_entry["rejected_actions"] = critic_data.get("rejected_actions", [])
-                
+                    log_entry["critic_justification"] = critic_data.get(
+                        "critic_justification", ""
+                    )
+                    log_entry["was_overridden"] = critic_data.get(
+                        "was_overridden", False
+                    )
+                    log_entry["rejected_actions"] = critic_data.get(
+                        "rejected_actions", []
+                    )
+
                 # Add extracted info if available
                 if i < len(recent_extracted_info):
                     log_entry["extracted_info"] = recent_extracted_info[i]
-                
+
                 recent_log.append(log_entry)
-            
+
             return recent_log
-            
+
         except Exception as e:
             self.log_error(f"Failed to get recent log: {e}")
             return []
-    
+
     def get_combat_status(self) -> bool:
         """Determine if currently in combat based on recent extractions."""
         try:
             # Check recent memory for combat indicators
             recent_memories = self.game_state.memory_log_history[-3:]  # Last 3 turns
-            
+
             for memory in recent_memories:
                 if isinstance(memory, dict):
                     # Check for combat-related fields or keywords
                     memory_text = str(memory).lower()
-                    combat_keywords = ["combat", "fight", "attack", "enemy", "monster", "battle"]
-                    
+                    combat_keywords = [
+                        "combat",
+                        "fight",
+                        "attack",
+                        "enemy",
+                        "monster",
+                        "battle",
+                    ]
+
                     if any(keyword in memory_text for keyword in combat_keywords):
                         return True
-            
+
             return False
-            
+
         except Exception as e:
             self.log_error(f"Failed to get combat status: {e}")
             return False
-    
+
     def get_avg_critic_score(self, num_recent: int = 10) -> float:
         """Get average critic score for recent turns."""
         try:
             # This would need to be tracked in game state or passed from orchestrator
             # For now, return a placeholder
             return 0.0
-            
+
         except Exception as e:
             self.log_error(f"Failed to get avg critic score: {e}")
             return 0.0
-    
+
     def get_recent_action_summary(self, num_actions: int = 5) -> List[str]:
         """Get summary of recent actions."""
         try:
             recent_actions = self.game_state.action_history[-num_actions:]
             return [action for action, _ in recent_actions]
-            
+
         except Exception as e:
             self.log_error(f"Failed to get recent action summary: {e}")
             return []
-    
+
     def is_death_episode(self) -> bool:
         """Determine if the current episode ended in death."""
         try:
@@ -559,25 +604,27 @@ Keep the summary under 500 words and focus on actionable information for continu
                 if isinstance(memory, dict):
                     memory_text = str(memory).lower()
                     death_keywords = ["died", "death", "killed", "fatal", "perish"]
-                    
+
                     if any(keyword in memory_text for keyword in death_keywords):
                         return True
-            
+
             return False
-            
+
         except Exception as e:
             self.log_error(f"Failed to check death episode: {e}")
             return False
-    
+
     def get_status(self) -> Dict[str, Any]:
         """Get current state manager status."""
         status = super().get_status()
-        status.update({
-            "memory_entries": len(self.game_state.memory_log_history),
-            "action_history_length": len(self.game_state.action_history),
-            "estimated_tokens": self.estimate_context_tokens(),
-            "last_summarization_turn": self.last_summarization_turn,
-            "export_enabled": self.config.enable_state_export,
-            "s3_configured": self.s3_client is not None,
-        })
+        status.update(
+            {
+                "memory_entries": len(self.game_state.memory_log_history),
+                "action_history_length": len(self.game_state.action_history),
+                "estimated_tokens": self.estimate_context_tokens(),
+                "last_summarization_turn": self.last_summarization_turn,
+                "export_enabled": self.config.enable_state_export,
+                "s3_configured": self.s3_client is not None,
+            }
+        )
         return status

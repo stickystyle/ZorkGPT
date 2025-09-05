@@ -11,10 +11,10 @@ from game_interface.client.game_server_client import GameServerClient
 
 def setup_test_session(base_url: str = "http://localhost:8000") -> GameServerClient:
     """Create a new game server session for testing.
-    
+
     Args:
         base_url: The game server URL
-        
+
     Returns:
         GameServerClient instance with a new test session started
     """
@@ -24,13 +24,15 @@ def setup_test_session(base_url: str = "http://localhost:8000") -> GameServerCli
     return client
 
 
-def run_test_commands(client: GameServerClient, commands: List[str]) -> List[Dict[str, Any]]:
+def run_test_commands(
+    client: GameServerClient, commands: List[str]
+) -> List[Dict[str, Any]]:
     """Run a sequence of commands and return responses.
-    
+
     Args:
         client: The game server client
         commands: List of commands to execute
-        
+
     Returns:
         List of response dictionaries
     """
@@ -52,6 +54,7 @@ def game_client():
 def skip_if_server_unavailable():
     """Skip test if game server is not available."""
     import requests
+
     try:
         response = requests.get("http://localhost:8000/health", timeout=1)
         response.raise_for_status()
