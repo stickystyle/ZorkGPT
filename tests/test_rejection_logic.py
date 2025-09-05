@@ -1,8 +1,7 @@
 """Test rejection logic implementation."""
 
-import pytest
-from unittest.mock import Mock, MagicMock, patch
-from managers.rejection_manager import RejectionManager, RejectionState
+from unittest.mock import Mock
+from managers.rejection_manager import RejectionManager
 from session.game_state import GameState
 from session.game_configuration import GameConfiguration
 import logging

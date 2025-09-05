@@ -4,7 +4,6 @@ ABOUTME: Provides ZorkInterface-compatible API for orchestrators to use
 """
 
 import requests
-import time
 from typing import List, Tuple, Optional
 import logging
 

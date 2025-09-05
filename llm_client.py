@@ -5,7 +5,6 @@ This module replaces the OpenAI SDK to enable fine-tuned control over sampling
 parameters like top_k, min_p, etc. that are not supported by the OpenAI SDK.
 """
 
-import json
 import requests
 import random
 import time
@@ -281,7 +280,7 @@ class LLMClient:
         # Check circuit breaker
         if self.circuit_breaker and not self.circuit_breaker.can_execute():
             error_msg = (
-                f"Circuit breaker is open. Service unavailable until recovery timeout."
+                "Circuit breaker is open. Service unavailable until recovery timeout."
             )
             if self.logger:
                 self.logger.error(

@@ -2,7 +2,6 @@
 Tests for StructuredZorkParser score parsing functionality.
 """
 
-import pytest
 from game_interface.core.structured_parser import StructuredZorkParser
 
 

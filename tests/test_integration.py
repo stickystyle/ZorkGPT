@@ -8,9 +8,7 @@ manager interactions, and end-to-end workflows.
 import pytest
 import tempfile
 import os
-import json
-from unittest.mock import Mock, patch, MagicMock
-from typing import Dict, Any
+from unittest.mock import Mock, patch
 
 from orchestration import ZorkOrchestratorV2
 from session.game_state import GameState
@@ -479,7 +477,6 @@ class TestRealDfrotzIntegration:
         import requests
         import time
         from hybrid_zork_extractor import HybridZorkExtractor
-        from llm_client import LLMClient
         from session.game_configuration import GameConfiguration
 
         # Check if game server is running

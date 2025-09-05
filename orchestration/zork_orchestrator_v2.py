@@ -8,8 +8,7 @@ orchestration pattern, delegating work to focused manager classes.
 
 import time
 import logging
-from typing import Dict, Any, List, Optional, Tuple
-from datetime import datetime
+from typing import Dict, Any, List, Tuple
 
 from session.game_state import GameState
 from session.game_configuration import GameConfiguration
@@ -27,7 +26,6 @@ from zork_critic import ZorkCritic
 from hybrid_zork_extractor import HybridZorkExtractor
 from game_interface.client.game_server_client import GameServerClient
 from logger import setup_logging
-from collections import Counter
 
 
 class ZorkOrchestratorV2:
@@ -310,7 +308,7 @@ class ZorkOrchestratorV2:
 
         # Log episode completion
         self.logger.info(
-            f"Episode completed",
+            "Episode completed",
             extra={
                 "event_type": "episode_completed",
                 "episode_id": self.game_state.episode_id,

@@ -4,7 +4,7 @@ ZorkCritic module for evaluating actions and managing critic trust.
 
 import json
 import re
-from typing import Optional, List, Tuple, Any, Dict, Type
+from typing import Optional, List, Tuple, Dict
 from pydantic import BaseModel
 from collections import Counter
 from llm_client import LLMClientWrapper

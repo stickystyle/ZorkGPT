@@ -476,7 +476,7 @@ def main():
             print("Warning: --upload-s3 specified but no S3 bucket configured")
 
     # Print summary
-    print(f"\nEpisode Index Summary:")
+    print("\nEpisode Index Summary:")
     print(f"Total episodes: {index['total_episodes']}")
 
     if index["episodes"]:

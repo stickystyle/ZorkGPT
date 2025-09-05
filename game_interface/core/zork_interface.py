@@ -178,7 +178,7 @@ class ZorkInterface:
         # Enhanced logging for debug - capture all game responses
         if self.logger:
             self.logger.debug(
-                f"Game command and response",
+                "Game command and response",
                 extra={
                     "event_type": "game_command_response_debug",
                     "command": command,
@@ -529,7 +529,7 @@ class ZorkInterface:
         # Enhanced logging for debug - capture full response text
         if self.logger:
             self.logger.debug(
-                f"Inventory parsing input",
+                "Inventory parsing input",
                 extra={
                     "event_type": "inventory_parse_debug",
                     "raw_inventory_text": inv_text,
@@ -560,7 +560,7 @@ class ZorkInterface:
             if indicator in inv_text_lower:
                 if self.logger:
                     self.logger.warning(
-                        f"Death text detected in inventory response",
+                        "Death text detected in inventory response",
                         extra={
                             "event_type": "death_text_in_inventory",
                             "death_indicator": indicator,

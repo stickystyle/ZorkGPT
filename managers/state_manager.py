@@ -11,9 +11,8 @@ Handles all state management responsibilities:
 """
 
 import json
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any
 from datetime import datetime
-from collections import defaultdict, Counter
 
 from managers.base_manager import BaseManager
 from session.game_state import GameState
@@ -107,7 +106,7 @@ class StateManager(BaseManager):
                 )
 
                 self.logger.info(
-                    f"Context overflow - triggering summarization",
+                    "Context overflow - triggering summarization",
                     extra={
                         "event_type": "context_overflow",
                         "episode_id": self.game_state.episode_id,
@@ -336,7 +335,7 @@ Keep the summary under 500 words and focus on actionable information for continu
 
             return False
 
-        except Exception as e:
+        except Exception:
             return False
 
     def get_current_state(

@@ -1,18 +1,10 @@
 # ABOUTME: FastAPI-based game server for ZorkGPT managing dfrotz processes and REST API
 # ABOUTME: Main server application providing HTTP endpoints for game session management
 
-import os
-import json
-import asyncio
-import time
-from datetime import datetime
-from typing import Dict, List, Optional, Any
-from pathlib import Path
+from typing import Dict
 import logging
 
-from fastapi import FastAPI, HTTPException, Response
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from fastapi import FastAPI, HTTPException
 import uvicorn
 
 from .models import CommandRequest, CommandResponse, SessionState, SessionHistory

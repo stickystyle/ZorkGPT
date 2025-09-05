@@ -7,7 +7,7 @@ data like API keys in environment variables.
 
 import os
 import tomllib
-from typing import Optional, Dict, Any
+from typing import Optional
 from pathlib import Path
 from pydantic import BaseModel
 from dotenv import load_dotenv

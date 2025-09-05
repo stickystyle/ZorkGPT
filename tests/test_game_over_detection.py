@@ -6,12 +6,11 @@ Unit tests for game over detection functionality.
 import unittest
 import sys
 import os
-import pytest
 
 # Add the parent directory to the path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from tests.test_utils import game_client, skip_if_server_unavailable, run_test_commands
+from tests.test_utils import skip_if_server_unavailable, run_test_commands
 from game_interface.core.zork_interface import ZorkInterface
 
 

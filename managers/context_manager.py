@@ -10,7 +10,7 @@ Handles all context management responsibilities:
 - Context overflow protection and management
 """
 
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Tuple
 from datetime import datetime
 
 from managers.base_manager import BaseManager
@@ -130,7 +130,7 @@ class ContextManager(BaseManager):
             if game_map and hasattr(game_map, "get_available_exits"):
                 try:
                     context["available_exits"] = game_map.get_available_exits(location)
-                except Exception as e:
+                except Exception:
                     context["available_exits"] = []
 
             # Add room transition context
@@ -321,7 +321,7 @@ class ContextManager(BaseManager):
             # Default: assume neutral/successful if no clear failure
             return True
 
-        except Exception as e:
+        except Exception:
             return True  # Default to success if analysis fails
 
     def update_location_context(
@@ -334,7 +334,7 @@ class ContextManager(BaseManager):
 
             self.log_debug(
                 f"Updated location context: {from_room} --({action})--> {to_room}",
-                details=f"Location context updated for navigation",
+                details="Location context updated for navigation",
             )
 
         except Exception as e:

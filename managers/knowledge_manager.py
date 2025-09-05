@@ -10,14 +10,12 @@ Handles all knowledge management responsibilities:
 """
 
 import re
-from typing import List, Dict, Any, Optional
-from datetime import datetime
+from typing import List, Dict, Any
 
 from managers.base_manager import BaseManager
 from session.game_state import GameState
 from session.game_configuration import GameConfiguration
 from zork_strategy_generator import AdaptiveKnowledgeManager
-from config import get_config
 
 
 class KnowledgeManager(BaseManager):
@@ -344,7 +342,7 @@ class KnowledgeManager(BaseManager):
                 self.log_warning(f"Failed to get map metrics for synthesis: {e}")
 
             self.logger.info(
-                f"Inter-episode synthesis starting",
+                "Inter-episode synthesis starting",
                 extra={
                     "event_type": "inter_episode_synthesis_start",
                     "episode_id": self.game_state.episode_id,

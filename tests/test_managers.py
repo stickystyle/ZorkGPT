@@ -7,8 +7,7 @@ proper functionality and isolation.
 
 import pytest
 import logging
-from unittest.mock import Mock, MagicMock, patch
-from typing import Dict, Any
+from unittest.mock import Mock, patch
 
 from session.game_state import GameState
 from session.game_configuration import GameConfiguration

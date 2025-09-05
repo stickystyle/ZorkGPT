@@ -11,7 +11,7 @@ eliminating the need for LLM-based location extraction in most cases.
 """
 
 import re
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple
 from pydantic import BaseModel
 
 

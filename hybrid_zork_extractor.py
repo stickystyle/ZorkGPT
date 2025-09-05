@@ -10,14 +10,12 @@ structured data that's now available.
 """
 
 import json
-from typing import Optional, List, Any, Dict, Type, Tuple
+from typing import Optional, List, Dict, Tuple
 from pydantic import BaseModel
 from llm_client import LLMClientWrapper
-import os
 
 from game_interface.core.structured_parser import (
     StructuredZorkParser,
-    StructuredZorkResponse,
 )
 from shared_utils import create_json_schema
 from config import get_config, get_client_api_key
@@ -547,7 +545,7 @@ Respond only with the JSON, no other text."""
                     parsed_data = json.loads(aggressively_cleaned)
                     if self.logger:
                         self.logger.info(
-                            f"Successfully parsed after aggressive cleanup",
+                            "Successfully parsed after aggressive cleanup",
                             extra={"episode_id": self.episode_id},
                         )
                     return ExtractorResponse(**parsed_data)
@@ -567,7 +565,7 @@ Respond only with the JSON, no other text."""
                             )
                             if partial_response:
                                 self.logger.info(
-                                    f"Created partial response from malformed JSON",
+                                    "Created partial response from malformed JSON",
                                     extra={"episode_id": self.episode_id},
                                 )
                                 return partial_response

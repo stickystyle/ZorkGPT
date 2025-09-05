@@ -8,10 +8,7 @@ Handles the complete lifecycle of objective management:
 - Refinement when too many objectives accumulate
 """
 
-import re
-import json
-from typing import List, Dict, Any, Optional
-from datetime import datetime
+from typing import List, Dict, Any
 from pydantic import BaseModel
 
 from managers.base_manager import BaseManager

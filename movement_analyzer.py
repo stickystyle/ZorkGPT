@@ -5,9 +5,9 @@ This module provides consistent movement detection and pending connection logic
 that can be used by both real-time gameplay (main.py) and historical log analysis.
 """
 
-from typing import Dict, List, Optional, Tuple, Set
+from typing import Dict, List, Optional
 from dataclasses import dataclass
-from map_graph import MapGraph, normalize_direction, is_non_movement_command
+from map_graph import is_non_movement_command
 
 
 # Import generic location fallbacks to avoid duplication

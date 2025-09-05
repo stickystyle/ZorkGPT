@@ -10,8 +10,7 @@ Handles all episode-level coordination and synthesis responsibilities:
 - Inter-episode learning and wisdom synthesis
 """
 
-import json
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from datetime import datetime
 
 from managers.base_manager import BaseManager

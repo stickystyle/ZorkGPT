@@ -7,10 +7,8 @@ using turn-based sliding windows instead of episode-based analysis.
 
 import json
 import os
-from datetime import datetime
 from typing import List, Dict, Optional, Tuple
 from map_graph import MapGraph
-from movement_analyzer import MovementAnalyzer, create_movement_context
 from llm_client import LLMClientWrapper
 from config import get_config, get_client_api_key
 import re

@@ -16,13 +16,11 @@ Available actions:
 """
 
 import subprocess
-import json
 import sys
 import argparse
 import os
 from datetime import datetime
 from typing import Optional
-import time
 
 
 def get_stack_output(output_key: str) -> Optional[str]:
@@ -281,7 +279,7 @@ def download_analysis_files(public_ip: str) -> None:
         print(
             f"\n🎉 Downloaded {success_count}/{len(files_to_download)} files to {analysis_dir}/"
         )
-        print(f"📊 Analysis files ready for review:")
+        print("📊 Analysis files ready for review:")
 
         # List what was actually downloaded
         for filename in files_to_download:
@@ -302,7 +300,7 @@ def download_analysis_files(public_ip: str) -> None:
 
 def ssh_connect(public_ip: str) -> None:
     """Open an interactive SSH session."""
-    print(f"🔗 Connecting to EC2 instance...")
+    print("🔗 Connecting to EC2 instance...")
     ssh_cmd = f"ssh -i ~/.ssh/parrishfamily.pem ec2-user@{public_ip}"
     subprocess.run(ssh_cmd, shell=True)
 

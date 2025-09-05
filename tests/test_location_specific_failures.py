@@ -4,7 +4,7 @@ Tests the enhanced ActionRejectionSystem and LLM-based failure detection.
 """
 
 import pytest
-from unittest.mock import Mock, MagicMock, patch
+from unittest.mock import Mock, patch
 from collections import Counter
 
 from zork_critic import (

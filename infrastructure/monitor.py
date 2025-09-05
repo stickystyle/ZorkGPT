@@ -3,7 +3,6 @@ import boto3
 import datetime
 import subprocess
 import os
-import sys
 
 
 def log_to_journal(message, priority="info"):

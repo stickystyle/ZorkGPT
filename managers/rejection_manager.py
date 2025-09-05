@@ -2,7 +2,7 @@
 RejectionManager handles critic rejection state tracking and override decisions.
 """
 
-from typing import Dict, List, Tuple, Optional, Set
+from typing import Dict, List, Tuple, Set
 from dataclasses import dataclass, field
 from managers.base_manager import BaseManager
 from session.game_state import GameState

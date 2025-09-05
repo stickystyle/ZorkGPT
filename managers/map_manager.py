@@ -9,8 +9,7 @@ Handles all map-related responsibilities:
 - Integration with MapGraph and MovementAnalyzer
 """
 
-from typing import List, Dict, Any, Optional, Tuple
-from datetime import datetime
+from typing import Dict, Any, Optional
 
 from managers.base_manager import BaseManager
 from session.game_state import GameState
@@ -123,7 +122,7 @@ class MapManager(BaseManager):
             )
 
             self.logger.info(
-                f"Map updated from movement",
+                "Map updated from movement",
                 extra={
                     "event_type": "map_movement_update",
                     "episode_id": self.game_state.episode_id,
@@ -271,7 +270,7 @@ class MapManager(BaseManager):
                 )
 
                 self.logger.info(
-                    f"Map consolidation completed",
+                    "Map consolidation completed",
                     extra={
                         "event_type": "map_consolidation",
                         "episode_id": self.game_state.episode_id,
@@ -298,7 +297,7 @@ class MapManager(BaseManager):
 
             # Log map status
             self.logger.info(
-                f"Periodic map update",
+                "Periodic map update",
                 extra={
                     "event_type": "map_periodic_update",
                     "episode_id": self.game_state.episode_id,

@@ -82,7 +82,7 @@ def run_episode(episode_id=None, max_turns=None):
     )
 
     print("🚀 Starting long episode with ZorkOrchestrator v2...")
-    print(f"📋 Configuration:")
+    print("📋 Configuration:")
     print(f"  - Max turns: {orchestrator.config.max_turns_per_episode}")
     print(
         f"  - Knowledge update interval: {orchestrator.config.knowledge_update_interval} turns"
@@ -142,7 +142,7 @@ def run_episode(episode_id=None, max_turns=None):
         else:
             final_score = orchestrator.play_episode(game_interface)
 
-        print(f"\n🎯 Episode Complete!")
+        print("\n🎯 Episode Complete!")
         print(f"  - Final score: {final_score}")
         print(f"  - Turns played: {orchestrator.game_state.turn_count}")
         print(f"  - Episode ID: {orchestrator.game_state.episode_id}")
@@ -171,7 +171,7 @@ def run_episode(episode_id=None, max_turns=None):
 
         # Show orchestrator status
         status = orchestrator.get_orchestrator_status()
-        print(f"\n📊 Manager Status:")
+        print("\n📊 Manager Status:")
         for manager_name, manager_status in status["managers"].items():
             print(f"  - {manager_name}: {manager_status.get('component', 'N/A')}")
 
