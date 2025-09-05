@@ -220,17 +220,6 @@ def setup_episode_logging(episode_id: str, workdir: str = "game_files", log_leve
     return str(episode_log_file)
 
 
-# Create a global instance that can be imported directly
-def create_zork_logger(
-    episode_log_file: str = "zork_episode_log.txt",
-    json_log_file: str = "zork_episode_log.jsonl",
-):
-    """Create and return a logger for ZorkGPT."""
-    return setup_logging(episode_log_file, json_log_file)
-
-
-# Utility functions for parsing and rendering logs
-
 
 def parse_json_logs(json_log_file: str) -> List[Dict[str, Any]]:
     """Parse a JSON log file into a list of log entries."""
@@ -274,89 +263,3 @@ def parse_episode_logs(episode_id: str, workdir: str = "game_files") -> List[Dic
         pass
     
     return logs
-
-
-def parse_all_episode_logs(workdir: str = "game_files") -> List[Dict[str, Any]]:
-    """
-    Parse logs from all episodes in chronological order.
-    
-    Args:
-        workdir: Working directory for game files
-        
-    Returns:
-        List of all log entries across all episodes
-    """
-    from pathlib import Path
-    
-    episodes_dir = Path(workdir) / "episodes"
-    if not episodes_dir.exists():
-        return []
-    
-    # Get all episode IDs in chronological order
-    episode_dirs = [d for d in episodes_dir.iterdir() if d.is_dir()]
-    episode_ids = sorted([d.name for d in episode_dirs])
-    
-    all_logs = []
-    for episode_id in episode_ids:
-        episode_logs = parse_episode_logs(episode_id, workdir)
-        all_logs.extend(episode_logs)
-    
-    return all_logs
-
-
-def render_logs_as_text(logs: List[Dict[str, Any]]) -> str:
-    """Render JSON logs as human-readable text."""
-    output = []
-    for log in logs:
-        event_type = log.get("event_type", "unknown")
-
-        if event_type == "episode_start":
-            episode_id = log.get("episode_id", "unknown")
-            output.append(f"\n--- NEW EPISODE: {episode_id} ({log['timestamp']}) ---")
-            output.append(f"Using agent model: {log.get('agent_model', 'unknown')}")
-            output.append(f"Using critic model: {log.get('critic_model', 'unknown')}")
-            output.append(
-                f"Using info ext model: {log.get('info_ext_model', 'unknown')}"
-            )
-
-        elif event_type == "initial_state":
-            output.append(f"INITIAL STATE:\n{log.get('game_state', '')}\n")
-
-        elif event_type == "turn_start":
-            output.append(f"\n--- Turn {log.get('turn', '?')} ---")
-
-        elif event_type == "agent_action":
-            output.append(f"Agent proposes: {log.get('agent_action', '')}")
-
-        elif event_type == "critic_evaluation":
-            output.append(
-                f"Critic evaluation: Score={log.get('critic_score', 0.0):.2f}, "
-                f"Justification='{log.get('critic_justification', '')}'"
-            )
-
-        elif event_type == "zork_response":
-            output.append(
-                f"ZORK RESPONSE for '{log.get('action', '')}':\n{log.get('zork_response', '')}\n"
-            )
-
-        elif event_type == "reward":
-            output.append(
-                f"Turn reward: {log.get('reward', 0.0):.2f}, "
-                f"Total episode reward: {log.get('total_reward', 0.0):.2f}"
-            )
-
-        elif event_type == "episode_end":
-            output.append(f"\nEpisode finished in {log.get('turn_count', 0)} turns.")
-            output.append(
-                f"Final Zork Score: {log.get('zork_score', 0)} / {log.get('max_score', 'N/A')}"
-            )
-            output.append(
-                f"Total accumulated reward for episode: {log.get('total_reward', 0.0):.2f}"
-            )
-        elif event_type == "unknown":
-            # Fallback for simpler log entries
-            output.append(
-                f"{log.get('timestamp', '')}: {log.get('level', '')} - {log.get('message', '')}"
-            )
-
-    return "\n".join(output)

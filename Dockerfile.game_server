@@ -20,7 +20,8 @@ COPY infrastructure/zork.z5 ./infrastructure/
 RUN pip install --no-cache-dir \
     fastapi \
     uvicorn \
-    pydantic
+    pydantic \
+    requests
 
 # Create directory for game saves
 RUN mkdir -p /app/game_files

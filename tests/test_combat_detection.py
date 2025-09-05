@@ -4,7 +4,7 @@ Unit tests for combat detection functionality.
 """
 
 import unittest
-from main import ZorkAgent
+from zork_agent import ZorkAgent
 
 
 class TestCombatDetection(unittest.TestCase):

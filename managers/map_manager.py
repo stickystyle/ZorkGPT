@@ -314,14 +314,6 @@ class MapManager(BaseManager):
                 "isolated_room_count": 0
             }
     
-    def get_mermaid_representation(self) -> str:
-        """Get mermaid diagram representation of the map."""
-        try:
-            return self.game_map.render_mermaid()
-        except Exception as e:
-            self.log_error(f"Failed to get mermaid representation: {e}")
-            return ""
-    
     def get_current_room_context(self) -> Dict[str, Any]:
         """Get current room context for agent prompts."""
         return {
@@ -332,67 +324,7 @@ class MapManager(BaseManager):
                 self.game_state.current_room_name_for_map, []
             )
         }
-    
-    def get_map_state_for_export(self) -> Dict[str, Any]:
-        """Get map state for export to game state."""
-        try:
-            return {
-                "room_count": len(getattr(self.game_map, 'rooms', {})),
-                "connection_count": len(getattr(self.game_map, 'connections', {})),
-                "current_room": self.game_state.current_room_name_for_map,
-                "quality_metrics": self.get_quality_metrics(),
-                "mermaid_map": self.get_mermaid_representation()
-            }
-        except Exception as e:
-            self.log_error(f"Failed to get map state for export: {e}")
-            return {}
-    
-    def restore_map_state(self, map_data: Dict[str, Any]) -> None:
-        """Restore map state from saved data."""
-        try:
-            # Restore basic room tracking
-            if "current_room" in map_data:
-                self.game_state.current_room_name_for_map = map_data["current_room"]
-            
-            # Additional restoration logic could be added here
-            # depending on what map state needs to be preserved
-            
-            self.log_debug("Map state restored from saved data")
-            
-        except Exception as e:
-            self.log_error(f"Failed to restore map state: {e}")
-    
-    def get_room_analysis_for_context(self, max_rooms: int = 10) -> str:
-        """Get room analysis for agent context."""
-        try:
-            if hasattr(self.game_map, 'get_rooms_by_visit_frequency'):
-                rooms = self.game_map.get_rooms_by_visit_frequency(limit=max_rooms)
-                room_list = [f"- {room}" for room in rooms]
-                return "\\n".join(room_list)
-            else:
-                # Fallback to basic room list
-                rooms = list(getattr(self.game_map, 'rooms', {}).keys())
-                return "\\n".join([f"- {room}" for room in rooms[:max_rooms]])
-        except Exception as e:
-            self.log_error(f"Failed to get room analysis: {e}")
-            return ""
-    
-    def get_navigation_suggestions(self, target_room: Optional[str] = None) -> List[str]:
-        """Get navigation suggestions based on map knowledge."""
-        try:
-            if hasattr(self.game_map, 'get_navigation_path') and target_room:
-                path = self.game_map.get_navigation_path(
-                    from_room=self.game_state.current_room_name_for_map,
-                    to_room=target_room
-                )
-                return path if path else []
-            else:
-                # Return basic directional suggestions
-                return ["north", "south", "east", "west", "up", "down"]
-        except Exception as e:
-            self.log_error(f"Failed to get navigation suggestions: {e}")
-            return []
-    
+
     def get_export_data(self) -> Dict[str, Any]:
         """Get map data for state export (matching old orchestrator format)."""
         try:

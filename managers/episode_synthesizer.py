@@ -416,23 +416,6 @@ Keep it under 200 words."""
             self.log_error(f"Failed to export episode data: {e}")
             return {}
     
-    def coordinate_episode_cleanup(self, managers: List[Any]) -> None:
-        """Coordinate cleanup across all managers for episode end."""
-        try:
-            self.log_debug("Starting episode cleanup coordination")
-            
-            for manager in managers:
-                if hasattr(manager, 'finalize_episode'):
-                    try:
-                        manager.finalize_episode()
-                    except Exception as e:
-                        self.log_warning(f"Manager {type(manager).__name__} cleanup failed: {e}")
-            
-            self.log_debug("Episode cleanup coordination completed")
-            
-        except Exception as e:
-            self.log_error(f"Failed to coordinate episode cleanup: {e}")
-    
     def get_status(self) -> Dict[str, Any]:
         """Get current episode synthesizer status."""
         status = super().get_status()

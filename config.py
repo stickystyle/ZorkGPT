@@ -223,10 +223,3 @@ def get_config() -> ZorkGPTConfig:
 def get_client_api_key() -> Optional[str]:
     """Get the CLIENT_API_KEY from environment variables."""
     return _config_loader.get_client_api_key()
-
-
-def reload_config() -> ZorkGPTConfig:
-    """Reload configuration from file."""
-    global _config_loader
-    _config_loader._config = None
-    return _config_loader.load_config() 

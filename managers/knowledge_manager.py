@@ -241,54 +241,6 @@ class KnowledgeManager(BaseManager):
                 details=f"Final knowledge update failed with exception: {e}"
             )
     
-    def immediate_update(self, section_id: str, content: str, trigger_reason: str) -> None:
-        """Perform immediate knowledge update for critical discoveries."""
-        try:
-            self.log_progress(
-                f"Immediate knowledge update: {section_id}",
-                stage="immediate_knowledge_update",
-                details=f"Immediate update for {section_id}: {trigger_reason}"
-            )
-            
-            self.logger.info(
-                f"Immediate knowledge update triggered: {section_id}",
-                extra={
-                    "event_type": "immediate_knowledge_update",
-                    "episode_id": self.game_state.episode_id,
-                    "turn": self.game_state.turn_count,
-                    "section_id": section_id,
-                    "trigger_reason": trigger_reason,
-                }
-            )
-            
-            # Perform immediate update
-            success = self.adaptive_knowledge_manager.update_knowledge_section(
-                section_id=section_id,
-                content=content,
-                episode_id=self.game_state.episode_id
-            )
-            
-            if success:
-                self.log_progress(
-                    f"Immediate knowledge update completed: {section_id}",
-                    stage="immediate_knowledge_update",
-                    details="Immediate update completed successfully"
-                )
-                
-                # Reload agent knowledge immediately
-                self.reload_agent_knowledge()
-            else:
-                self.log_error(
-                    f"Immediate knowledge update failed: {section_id}",
-                    details="Immediate update returned failure"
-                )
-                
-        except Exception as e:
-            self.log_error(
-                f"Exception during immediate knowledge update: {e}",
-                details=f"Immediate update failed with exception: {e}"
-            )
-    
     def update_map_in_knowledge_base(self) -> None:
         """Update the mermaid map in knowledge base."""
         try:
@@ -440,24 +392,6 @@ class KnowledgeManager(BaseManager):
         except Exception as e:
             self.log_error(f"Failed to read knowledge base: {e}")
             return ""
-    
-    def restore_knowledge_base(self, previous_content: str) -> None:
-        """Restore knowledge base from previous state."""
-        try:
-            if previous_content:
-                with open("knowledgebase.md", "w") as f:
-                    f.write(previous_content)
-                
-                # Update adaptive knowledge manager's last content
-                if hasattr(self.adaptive_knowledge_manager, 'last_content'):
-                    self.adaptive_knowledge_manager.last_content = previous_content
-                
-                self.log_debug("Knowledge base restored from previous state")
-            else:
-                self.log_warning("No previous knowledge base content to restore")
-                
-        except Exception as e:
-            self.log_error(f"Failed to restore knowledge base: {e}")
     
     def get_llm_client(self):
         """Access LLM client for knowledge-related analysis."""

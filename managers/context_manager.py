@@ -296,50 +296,6 @@ class ContextManager(BaseManager):
         except Exception as e:
             return True  # Default to success if analysis fails
     
-    def filter_memories_by_importance(self, memories: List[Any]) -> List[Any]:
-        """Filter memories by importance and relevance."""
-        try:
-            important_memories = []
-            
-            for memory in memories:
-                if self.is_important_memory(memory):
-                    important_memories.append(memory)
-            
-            return important_memories
-            
-        except Exception as e:
-            self.log_error(f"Failed to filter memories: {e}")
-            return memories  # Return original if filtering fails
-    
-    def is_important_memory(self, memory: Any) -> bool:
-        """Determine if a memory is important for context."""
-        try:
-            if not isinstance(memory, dict):
-                return False
-            
-            # Check for score changes
-            if memory.get("score", 0) > 0:
-                return True
-            
-            # Check for game over or death
-            if memory.get("game_over") or "died" in str(memory).lower():
-                return True
-            
-            # Check for new items or locations
-            memory_text = str(memory).lower()
-            important_keywords = [
-                "treasure", "valuable", "points", "earned", "found", "took",
-                "opened", "unlocked", "new", "discovered"
-            ]
-            
-            if any(keyword in memory_text for keyword in important_keywords):
-                return True
-            
-            return False
-            
-        except Exception as e:
-            return True  # Default to important if analysis fails
-    
     def update_location_context(self, from_room: str, to_room: str, action: str) -> None:
         """Update location tracking for context."""
         try:

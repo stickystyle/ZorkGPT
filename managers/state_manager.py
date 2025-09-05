@@ -466,38 +466,7 @@ Keep the summary under 500 words and focus on actionable information for continu
         except Exception as e:
             self.log_error(f"Failed to upload state to S3: {e}")
             return False
-    
-    def load_previous_state(self) -> Optional[Dict[str, Any]]:
-        """Load previous state from current_state.json."""
-        try:
-            with open(self.config.state_export_file, 'r') as f:
-                return json.load(f)
-        except FileNotFoundError:
-            self.log_debug("No previous state file found")
-            return None
-        except Exception as e:
-            self.log_error(f"Failed to load previous state: {e}")
-            return None
-    
-    def merge_previous_state(self, previous_state: Dict[str, Any]) -> None:
-        """Merge relevant data from previous state into current session."""
-        try:
-            if not previous_state:
-                return
-            
-            # Merge persistent cross-episode state
-            if "current_state" in previous_state:
-                prev_current = previous_state["current_state"]
-                
-                # Restore death count (persists across episodes)
-                if "death_count" in prev_current:
-                    self.game_state.death_count = prev_current["death_count"]
-            
-            self.log_debug("Previous state merged into current session")
-            
-        except Exception as e:
-            self.log_error(f"Failed to merge previous state: {e}")
-    
+
     def get_recent_log(self, num_entries: int = 10) -> List[Dict[str, Any]]:
         """Get recent game log entries with reasoning."""
         try:
