@@ -1351,7 +1351,6 @@ class MapGraph:
             )
 
         # Temporarily set the flag to ensure consolidation runs
-        old_flag = self.has_new_rooms_since_consolidation
         self.has_new_rooms_since_consolidation = True
 
         # Run consolidation

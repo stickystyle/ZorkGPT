@@ -148,7 +148,7 @@ def update_zorkgpt():
     ssh_cmd = f"ssh -i ~/.ssh/parrishfamily.pem -o StrictHostKeyChecking=no ec2-user@{public_ip} 'bash -c \"{execute_cmd}\"'"
 
     try:
-        result = subprocess.run(ssh_cmd, shell=True, check=True)
+        subprocess.run(ssh_cmd, shell=True, check=True)
         print("🎉 ZorkGPT update completed successfully!")
         print("📊 Monitor logs with: python infrastructure/manage_ec2.py logs-follow")
     except subprocess.CalledProcessError as e:
@@ -198,7 +198,7 @@ def update_viewer_only(public_ip: str) -> None:
         print("🔄 Invalidating CloudFront cache for viewer HTML...")
         invalidation_cmd = f"aws cloudfront create-invalidation --distribution-id {distribution_id} --paths '/zork_viewer.html' --profile parrishfamily"
         try:
-            result = subprocess.run(
+            subprocess.run(
                 invalidation_cmd, shell=True, check=True, capture_output=True, text=True
             )
             print("✅ CloudFront cache invalidation initiated")
@@ -256,7 +256,7 @@ def download_analysis_files(public_ip: str) -> None:
         scp_cmd = f"scp -i ~/.ssh/parrishfamily.pem -o StrictHostKeyChecking=no ec2-user@{public_ip}:{temp_path} {analysis_dir}/"
 
         try:
-            result = subprocess.run(
+            subprocess.run(
                 scp_cmd, shell=True, check=True, capture_output=True, text=True
             )
             print(f"✅ Downloaded {filename}")

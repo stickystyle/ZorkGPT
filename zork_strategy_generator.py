@@ -450,7 +450,6 @@ class AdaptiveKnowledgeManager:
                 current_turn = 0
                 current_score = 0
                 current_location = ""
-                current_inventory = []
 
                 # Store death messages temporarily for proper association
                 death_messages_by_turn = {}

@@ -29,7 +29,13 @@
       "WebFetch(domain:openrouter.ai)",
       "mcp__sequential-thinking__sequentialthinking",
       "Bash(tree:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(docker exec:*)",
+      "Bash(docker logs:*)",
+      "Bash(curl:*)",
+      "WebFetch(domain:help.getzep.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:getzep.github.io)"
     ],
     "deny": []
   }

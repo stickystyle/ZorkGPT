@@ -50,9 +50,6 @@ class GameSession:
 
         # Check for save file (try both extensions)
         save_exists = os.path.exists(save_path_qzl) or os.path.exists(save_path_no_ext)
-        actual_save_path = (
-            save_path_qzl if os.path.exists(save_path_qzl) else save_path_no_ext
-        )
 
         if save_exists:
             # Attempt to restore from save

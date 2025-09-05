@@ -85,14 +85,12 @@ The troll swings his axe, but it misses."""
         ]
 
         # Run commands up to troll room
-        responses = run_test_commands(game_client, commands[:-1])
+        run_test_commands(game_client, commands[:-1])
 
         # Enter troll room multiple times to potentially trigger death
-        death_occurred = False
         for _ in range(10):  # Try up to 10 times
             response = game_client.send_command("north")
             if response.get("game_over", False):
-                death_occurred = True
                 self.assertTrue(response["game_over"])
                 self.assertIsNotNone(response.get("game_over_reason"))
                 break

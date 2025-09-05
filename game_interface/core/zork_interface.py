@@ -212,7 +212,6 @@ class ZorkInterface:
         if not self.is_running():
             raise RuntimeError("Zork process is not running")
 
-        start_time = time.time()
         full_response = ""
 
         try:
@@ -609,7 +608,6 @@ class ZorkInterface:
                     j += 1
 
         # Second pass: collect items and handle containers
-        containers = {}
         for i, line in enumerate(lines):
             stripped = line.strip()
 

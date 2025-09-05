@@ -30,7 +30,6 @@ def find_latest_save_episode_id(game_files_dir="game_files"):
         print(f"📁 No save metadata files found in '{game_files_dir}'")
         return None
 
-    latest_file = None
     latest_time = None
     latest_episode_id = None
 
@@ -50,7 +49,6 @@ def find_latest_save_episode_id(game_files_dir="game_files"):
 
                 if latest_time is None or command_time > latest_time:
                     latest_time = command_time
-                    latest_file = metadata_file
                     latest_episode_id = session_id
 
         except (json.JSONDecodeError, KeyError, ValueError) as e:
