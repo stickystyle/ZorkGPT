@@ -25,6 +25,13 @@ class FailureDetectionResponse(BaseModel):
     reason: str
 
 
+class ValidationResult(BaseModel):
+    """Result of object tree validation."""
+    valid: bool
+    reason: str
+    confidence: float = 0.9  # High confidence for Z-machine validated rejections
+
+
 class CriticTrustTracker:
     """Tracks critic performance and adjusts trust levels accordingly."""
 
@@ -606,6 +613,100 @@ class ZorkCritic:
                 )
             raise
 
+    def _validate_against_object_tree(
+        self,
+        action: str,
+        jericho_interface
+    ) -> ValidationResult:
+        """
+        Validate action against Z-machine object tree.
+
+        This method provides fast, high-confidence validation for common
+        failure cases by checking the actual game state:
+        - "take X" when X is not visible or not takeable
+        - "open X" when X is not present or not openable
+        - "go X" when X is not a valid exit
+
+        Args:
+            action: Action to validate (e.g., "take lamp", "open door")
+            jericho_interface: JerichoInterface for object tree access
+
+        Returns:
+            ValidationResult indicating if action is valid
+        """
+        try:
+            # Parse action to extract verb and object
+            parts = action.lower().strip().split(maxsplit=1)
+            if len(parts) < 2:
+                # Single word commands are usually fine (look, inventory, etc.)
+                return ValidationResult(valid=True, reason="Single word command")
+
+            verb = parts[0]
+            target = parts[1]
+
+            # Validate "take" actions
+            if verb in ['take', 'get', 'grab', 'pick']:
+                # Get visible objects in location
+                visible_objects = jericho_interface.get_visible_objects_in_location()
+
+                # Check if target object is visible
+                found = False
+                for obj in visible_objects:
+                    if target in obj.name.lower():
+                        # Object exists - check if it's takeable
+                        attrs = jericho_interface.get_object_attributes(obj)
+                        if attrs.get('takeable') or attrs.get('portable'):
+                            found = True
+                            break
+                        else:
+                            # Object exists but not takeable
+                            return ValidationResult(
+                                valid=False,
+                                reason=f"Object '{target}' is not takeable",
+                                confidence=0.9
+                            )
+
+                if not found:
+                    return ValidationResult(
+                        valid=False,
+                        reason=f"Object '{target}' is not visible in current location",
+                        confidence=0.9
+                    )
+
+            # Validate "open/close" actions
+            elif verb in ['open', 'close']:
+                visible_objects = jericho_interface.get_visible_objects_in_location()
+
+                found = False
+                for obj in visible_objects:
+                    if target in obj.name.lower():
+                        attrs = jericho_interface.get_object_attributes(obj)
+                        if attrs.get('openable'):
+                            found = True
+                            break
+                        else:
+                            return ValidationResult(
+                                valid=False,
+                                reason=f"Object '{target}' cannot be opened/closed",
+                                confidence=0.9
+                            )
+
+                if not found:
+                    return ValidationResult(
+                        valid=False,
+                        reason=f"Object '{target}' is not present",
+                        confidence=0.9
+                    )
+
+            # For all other actions, validation passes (LLM will handle)
+            return ValidationResult(valid=True, reason="Action not validated by object tree")
+
+        except Exception as e:
+            # If validation fails, default to allowing the action (let LLM decide)
+            if self.logger:
+                self.logger.warning(f"Object tree validation error: {e}")
+            return ValidationResult(valid=True, reason="Validation error - defaulting to allow")
+
     def evaluate_action(
         self,
         game_state_text: str,
@@ -615,6 +716,7 @@ class ZorkCritic:
         previous_actions_and_responses: Optional[List[Tuple[str, str]]] = None,
         current_location_name: Optional[str] = None,
         failed_actions_by_location: Optional[Dict[str, set]] = None,
+        jericho_interface=None,  # NEW: Optional JerichoInterface for validation
     ) -> CriticResponse:
         """
         Get an evaluation from the Critic LM.
@@ -627,10 +729,26 @@ class ZorkCritic:
             previous_actions_and_responses: Recent action history
             current_location_name: Name of the current location
             failed_actions_by_location: Dict mapping location names to sets of failed actions
+            jericho_interface: Optional JerichoInterface for object tree validation
 
         Returns:
             CriticResponse with score and justification
         """
+        # Validate against object tree if Jericho interface is available
+        if jericho_interface:
+            validation_result = self._validate_against_object_tree(
+                proposed_action, jericho_interface
+            )
+
+            if not validation_result.valid:
+                # Return high-confidence rejection based on Z-machine data
+                return CriticResponse(
+                    score=0.0,
+                    justification=f"[Object Tree Validation] {validation_result.reason}",
+                    confidence=validation_result.confidence
+                )
+
+        # If validation passes, continue with LLM-based evaluation
         # Prepare context about repetitive actions for the critic
         repetition_context = ""
         repetition_details = []

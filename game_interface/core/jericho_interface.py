@@ -4,7 +4,7 @@
 import os
 import pickle
 from pathlib import Path
-from typing import List, Optional, Tuple, Any
+from typing import List, Optional, Tuple, Any, Dict
 from jericho import FrotzEnv
 from jericho.util import clean
 
@@ -417,6 +417,218 @@ class JerichoInterface:
 
         # Not game over
         return False, None
+
+    # ABOUTME: Object attribute helpers for enhanced context (Phase 5)
+    # ABOUTME: Provide structured access to Z-machine object attributes and vocabulary
+
+    def _check_attribute(self, obj: Any, bit: int) -> bool:
+        """
+        Check if a specific attribute bit is set on a Z-machine object.
+
+        Jericho exposes object attributes as a numpy array where each element
+        corresponds to one attribute bit. A value of 1 means the attribute is set.
+
+        Args:
+            obj: ZObject instance from Jericho
+            bit: Attribute bit number (0-31 for Jericho's representation)
+
+        Returns:
+            True if the bit is set, False otherwise
+
+        Example:
+            >>> leaflet = game.get_inventory_structured()[0]
+            >>> is_takeable = self._check_attribute(leaflet, 10)
+        """
+        if obj is None or not hasattr(obj, 'attr'):
+            return False
+
+        try:
+            # Get the attribute array
+            # In Jericho, obj.attr is a numpy array where attr[i] = 1 if bit i is set
+            attr_array = obj.attr
+            if attr_array is None or len(attr_array) == 0:
+                return False
+
+            # Check bounds
+            if bit < 0 or bit >= len(attr_array):
+                return False
+
+            # Check if the attribute is set (array value is 1)
+            return bool(attr_array[bit] != 0)
+
+        except (AttributeError, IndexError, TypeError):
+            return False
+
+    def get_object_attributes(self, obj: Any) -> Dict[str, bool]:
+        """
+        Extract useful attributes from a Z-machine object.
+
+        This method checks common attribute bits used in Zork I. Note that
+        attribute bit positions are game-dependent and assigned by the ZIL
+        compiler at compile time. The mappings below are based on empirical
+        testing with Zork I using Jericho.
+
+        Zork I attribute bits (empirically determined through testing):
+        - Bit 3: touched/manipulated (set when object is interacted with)
+        - Bit 13: container (mailbox has this)
+        - Bit 14: openable (door, mailbox, window)
+        - Bit 16, 17: related to takeable items (leaflet has these)
+        - Bit 19: possibly transparent or secondary container flag
+        - Bit 26: possibly takeable (leaflet has this)
+
+        NOTE: These bit positions are specific to Zork I and may differ in
+        other Z-machine games. The ZIL compiler assigns attributes to free
+        slots during compilation. Some mappings are tentative and based on
+        limited testing.
+
+        Args:
+            obj: ZObject instance from Jericho
+
+        Returns:
+            Dictionary mapping attribute names to boolean values
+
+        Example:
+            >>> visible = game.get_visible_objects_in_location()
+            >>> mailbox = visible[0]  # Or find by name
+            >>> attrs = game.get_object_attributes(mailbox)
+            >>> if attrs.get('openable'):
+            ...     print("You can open this!")
+        """
+        if obj is None:
+            return {}
+
+        try:
+            # Check common Zork I attributes
+            # Note: Bit positions are empirically determined for Zork I
+            # Some mappings are tentative and may need refinement
+            attributes = {
+                'touched': self._check_attribute(obj, 3),
+                'container': self._check_attribute(obj, 13),
+                'openable': self._check_attribute(obj, 14),
+                'takeable': self._check_attribute(obj, 26),  # Tentative
+                'transparent': self._check_attribute(obj, 19),  # Tentative
+                'portable': self._check_attribute(obj, 16),  # Tentative - leaflet has this
+                'readable': self._check_attribute(obj, 17),  # Tentative - leaflet has this
+            }
+
+            return attributes
+
+        except Exception as e:
+            if self.logger:
+                self.logger.warning(
+                    f"Failed to extract attributes from object: {e}"
+                )
+            return {}
+
+    def get_visible_objects_in_location(self) -> List[Any]:
+        """
+        Get all objects visible in the current location.
+
+        This method traverses the Z-machine object tree to find objects
+        whose parent is the current location and filters for visible objects.
+
+        Returns:
+            List of ZObject instances that are visible in the current location
+
+        Raises:
+            RuntimeError: If the environment is not initialized
+
+        Example:
+            >>> visible = game.get_visible_objects_in_location()
+            >>> for obj in visible:
+            ...     print(f"You can see: {obj.name}")
+        """
+        if self.env is None:
+            raise RuntimeError("Environment not started. Call start() first.")
+
+        try:
+            current_location = self.get_location_structured()
+            if current_location is None:
+                return []
+
+            location_id = current_location.num
+            visible_objects = []
+
+            # Get all objects in the world
+            all_objects = self.env.get_world_objects()
+
+            # Find objects whose parent is the current location
+            for obj in all_objects:
+                if obj.parent == location_id:
+                    # Include all objects whose parent is the current location
+                    # In Z-machine, parent relationship determines visibility
+                    visible_objects.append(obj)
+
+            return visible_objects
+
+        except Exception as e:
+            if self.logger:
+                self.logger.error(
+                    f"Failed to get visible objects in location: {e}"
+                )
+            return []
+
+    def get_valid_verbs(self) -> List[str]:
+        """
+        Get a list of valid action verbs recognized by Zork I.
+
+        This returns a hardcoded list of common Zork verbs. In future
+        enhancements, this could be extracted from the Z-machine dictionary
+        table dynamically.
+
+        Returns:
+            List of valid verb strings
+
+        Example:
+            >>> verbs = game.get_valid_verbs()
+            >>> print(f"You can use these verbs: {', '.join(verbs[:10])}")
+
+        TODO: Extract verbs dynamically from Z-machine dictionary table
+        """
+        # Common Zork I verbs (alphabetically organized for readability)
+        # Categories: movement, interaction, combat, communication, meta
+        return [
+            # Movement
+            'go', 'north', 'south', 'east', 'west', 'up', 'down',
+            'northeast', 'northwest', 'southeast', 'southwest',
+            'enter', 'exit', 'climb', 'jump',
+
+            # Object interaction
+            'take', 'get', 'drop', 'put', 'place',
+            'open', 'close', 'lock', 'unlock',
+            'examine', 'look', 'read', 'search',
+            'move', 'push', 'pull', 'turn', 'press',
+            'touch', 'rub', 'shake', 'wave',
+            'throw', 'tie', 'attach',
+
+            # Container/inventory management
+            'inventory', 'i',
+
+            # Light sources
+            'light', 'extinguish',
+
+            # Combat
+            'attack', 'kill', 'fight', 'hit', 'strike',
+
+            # Communication
+            'say', 'tell', 'ask', 'answer', 'shout', 'yell',
+
+            # Consumption
+            'eat', 'drink',
+
+            # Equipment
+            'wear', 'remove',
+
+            # Magic/special
+            'pray', 'chant', 'incant',
+            'ring', 'blow', 'play',
+
+            # Meta commands
+            'wait', 'sleep', 'wake',
+            'save', 'restore', 'quit', 'restart',
+            'score', 'brief', 'verbose', 'superbrief',
+            'diagnose', 'version',
+        ]
 
     def close(self) -> None:
         """Cleanup and close the environment."""

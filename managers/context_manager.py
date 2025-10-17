@@ -10,7 +10,7 @@ Handles all context management responsibilities:
 - Context overflow protection and management
 """
 
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
 from datetime import datetime
 
 from managers.base_manager import BaseManager
@@ -103,6 +103,7 @@ class ContextManager(BaseManager):
         in_combat: bool = False,
         failed_actions: List[str] = None,
         discovered_objectives: List[str] = None,
+        jericho_interface: Optional[Any] = None,  # NEW: Optional JerichoInterface for structured data
     ) -> Dict[str, Any]:
         """Assemble comprehensive context for agent action generation."""
         try:
@@ -143,6 +144,44 @@ class ContextManager(BaseManager):
             context["action_to_current_room"] = (
                 self.game_state.action_leading_to_current_room_for_prompt_context
             )
+
+            # Add structured Jericho data if available
+            if jericho_interface:
+                try:
+                    # Get structured inventory with attributes
+                    inventory_objs = jericho_interface.get_inventory_structured()
+                    context["inventory_objects"] = [
+                        {
+                            "id": obj.num,
+                            "name": obj.name,
+                            "attributes": jericho_interface.get_object_attributes(obj)
+                        }
+                        for obj in inventory_objs
+                    ]
+
+                    # Get visible objects in location with attributes
+                    visible_objs = jericho_interface.get_visible_objects_in_location()
+                    context["visible_objects"] = [
+                        {
+                            "id": obj.num,
+                            "name": obj.name,
+                            "attributes": jericho_interface.get_object_attributes(obj)
+                        }
+                        for obj in visible_objs
+                    ]
+
+                    # Get valid action verbs
+                    context["action_vocabulary"] = jericho_interface.get_valid_verbs()
+
+                    self.log_debug(
+                        f"Added Jericho structured data: {len(context['inventory_objects'])} inventory items, "
+                        f"{len(context['visible_objects'])} visible objects, "
+                        f"{len(context['action_vocabulary'])} action verbs"
+                    )
+
+                except Exception as e:
+                    self.log_warning(f"Failed to add Jericho structured data to context: {e}")
+                    # Continue without structured data - graceful degradation
 
             self.log_debug(
                 f"Assembled agent context with {len(context['recent_actions'])} actions, "
@@ -388,6 +427,28 @@ class ContextManager(BaseManager):
                 formatted_parts.append("\nCURRENT OBJECTIVES:")
                 for obj in objectives[:5]:  # Limit to top 5
                     formatted_parts.append(f"  - {obj}")
+
+            # Structured object data (if available)
+            inventory_objects = context.get("inventory_objects", [])
+            if inventory_objects:
+                formatted_parts.append("\nINVENTORY DETAILS:")
+                for obj in inventory_objects:
+                    attrs = obj.get("attributes", {})
+                    attr_str = ", ".join([k for k, v in attrs.items() if v])
+                    formatted_parts.append(f"  - {obj['name']} (ID:{obj['id']}, {attr_str})")
+
+            visible_objects = context.get("visible_objects", [])
+            if visible_objects:
+                formatted_parts.append("\nVISIBLE OBJECTS:")
+                for obj in visible_objects:
+                    attrs = obj.get("attributes", {})
+                    attr_str = ", ".join([k for k, v in attrs.items() if v])
+                    formatted_parts.append(f"  - {obj['name']} (ID:{obj['id']}, {attr_str})")
+
+            # Action vocabulary (just count, not full list to keep prompt concise)
+            vocab = context.get("action_vocabulary", [])
+            if vocab:
+                formatted_parts.append(f"\nVALID ACTIONS: {len(vocab)} verbs available")
 
             return "\n".join(formatted_parts)
 

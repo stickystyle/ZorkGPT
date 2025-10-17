@@ -224,6 +224,17 @@ class ZorkOrchestratorV2:
                 },
             )
 
+            # Enable verbose mode to get full room descriptions on every visit
+            verbose_response = self.jericho_interface.send_command("verbose")
+            self.logger.info(
+                f"Enabled verbose mode: {verbose_response}",
+                extra={
+                    "event_type": "verbose_mode_enabled",
+                    "episode_id": self.game_state.episode_id,
+                    "verbose_response": verbose_response,
+                },
+            )
+
             # Extract initial state information
             initial_extracted_info = self.extractor.extract_info(initial_game_state)
             self._process_extraction(initial_extracted_info, "", initial_game_state)
@@ -315,6 +326,7 @@ class ZorkOrchestratorV2:
                     self.game_state.current_room_name_for_map, []
                 ),
                 discovered_objectives=self.game_state.discovered_objectives,
+                jericho_interface=self.jericho_interface,  # NEW: Pass Jericho interface for structured data
             )
 
             # Format context for agent
@@ -356,6 +368,10 @@ class ZorkOrchestratorV2:
                 proposed_action=proposed_action,
                 available_exits=critic_context.get("available_exits", []),
                 action_counts=self.game_state.action_counts,
+                current_location_name=self.game_state.current_room_name_for_map,
+                failed_actions_by_location=self.game_state.failed_actions_by_location,
+                previous_actions_and_responses=self.game_state.action_history[-3:],
+                jericho_interface=self.jericho_interface,  # NEW: Pass Jericho interface
             )
 
             # Start new turn for rejection tracking
@@ -470,6 +486,10 @@ class ZorkOrchestratorV2:
                     proposed_action=action_to_take,
                     available_exits=critic_context.get("available_exits", []),
                     action_counts=self.game_state.action_counts,
+                    current_location_name=self.game_state.current_room_name_for_map,
+                    failed_actions_by_location=self.game_state.failed_actions_by_location,
+                    previous_actions_and_responses=self.game_state.action_history[-3:],
+                    jericho_interface=self.jericho_interface,  # NEW: Pass Jericho interface
                 )
 
                 final_critic_score = critic_result.score
