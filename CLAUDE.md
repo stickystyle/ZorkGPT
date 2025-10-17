@@ -10,16 +10,17 @@ ZorkGPT is an AI agent system that plays the classic text adventure game "Zork" 
 
 **Key Principle**: All game reasoning must originate from LLMs - no hardcoded solutions or predetermined game mechanics are allowed.
 
-### Client-Server Architecture
-- **Game Server** (`game_server.py`): Runs dfrotz in a Docker container and exposes a REST API
-- **Game Client** (`game_server_client.py`): Provides standardized interface between orchestrator and game server
-- **Orchestrator** (`orchestration/zork_orchestrator_v2.py`): Streamlined coordination layer
+### Game Interface Architecture
+- **JerichoInterface** (`game_interface/core/jericho_interface.py`): Direct Z-machine access via Jericho library
+- **Orchestrator** (`orchestration/zork_orchestrator_v2.py`): Streamlined coordination layer using JerichoInterface
 
 This architecture enables:
-- Hot-reloading of AI code without losing game state
-- Automatic save/restore functionality
+- Direct Z-machine memory access (no text parsing for inventory, location, score)
+- Stable integer-based location IDs (eliminates room fragmentation)
+- Perfect movement detection via ID comparison
+- Built-in save/restore functionality via Z-machine
 - Clean separation of concerns
-- Multiple orchestrators connecting to the same game
+- ~40% reduction in LLM calls
 
 ### Manager-Based Architecture
 
