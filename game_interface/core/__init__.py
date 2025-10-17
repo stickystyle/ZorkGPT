@@ -1,12 +1,10 @@
 """
 Core Game Interface Package
 
-Contains the core game interface classes and parsers:
-- ZorkInterface: Direct interface to dfrotz processes
-- StructuredZorkParser: Parser for Zork's structured output format
+Contains the core game interface class:
+- JerichoInterface: Direct interface to Jericho/Frotz for Zork I
 """
 
-from .zork_interface import ZorkInterface
-from .structured_parser import StructuredZorkParser, StructuredZorkResponse
+from .jericho_interface import JerichoInterface
 
-__all__ = ["ZorkInterface", "StructuredZorkParser", "StructuredZorkResponse"]
+__all__ = ["JerichoInterface"]

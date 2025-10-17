@@ -35,7 +35,13 @@
       "Bash(curl:*)",
       "WebFetch(domain:help.getzep.com)",
       "WebFetch(domain:github.com)",
-      "WebFetch(domain:getzep.github.io)"
+      "WebFetch(domain:getzep.github.io)",
+      "Bash(uv run:*)",
+      "WebFetch(domain:zspec.jaredreisinger.com)",
+      "WebFetch(domain:www.inform-fiction.org)",
+      "WebFetch(domain:jericho-py.readthedocs.io)",
+      "Bash(timeout 10 uv run:*)",
+      "Bash(python3:*)"
     ],
     "deny": []
   }

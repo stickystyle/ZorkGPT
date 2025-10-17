@@ -8,6 +8,7 @@ dependencies = [
     "pydantic>=2.11.4",
     "requests>=2.31.0",
     "python-dotenv>=1.0.0",
+    "jericho>=3.3.0",
 ]
 
 [project.optional-dependencies]
@@ -136,7 +137,11 @@ persistent_wisdom_file = "persistent_wisdom.md"
 episode_log_file = "zork_episode_log.txt"
 json_log_file = "zork_episode_log.jsonl"
 state_export_file = "current_state.json"
+game_file_path = "infrastructure/zork.z5"
 
 [tool.zorkgpt.aws]
 # AWS Configuration (optional)
 s3_key_prefix = "zorkgpt/"
+
+[tool.uv.workspace]
+members = ["jericho"]

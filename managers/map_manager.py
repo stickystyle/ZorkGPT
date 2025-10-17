@@ -26,7 +26,6 @@ class MapManager(BaseManager):
     - Map building and room tracking
     - Movement analysis and navigation
     - Map quality assessment and metrics
-    - Map consolidation and optimization
     - Integration with MapGraph and MovementAnalyzer
     """
 
@@ -49,9 +48,6 @@ class MapManager(BaseManager):
 
     def process_turn(self) -> None:
         """Process map management for the current turn."""
-        # Run map consolidation every turn
-        self.run_map_consolidation()
-
         # Check for periodic map updates
         if self.should_process_turn():
             self.check_map_update()
@@ -65,13 +61,20 @@ class MapManager(BaseManager):
             and turns_since_update >= self.config.map_update_interval
         )
 
-    def add_initial_room(self, room_name: str) -> None:
-        """Add the initial room to the map."""
-        if room_name:
-            self.game_map.add_room(room_name)
-            self.game_state.current_room_name_for_map = room_name
+    def add_initial_room(self, room_id: int, room_name: str) -> None:
+        """Add the initial room to the map.
 
-            self.log_debug(f"Added initial room to map: {room_name}")
+        Args:
+            room_id: Jericho location ID (Z-machine object number)
+            room_name: Human-readable room name
+        """
+        if room_name and room_id is not None:
+            self.game_map.add_room(room_id, room_name)
+            self.game_state.current_room_id = room_id
+            self.game_state.current_room_name = room_name
+            self.game_state.current_room_name_for_map = room_name  # DEPRECATED
+
+            self.log_debug(f"Added initial room to map: {room_name} (ID: {room_id})")
 
             self.logger.info(
                 f"Initial room added to map: {room_name}",
@@ -79,6 +82,7 @@ class MapManager(BaseManager):
                     "event_type": "map_initial_room_added",
                     "episode_id": self.game_state.episode_id,
                     "turn": self.game_state.turn_count,
+                    "room_id": room_id,
                     "room_name": room_name,
                 },
             )
@@ -86,25 +90,37 @@ class MapManager(BaseManager):
     def update_from_movement(
         self,
         action_taken: str,
+        new_room_id: int,
         new_room_name: str,
+        previous_room_id: Optional[int] = None,
         previous_room_name: Optional[str] = None,
         game_response: str = "",
     ) -> None:
-        """Update map based on movement action and result."""
+        """Update map based on movement action and result.
+
+        Args:
+            action_taken: The movement action taken
+            new_room_id: Jericho location ID of destination room
+            new_room_name: Human-readable name of destination room
+            previous_room_id: Jericho location ID of origin room (optional)
+            previous_room_name: Human-readable name of origin room (optional)
+            game_response: Game's response to the action
+        """
         try:
-            if not new_room_name:
+            if not new_room_name or new_room_id is None:
                 return
 
             # Use provided previous room or get from game state
+            prev_room_id = previous_room_id if previous_room_id is not None else self.game_state.current_room_id
             prev_room = previous_room_name or self.game_state.current_room_name_for_map
 
             # Add the new room to the map
-            self.game_map.add_room(new_room_name)
+            self.game_map.add_room(new_room_id, new_room_name)
 
             # Update movement tracking if we moved from a previous room
-            if prev_room and prev_room != new_room_name:
+            if prev_room_id is not None and prev_room_id != new_room_id:
                 self._update_movement_tracking(
-                    action_taken, prev_room, new_room_name, game_response
+                    action_taken, prev_room_id, prev_room, new_room_id, new_room_name, game_response
                 )
 
             # Update current room tracking
@@ -114,10 +130,12 @@ class MapManager(BaseManager):
             self.game_state.action_leading_to_current_room_for_prompt_context = (
                 action_taken
             )
-            self.game_state.current_room_name_for_map = new_room_name
+            self.game_state.current_room_id = new_room_id
+            self.game_state.current_room_name = new_room_name
+            self.game_state.current_room_name_for_map = new_room_name  # DEPRECATED
 
             self.log_debug(
-                f"Updated map from movement: {prev_room} --({action_taken})--> {new_room_name}",
+                f"Updated map from movement: {prev_room} (ID:{prev_room_id}) --({action_taken})--> {new_room_name} (ID:{new_room_id})",
                 details=f"Movement: {prev_room} to {new_room_name} via {action_taken}",
             )
 
@@ -128,7 +146,9 @@ class MapManager(BaseManager):
                     "episode_id": self.game_state.episode_id,
                     "turn": self.game_state.turn_count,
                     "action": action_taken,
+                    "from_room_id": prev_room_id,
                     "from_room": prev_room,
+                    "to_room_id": new_room_id,
                     "to_room": new_room_name,
                 },
             )
@@ -137,14 +157,29 @@ class MapManager(BaseManager):
             self.log_error(f"Failed to update map from movement: {e}")
 
     def _update_movement_tracking(
-        self, action: str, from_room: str, to_room: str, game_response: str = ""
+        self,
+        action: str,
+        from_room_id: int,
+        from_room_name: str,
+        to_room_id: int,
+        to_room_name: str,
+        game_response: str = ""
     ) -> None:
-        """Update movement tracking between rooms."""
+        """Update movement tracking between rooms.
+
+        Args:
+            action: Movement action taken
+            from_room_id: Origin room location ID
+            from_room_name: Origin room name (for context)
+            to_room_id: Destination room location ID
+            to_room_name: Destination room name (for context)
+            game_response: Game's response to action
+        """
         try:
             # Create movement context
             movement_context = MovementContext(
-                current_location=to_room,
-                previous_location=from_room,
+                current_location=to_room_name,
+                previous_location=from_room_name,
                 action=action,
                 game_response=game_response,
                 turn_number=self.game_state.turn_count,
@@ -161,7 +196,8 @@ class MapManager(BaseManager):
                 and movement_analysis.from_exits
             ):
                 self.game_map.update_room_exits(
-                    room_name=from_room, available_exits=movement_analysis.from_exits
+                    room_id=from_room_id,  # Use integer ID
+                    new_exits=movement_analysis.from_exits
                 )
 
             # Add connection if movement was successful
@@ -173,9 +209,9 @@ class MapManager(BaseManager):
                 direction = self._extract_direction_from_action(action)
                 if direction:
                     self.game_map.add_connection(
-                        from_room_name=from_room,
+                        from_room_id=from_room_id,  # Use integer ID
                         exit_taken=direction,
-                        to_room_name=to_room,
+                        to_room_id=to_room_id,  # Use integer ID
                         confidence=0.8,  # Default confidence
                     )
 
@@ -229,59 +265,38 @@ class MapManager(BaseManager):
 
         return None
 
-    def track_failed_action(self, action: str, location: str) -> None:
-        """Track a failed action at a specific location."""
+    def track_failed_action(self, action: str, location_id: int, location_name: str) -> None:
+        """Track a failed action at a specific location.
+
+        Args:
+            action: The action that failed
+            location_id: Jericho location ID where action failed
+            location_name: Human-readable location name
+        """
         try:
-            # Initialize failed actions tracking for this location
-            if location not in self.game_state.failed_actions_by_location:
-                self.game_state.failed_actions_by_location[location] = []
+            # Initialize failed actions tracking for this location (use name for backward compat)
+            if location_name not in self.game_state.failed_actions_by_location:
+                self.game_state.failed_actions_by_location[location_name] = []
 
             # Add the failed action
-            self.game_state.failed_actions_by_location[location].append(action)
+            self.game_state.failed_actions_by_location[location_name].append(action)
 
-            # Track exit failure in the map graph
-            self.game_map.track_exit_failure(location, action)
+            # Track exit failure in the map graph (use integer ID)
+            failure_count = self.game_map.track_exit_failure(location_id, action)
 
-            self.log_debug(f"Tracked failed action: {action} at {location}")
+            self.log_debug(f"Tracked failed action: {action} at {location_name} (ID: {location_id})")
 
             # Check if we should prune this exit due to repeated failures
-            failure_count = self.game_state.failed_actions_by_location[location].count(
-                action
-            )
             if failure_count >= 3:  # Threshold for exit pruning
-                self.game_map.prune_unreliable_exit(location, action)
-                self.log_info(
-                    f"Pruned unreliable exit: {action} from {location} (failed {failure_count} times)"
-                )
+                pruned_count = self.game_map.prune_invalid_exits(location_id, min_failure_count=3)
+                if pruned_count > 0:
+                    self.log_info(
+                        f"Pruned {pruned_count} unreliable exit(s) from {location_name} (ID: {location_id})"
+                    )
 
         except Exception as e:
             self.log_error(f"Failed to track failed action: {e}")
 
-    def run_map_consolidation(self) -> None:
-        """Run map consolidation to merge similar locations and clean up fragmentation."""
-        try:
-            # Perform base name variant consolidation
-            consolidated_count = self.game_map.consolidate_base_name_variants()
-
-            if consolidated_count > 0:
-                self.log_debug(
-                    f"Map consolidation merged {consolidated_count} rooms",
-                    details=f"Consolidated {consolidated_count} rooms",
-                )
-
-                self.logger.info(
-                    "Map consolidation completed",
-                    extra={
-                        "event_type": "map_consolidation",
-                        "episode_id": self.game_state.episode_id,
-                        "turn": self.game_state.turn_count,
-                        "consolidated_count": consolidated_count,
-                        "total_rooms": len(self.game_map.rooms),
-                    },
-                )
-
-        except Exception as e:
-            self.log_error(f"Failed to run map consolidation: {e}")
 
     def check_map_update(self) -> None:
         """Check if map update is needed and perform periodic map maintenance."""
@@ -307,23 +322,6 @@ class MapManager(BaseManager):
                     **quality_metrics,
                 },
             )
-
-            # Perform advanced consolidation if needed
-            if (
-                quality_metrics.get("fragmentation_score", 0) > 0.3
-            ):  # High fragmentation
-                self.game_map.consolidate_similar_locations()
-                self.log_info(
-                    "Performed similarity-based consolidation due to high fragmentation"
-                )
-
-            # Prune fragmented nodes if needed
-            if (
-                quality_metrics.get("isolated_room_count", 0) > 5
-            ):  # Too many isolated rooms
-                pruned_count = self.game_map.prune_fragmented_nodes()
-                if pruned_count > 0:
-                    self.log_info(f"Pruned {pruned_count} fragmented nodes")
 
             self.last_map_update_turn = self.game_state.turn_count
 
@@ -362,6 +360,7 @@ class MapManager(BaseManager):
             return {
                 "mermaid_diagram": self.game_map.render_mermaid(),
                 "current_room": self.game_state.current_room_name_for_map,
+                "current_room_id": self.game_state.current_room_id,  # Add ID for new consumers
                 "total_rooms": len(self.game_map.rooms),
                 "total_connections": sum(
                     len(connections)
@@ -370,15 +369,14 @@ class MapManager(BaseManager):
                 # Enhanced map metrics (like old orchestrator)
                 "quality_metrics": self.game_map.get_map_quality_metrics(),
                 "confidence_report": self.game_map.render_confidence_report(),
-                "fragmentation_report": self.game_map.get_fragmentation_report(),
                 # Exit failure tracking
                 "exit_failure_stats": self.game_map.get_exit_failure_stats(),
                 "exit_failure_report": self.game_map.render_exit_failure_report(),
                 # Optional: Include raw data for advanced frontends
                 "raw_data": {
                     "rooms": {
-                        name: {"exits": list(room.exits)}
-                        for name, room in self.game_map.rooms.items()
+                        room_id: {"name": room.name, "exits": list(room.exits)}
+                        for room_id, room in self.game_map.rooms.items()  # Fixed: room_id is int
                     },
                     "connections": self.game_map.connections,
                 },
@@ -388,6 +386,7 @@ class MapManager(BaseManager):
             return {
                 "mermaid_diagram": "graph LR\n    A[Error: Map unavailable]",
                 "current_room": self.game_state.current_room_name_for_map,
+                "current_room_id": self.game_state.current_room_id,
                 "total_rooms": 0,
                 "total_connections": 0,
             }

@@ -1,36 +1,14 @@
 """
 ZorkGPT Game Interface Layer
 
-This module provides a clean separation between the game interface and the AI orchestration logic.
-It contains all components necessary for interacting with the Zork game, including:
+This module provides the Jericho-based game interface for interacting with Zork.
+After Phase 2 migration, this module only contains the JerichoInterface.
 
-- Server: FastAPI-based game server managing dfrotz processes
-- Client: REST API client for connecting to the game server
-- Core: Core game interface classes and parsers
+The game server, client, and structured parser have been removed in favor of
+direct Jericho integration with object tree access.
 """
 
-# Export main interfaces for convenient importing
-from .core.zork_interface import ZorkInterface
-from .core.structured_parser import StructuredZorkParser, StructuredZorkResponse
-from .client.game_server_client import GameServerClient
-from .server.models import (
-    CommandRequest,
-    CommandResponse,
-    SessionState,
-    HistoryEntry,
-    SessionHistory,
-)
-from .server.session_manager import GameSession
+# Export main interface for convenient importing
+from .core.jericho_interface import JerichoInterface
 
-__all__ = [
-    "ZorkInterface",
-    "StructuredZorkParser",
-    "StructuredZorkResponse",
-    "GameServerClient",
-    "CommandRequest",
-    "CommandResponse",
-    "SessionState",
-    "HistoryEntry",
-    "SessionHistory",
-    "GameSession",
-]
+__all__ = ["JerichoInterface"]

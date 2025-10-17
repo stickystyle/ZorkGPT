@@ -1,9 +1,11 @@
 """
-Streamlined ZorkOrchestrator v2 - Clean orchestration layer.
+Streamlined ZorkOrchestrator v2 - Clean orchestration layer with Jericho.
 
 This is the refactored orchestrator that coordinates specialized managers
 instead of handling all responsibilities directly. It follows the
 orchestration pattern, delegating work to focused manager classes.
+
+Phase 2: Uses JerichoInterface directly, NO GameServerClient.
 """
 
 import time
@@ -24,7 +26,7 @@ from managers import (
 from zork_agent import ZorkAgent
 from zork_critic import ZorkCritic
 from hybrid_zork_extractor import HybridZorkExtractor
-from game_interface.client.game_server_client import GameServerClient
+from game_interface.core.jericho_interface import JerichoInterface
 from logger import setup_logging
 
 
@@ -36,7 +38,7 @@ class ZorkOrchestratorV2:
     - High-level game loop coordination
     - Manager initialization and lifecycle
     - Inter-manager communication
-    - Game interface management
+    - Game interface management (Jericho)
 
     All domain-specific logic is delegated to specialized managers.
     """
@@ -72,6 +74,11 @@ class ZorkOrchestratorV2:
         workdir = self.config.zork_game_workdir
         self.episode_log_file = setup_episode_logging(episode_id, workdir)
 
+        # Initialize Jericho interface
+        self.jericho_interface = JerichoInterface(
+            game_file_path=self.config.game_file_path, logger=self.logger
+        )
+
         # Initialize core game components
         self._initialize_game_components()
 
@@ -82,11 +89,12 @@ class ZorkOrchestratorV2:
         self.critic_confidence_history = []
 
         self.logger.info(
-            "ZorkOrchestrator v2 initialized",
+            "ZorkOrchestrator v2 initialized with Jericho",
             extra={
                 "event_type": "orchestrator_init",
                 "episode_id": episode_id,
                 "episode_log_file": self.episode_log_file,
+                "game_file_path": self.config.game_file_path,
                 "agent_model": self.config.agent_model,
                 "critic_model": self.config.critic_model,
                 "info_ext_model": self.config.info_ext_model,
@@ -110,8 +118,9 @@ class ZorkOrchestratorV2:
             model=self.config.critic_model,
         )
 
-        # Initialize extractor
+        # Initialize extractor with Jericho interface
         self.extractor = HybridZorkExtractor(
+            jericho_interface=self.jericho_interface,
             episode_id=self.game_state.episode_id,
             logger=self.logger,
             model=self.config.info_ext_model,
@@ -183,16 +192,9 @@ class ZorkOrchestratorV2:
             self.episode_synthesizer,
         ]
 
-    def create_game_interface(self) -> GameServerClient:
-        """Create game interface for the orchestrator to use."""
-        return GameServerClient(base_url=self.config.game_server_url)
-
-    def play_episode(self, game_interface: GameServerClient) -> int:
+    def play_episode(self) -> int:
         """
-        Play a complete episode of Zork.
-
-        Args:
-            game_interface: The game interface to use
+        Play a complete episode of Zork using Jericho.
 
         Returns:
             Final score achieved in the episode
@@ -210,30 +212,24 @@ class ZorkOrchestratorV2:
             if self.game_state.rejection_state:
                 self.rejection_manager.restore_state(self.game_state.rejection_state)
 
-            # Start new game session
-            session_response = game_interface.start_session(
-                session_id=self.game_state.episode_id
+            # Start Jericho interface
+            initial_game_state = self.jericho_interface.start()
+
+            self.logger.info(
+                "Jericho interface started successfully",
+                extra={
+                    "event_type": "jericho_started",
+                    "episode_id": self.game_state.episode_id,
+                    "intro_length": len(initial_game_state),
+                },
             )
-            if not session_response["success"]:
-                self.logger.error(f"Failed to start game session: {session_response}")
-                return 0
-
-            # Get initial game state
-            initial_state_response = game_interface.send_command("look")
-            if not initial_state_response["success"]:
-                self.logger.error(
-                    f"Failed to get initial state: {initial_state_response}"
-                )
-                return 0
-
-            initial_game_state = initial_state_response["response"]
 
             # Extract initial state information
             initial_extracted_info = self.extractor.extract_info(initial_game_state)
             self._process_extraction(initial_extracted_info, "", initial_game_state)
 
             # Run the main game loop
-            final_score = self._run_game_loop(game_interface, initial_game_state)
+            final_score = self._run_game_loop(initial_game_state)
 
             # Finalize episode
             self.episode_synthesizer.finalize_episode(
@@ -244,8 +240,8 @@ class ZorkOrchestratorV2:
             # Export final coordinated state (including map data)
             self._export_coordinated_state()
 
-            # Stop game session
-            game_interface.stop_session()
+            # Close Jericho interface
+            self.jericho_interface.close()
 
             return final_score
 
@@ -261,9 +257,7 @@ class ZorkOrchestratorV2:
             )
             return self.game_state.previous_zork_score
 
-    def _run_game_loop(
-        self, game_interface: GameServerClient, initial_state: str
-    ) -> int:
+    def _run_game_loop(self, initial_state: str) -> int:
         """Run the main game loop."""
         current_game_state = initial_state
 
@@ -278,30 +272,13 @@ class ZorkOrchestratorV2:
                 time.sleep(self.config.turn_delay_seconds)
 
             # Run a single turn
-            action_taken, next_game_state = self._run_turn(
-                game_interface, current_game_state
-            )
+            action_taken, next_game_state = self._run_turn(current_game_state)
 
             if next_game_state:
                 current_game_state = next_game_state
 
             # Check periodic updates for managers
             self._check_periodic_updates()
-
-            # Trigger save every 20 turns
-            # if self.game_state.turn_count % 20 == 0:
-            #     self.logger.info(
-            #         f"Triggering periodic save at turn {self.game_state.turn_count}",
-            #         extra={
-            #             "event_type": "periodic_save",
-            #             "episode_id": self.game_state.episode_id,
-            #             "turn": self.game_state.turn_count
-            #         }
-            #     )
-            #     if game_interface.force_save():
-            #         self.logger.info(f"Periodic save successful at turn {self.game_state.turn_count}")
-            #     else:
-            #         self.logger.warning(f"Periodic save failed at turn {self.game_state.turn_count}")
 
             # Export state after every turn for live monitoring
             self._export_coordinated_state()
@@ -323,9 +300,7 @@ class ZorkOrchestratorV2:
 
         return self.game_state.previous_zork_score
 
-    def _run_turn(
-        self, game_interface: GameServerClient, current_state: str
-    ) -> Tuple[str, str]:
+    def _run_turn(self, current_state: str) -> Tuple[str, str]:
         """Run a single game turn."""
         try:
             # Generate action using agent
@@ -333,6 +308,7 @@ class ZorkOrchestratorV2:
                 current_state=current_state,
                 inventory=self.game_state.current_inventory,
                 location=self.game_state.current_room_name_for_map,
+                location_id=self.game_state.current_room_id,
                 game_map=self.map_manager.game_map,
                 in_combat=self.state_manager.get_combat_status(),
                 failed_actions=self.game_state.failed_actions_by_location.get(
@@ -554,13 +530,24 @@ class ZorkOrchestratorV2:
                 },
             )
 
-            # Execute action
-            response = game_interface.send_command(action_to_take)
-            if not response["success"]:
-                self.logger.error(f"Failed to execute command: {response}")
-                return action_to_take, current_state
+            # Execute action using Jericho
+            next_game_state = self.jericho_interface.send_command(action_to_take)
 
-            next_game_state = response["response"]
+            # Check for game over
+            is_game_over, game_over_reason = self.jericho_interface.is_game_over(
+                next_game_state
+            )
+            if is_game_over:
+                self.game_state.game_over_flag = True
+                self.logger.info(
+                    f"Game over detected: {game_over_reason}",
+                    extra={
+                        "event_type": "game_over_detected",
+                        "episode_id": self.game_state.episode_id,
+                        "turn_number": self.game_state.turn_count,
+                        "reason": game_over_reason,
+                    },
+                )
 
             # Clean the game response before storing in history
             clean_response = self.extractor.get_clean_game_text(next_game_state)
@@ -573,8 +560,8 @@ class ZorkOrchestratorV2:
                     "episode_id": self.game_state.episode_id,
                     "turn": self.game_state.turn_count,
                     "action": action_to_take,
-                    "zork_response": clean_response,  # Store clean text for display
-                    "raw_zork_response": next_game_state,  # Keep raw for parsing if needed
+                    "zork_response": clean_response,
+                    "raw_zork_response": next_game_state,
                 },
             )
 
@@ -586,7 +573,6 @@ class ZorkOrchestratorV2:
             self._process_extraction(extracted_info, action_to_take, next_game_state)
 
             # Store extracted info for viewer (state export)
-            # Convert to dict if it's a structured object
             extracted_dict = {}
             if hasattr(extracted_info, "__dict__"):
                 extracted_dict = {
@@ -657,26 +643,46 @@ class ZorkOrchestratorV2:
         ):
             new_location = extracted_info.current_location_name
 
-            # Add to visited locations
-            self.game_state.visited_locations.add(new_location)
+            # Extract location ID from Jericho
+            try:
+                location_obj = self.jericho_interface.get_location_structured()
+                new_location_id = location_obj.num if location_obj else None
+            except Exception as e:
+                self.logger.warning(f"Failed to get location ID from Jericho: {e}")
+                new_location_id = None
 
-            # Update map
-            if action and self.game_state.current_room_name_for_map:
-                self.map_manager.update_from_movement(
-                    action_taken=action,
-                    new_room_name=new_location,
-                    previous_room_name=self.game_state.current_room_name_for_map,
-                    game_response=response,
+            # Skip map updates if we don't have a valid location ID
+            if new_location_id is None:
+                self.logger.warning(
+                    f"Skipping map update - no location ID available for {new_location}"
                 )
-            elif not self.game_state.current_room_name_for_map:
-                # Initial room
-                self.map_manager.add_initial_room(new_location)
-
-            # Update rejection manager's movement tracking
-            if self.game_state.current_room_name_for_map != new_location:
-                self.rejection_manager.update_movement_tracking(moved=True)
             else:
-                self.rejection_manager.update_movement_tracking(moved=False)
+                # Add to visited locations
+                self.game_state.visited_locations.add(new_location)
+
+                # Update map
+                if action and self.game_state.current_room_id:
+                    self.map_manager.update_from_movement(
+                        action_taken=action,
+                        new_room_id=new_location_id,
+                        new_room_name=new_location,
+                        previous_room_id=self.game_state.current_room_id,
+                        previous_room_name=self.game_state.current_room_name_for_map,
+                        game_response=response,
+                    )
+                elif not self.game_state.current_room_id:
+                    # Initial room
+                    self.map_manager.add_initial_room(new_location_id, new_location)
+
+                # Update rejection manager's movement tracking
+                if self.game_state.current_room_name_for_map != new_location:
+                    self.rejection_manager.update_movement_tracking(moved=True)
+                else:
+                    self.rejection_manager.update_movement_tracking(moved=False)
+
+                # Update GameState with new location
+                self.game_state.current_room_id = new_location_id
+                self.game_state.current_room_name_for_map = new_location
 
         # Track failed actions
         if action and response:
@@ -689,9 +695,18 @@ class ZorkOrchestratorV2:
             ]
 
             if any(indicator in response_lower for indicator in failure_indicators):
-                self.map_manager.track_failed_action(
-                    action, self.game_state.current_room_name_for_map
-                )
+                # Get current location ID for tracking
+                try:
+                    location_obj = self.jericho_interface.get_location_structured()
+                    current_location_id = location_obj.num if location_obj else None
+                    current_location_name = self.game_state.current_room_name_for_map
+
+                    if current_location_id is not None:
+                        self.map_manager.track_failed_action(
+                            action, current_location_id, current_location_name
+                        )
+                except Exception as e:
+                    self.logger.warning(f"Failed to track failed action: {e}")
 
     def _check_periodic_updates(self) -> None:
         """Check and run periodic updates for managers."""
@@ -752,7 +767,6 @@ class ZorkOrchestratorV2:
             List of final scores for each episode
         """
         scores = []
-        game_interface = self.create_game_interface()
 
         for i in range(num_episodes):
             self.logger.info(f"Starting episode {i + 1} of {num_episodes}")
@@ -765,7 +779,7 @@ class ZorkOrchestratorV2:
             self.critic_confidence_history = []
 
             # Play episode
-            score = self.play_episode(game_interface)
+            score = self.play_episode()
             scores.append(score)
 
             self.logger.info(f"Episode {i + 1} completed with score: {score}")

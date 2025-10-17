@@ -1,771 +1,1110 @@
-  # Single-Stage Knowledge Base Generation Refactor Plan
-
-  ## Executive Summary
-
-  This document outlines a complete refactoring of the ZorkGPT knowledge base
-     generatio
-         + n system from a complex 3-stage process to a simpler, more efficient single-stage
-     appr
-         + oach while maintaining persistent wisdom integration.
-
-  ## Background & Motivation
-
-  ### Current System Issues
-  1. **3-Stage Process** causes information loss through multiple abstraction layers:
-     - Stage 1: Quality assessment (LLM call to decide if worth processing)
-     - Stage 2: Insight extraction (LLM call to analyze turns)
-     - Stage 3: Knowledge base creation (LLM call to format insights)
-
-  2. **Problems**:
-     - Each stage abstracts further from raw data
-     - "mailbox contains leaflet" → "interact with objects" → "exploration patterns"
-     - 3x API costs and latency
-     - Complex to debug and maintain
-     - Generic advice instead of specific facts
-
-  ### Proposed Solution
-  Single-stage generation that:
-  - Processes turn data directly into knowledge base format
-  - Preserves specific world facts alongside strategic patterns
-  - Uses simple heuristics for quality filtering
-  - Reduces costs by 66% (1 LLM call vs 3)
-
-  ## File Structure & Key Components
-
-  ### Primary File to Modify
-  - **File**: `/Volumes/workingfolder/ZorkGPT/zork_strategy_generator.py`
-  - **Class**: `AdaptiveKnowledgeManager`
-
-  ### Methods to Remove
-  ```python
-  # These methods implement the 3-stage process and will be removed:
-  - _assess_knowledge_update_quality()    # Stage 1: Quality assessment
-  - _analyze_full_insights()              # Stage 2: Full analysis
-  - _analyze_selective_insights()         # Stage 2: Selective analysis
-  - _analyze_escape_strategies()          # Stage 2: Escape analysis
-  - _determine_update_strategy()          # Strategy selection
-  - _merge_insights_with_existing()       # Stage 3: Merging
-  - _create_new_knowledge_base()          # Stage 3: KB creation
-  ```
-
-  ### Methods to Add
-  ```python
-  # New simplified methods:
-  - _should_update_knowledge()           # Heuristic quality check
-  - _generate_knowledge_directly()       # Single-stage generation
-  - _format_turn_data_for_prompt()      # Clean data formatting
-  - _load_persistent_wisdom()           # Load cross-episode wisdom
-  ```
-
-  ### Methods to Modify
-  ```python
-  # Simplified main entry point:
-  - update_knowledge_from_turns()        # Refactored to use single stage
-  ```
-
-  ### Methods to Keep Unchanged
-  ```python
-  # These remain as-is:
-  - synthesize_inter_episode_wisdom()    # End-of-episode wisdom synthesis
-  - _extract_turn_window_data()          # Turn data extraction
-  - _intelligent_knowledge_merge()       # Simplified for merging
-  - _preserve_map_section()              # Map preservation
-  - _trim_map_section()                  # Map trimming
-  ```
-
-  ## Implementation Details
-
-  ### 1. New Quality Check Method
-
-  ```python
-  def _should_update_knowledge(self, turn_data: Dict) -> Tuple[bool, str]:
-      """
-      Determine if turn data warrants a knowledge update using simple heuristics.
-
-      Returns:
-          Tuple[bool, str]: (should_update, reason)
-      """
-      actions = turn_data['actions_and_responses']
-
-      # Always require minimum actions
-      if len(actions) < 3:
-          return False, "Too few actions (< 3)"
-
-      # Always process death events (high learning value)
-      if turn_data.get('death_events'):
-          return True, f"Contains {len(turn_data['death_events'])} death event(s)"
-
-      # Process if meaningful progress occurred
-      if turn_data.get('score_changes'):
-          return True, f"Score changed {len(turn_data['score_changes'])} times"
-
-      if turn_data.get('location_changes'):
-          return True, f"Discovered {len(turn_data['location_changes'])} new
-     locations"
-
-      # Check action variety (avoid pure repetition)
-      unique_actions = set(a['action'] for a in actions)
-      action_variety = len(unique_actions) / len(actions)
-
-      if action_variety < 0.3:  # Less than 30% unique actions
-          return False, f"Too repetitive ({action_variety:.1%} unique actions)"
-
-      # Check response variety (ensure new information)
-      unique_responses = set(a['response'][:50] for a in actions)
-
-      if len(unique_responses) < 2:
-          return False, "No new information in responses"
-
-      # Check for meaningful content in responses
-      total_response_length = sum(len(a['response']) for a in actions)
-      if total_response_length < 100:
-          return False, "Responses too short/uninformative"
-
-      return True, f"Varied gameplay ({len(unique_actions)} unique actions)"
-  ```
-
-  ### 2. Turn Data Formatter
-
-  ```python
-  def _format_turn_data_for_prompt(self, turn_data: Dict) -> str:
-      """Format turn data for LLM prompt with clear structure."""
-
-      # Header information
-      output = f"""EPISODE: {turn_data['episode_id']}
-  TURNS: {turn_data['start_turn']}-{turn_data['end_turn']}
-  TOTAL ACTIONS: {len(turn_data['actions_and_responses'])}
-  """
-
-      # Gameplay log with truncation for very long responses
-      output += "\nGAMEPLAY LOG:\n"
- "\n"
-
-      for action in turn_data['actions_and_responses']:
-          response = action['response']
-          # Truncate very long responses but preserve key information
-          if len(response) > 300:
-              response = response[:250] + "... [truncated]"
-
-          output += f"Turn {action['turn']}: {action['action']}\n"
-          output += f"Response: {response}\n"
-          output += f"Reasoning: {action.get('reasoning', 'N/A')}\n"
-          output += f"Critic Score: {action.get('critic_score', 'N/A')}\n\n"
-
-      # Events section
-      output += "\nEVENTS:\n"
- "\n"
-
-      # Death events with full details
-      if turn_data.get('death_events'):
-          output += f"Deaths: {len(turn_data['death_events'])}\n"
-          for death in turn_data['death_events']:
-              output += f"  - Turn {death['turn']}: {death['reason']}\n"
-              output += f"    Fatal action: {death.get('action_taken', 'Unknown')}\n"
-              output += f"    Location: {death.get('death_location', 'Unknown')}\n"
-              if death.get('death_messages'):
-                  output += f"    Messages: {', '.join(death['death_messages'])}\n"
-      else:
-          output += "Deaths: None\n"
-
-      # Score changes
-      if turn_data.get('score_changes'):
-          output += f"\nScore Changes: {len(turn_data['score_changes'])}\n"
-          for change in turn_data['score_changes']:
-              output += f"  - Turn {change['turn']}: {change['from_score']} →
-     {change['
-         + to_score']}\n"
-
-      # Location changes
-      if turn_data.get('location_changes'):
-          output += f"\nLocation Changes: {len(turn_data['location_changes'])}\n"
-          for change in turn_data['location_changes']:
-              output += f"  - Turn {change['turn']}: {change['from_location']} →
-     {chang
-         + e['to_location']}\n"
-
-      return output
-  ```
-
-  ### 3. Persistent Wisdom Loader
-
-  ```python
-  def _load_persistent_wisdom(self) -> str:
-      """
-      Load persistent wisdom from previous episodes.
-
-      Returns:
-          str: Formatted persistent wisdom or empty string if not available
-      """
-      try:
-          from config import get_config
-          config = get_config()
-          persistent_wisdom_file = config.orchestrator.persistent_wisdom_file
-
-          with open(persistent_wisdom_file, "r", encoding="utf-8") as f:
-              wisdom = f.read().strip()
-
-          if wisdom:
-              return f"""\n**PERSISTENT WISDOM FROM PREVIOUS EPISODES:**
-  {'-' * 50}
-  {wisdom}
-  {'-' * 50}\n"""
-
-      except FileNotFoundError:
-          # No persistent wisdom file yet - this is fine for early episodes
-          if self.logger:
-              self.logger.debug("No persistent wisdom file found (normal for early
-     epis
-         + odes)")
-      except Exception as e:
-          if self.logger:
-              self.logger.warning(
-                  f"Could not load persistent wisdom: {e}",
-                  extra={"event_type": "knowledge_update"}
-              )
-
-      return ""
-  ```
-
-  ### 4. Single-Stage Knowledge Generator
-
-  ```python
-  def _generate_knowledge_directly(self, turn_data: Dict, existing_knowledge: str) ->
-     s
-         + tr:
-      """
-      Generate knowledge base content in a single LLM call.
-
-      Args:
-          turn_data: Extracted turn data
-          existing_knowledge: Current knowledge base content (if any)
-
-      Returns:
-          str: Complete knowledge base content
-      """
-      # Format turn data
-      formatted_data = self._format_turn_data_for_prompt(turn_data)
-
-      # Load persistent wisdom for context
-      persistent_wisdom = self._load_persistent_wisdom()
-
-      # Construct comprehensive prompt
-      prompt = f"""Analyze this Zork gameplay data and create/update the knowledge
-     base
-         + .
-
-  {formatted_data}
-
-  EXISTING KNOWLEDGE BASE:
-  {'-' * 50}
-  {existing_knowledge if existing_knowledge else "No existing knowledge - this is the
-     f
-         + irst update"}
-  {'-' * 50}
-
-  {persistent_wisdom}
-
-  INSTRUCTIONS:
-  Create a comprehensive knowledge base with ALL of the following sections. If a
-     sectio
-         + n has no new information, keep the existing content for that section.
-
-  ## WORLD KNOWLEDGE
-  List ALL specific facts discovered about the game world:
-  - **Item Locations**: Exact items and where found (e.g., "mailbox at West of House
-     co
-         + ntains leaflet")
-  - **Room Connections**: Specific navigation paths (e.g., "north from West of House →
-         + North of House")
-  - **Dangers**: Specific threats and their locations (e.g., "grue in darkness east of
-         + North of House")
-  - **Object Interactions**: What happens with objects (e.g., "leaflet can be read,
-     con
-         + tains game introduction")
-  - **Puzzle Solutions**: Any puzzles solved and their solutions
-  - **Environmental Details**: Properties of locations, special features
-
-  ## STRATEGIC PATTERNS
-  Identify patterns from this gameplay session:
-  - **Successful Actions**: What specific actions led to progress?
-  - **Failed Approaches**: What didn't work and why?
-  - **Exploration Strategies**: Effective methods for discovering new areas
-  - **Resource Management**: How to use items effectively
-  - **Objective Recognition**: How to identify new goals from game responses
-
-  ## DEATH & DANGER ANALYSIS
-  {self._format_death_analysis_section(turn_data) if turn_data.get('death_events')
-     else
-         +  "No deaths occurred in this session."}
-
-  ## COMMAND SYNTAX
-  List exact commands that worked:
-  - Movement: [specific successful movement commands]
-  - Interaction: [specific object interaction commands]
-  - Combat: [any combat-related commands]
-  - Special: [any special or unusual commands]
-
-  ## LESSONS LEARNED
-  Specific insights from this session:
-  - **New Discoveries**: What was learned for the first time?
-  - **Confirmed Patterns**: What previous knowledge was validated?
-  - **Updated Understanding**: What previous assumptions were corrected?
-  - **Future Strategies**: What should be tried next based on these learnings?
-
-  ## CROSS-EPISODE INSIGHTS
-  How this session relates to persistent wisdom:
-  - **Confirmations**: Which persistent patterns were observed again?
-  - **Contradictions**: What differed from previous episodes?
-  - **Extensions**: What new details extend existing knowledge?
-
-  CRITICAL REQUIREMENTS:
-  1. **Be Specific**: Include exact names, locations, and commands
-  2. **Preserve Details**: Never generalize specific facts into vague advice
-  3. **Additive Updates**: When updating, ADD new facts, don't remove existing ones
-  4. **Fact-First**: Prioritize concrete discoveries over abstract strategies
-  5. **Complete Sections**: Include all sections even if some have minimal updates
-
-  Remember: The agent needs BOTH specific facts ("mailbox contains leaflet") AND
-     strate
-         + gic insights ("reading items provides information")."""
-
-      # Add qwen3-30b-a3b optimization if needed
-      prompt = r"\no_think " + prompt
-
-      try:
-          response = self.client.chat.completions.create(
-              model=self.analysis_model,
-              messages=[
-                  {
-                      "role": "system",
-                      "content": "You are creating a knowledge base for an AI agent
-     pla
-         + ying Zork. Focus on preserving specific, actionable facts from the gameplay while
-     also
-         +  identifying strategic patterns. Never abstract specific discoveries into generic
-     advi
-         + ce."
-                  },
-                  {"role": "user", "content": prompt}
-              ],
-              temperature=self.analysis_sampling.temperature,
-              top_p=self.analysis_sampling.top_p,
-              top_k=self.analysis_sampling.top_k,
-              min_p=self.analysis_sampling.min_p,
-              max_tokens=self.analysis_sampling.max_tokens or 3000,
-          )
-
-          return response.content.strip()
-
-      except Exception as e:
-          if self.logger:
-              self.logger.error(
-                  f"Knowledge generation failed: {e}",
-                  extra={"event_type": "knowledge_update", "error": str(e)}
-              )
-          # Return existing knowledge on failure
-          return existing_knowledge
-
-  def _format_death_analysis_section(self, turn_data: Dict) -> str:
-      """Format death events for the knowledge base."""
-      if not turn_data.get('death_events'):
-          return "No deaths occurred in this session."
-
-      output = f"**{len(turn_data['death_events'])} death(s) occurred:**\n\n"
-
-      for death in turn_data['death_events']:
-          output += f"**Death at Turn {death['turn']}**\n"
-          output += f"- Cause: {death['reason']}\n"
-          output += f"- Fatal Action: {death.get('action_taken', 'Unknown')}\n"
-          output += f"- Location: {death.get('death_location', 'Unknown')}\n"
-          output += f"- Final Score: {death.get('final_score', 'Unknown')}\n"
-
-          if death.get('death_messages'):
-              output += f"- Key Messages: {'; '.join(death['death_messages'])}\n"
-
-          # Include contextual information
-          if death.get('death_context'):
-              output += f"- Context: {death['death_context']}\n"
-
-          output += "\n"
-
-      return output
-  ```
-
-  ### 5. Refactored Main Update Method
-
-  ```python
-  def update_knowledge_from_turns(
-      self,
-      episode_id: str,
-      start_turn: int,
-      end_turn: int,
-      is_final_update: bool = False,
-  ) -> bool:
-      """
-      Update knowledge base from a specific turn range using single-stage generation.
-
-      Args:
-          episode_id: Current episode ID
-          start_turn: Starting turn number
-          end_turn: Ending turn number
-          is_final_update: If True, more lenient about quality (episode-end updates)
-
-      Returns:
-          bool: True if knowledge was updated, False if skipped
-      """
-      if self.logger:
-          self.logger.info(
-              f"Knowledge update requested for turns {start_turn}-{end_turn}",
-              extra={
-                  "event_type": "knowledge_update_start",
-                  "episode_id": episode_id,
-                  "turn_range": f"{start_turn}-{end_turn}",
-                  "is_final": is_final_update
-              }
-          )
-
-      # Step 1: Extract turn window data
-      turn_data = self._extract_turn_window_data(episode_id, start_turn, end_turn)
-
-      if not turn_data or not turn_data.get('actions_and_responses'):
-          if self.logger:
-              self.logger.warning(
-                  "No turn data found for analysis",
-                  extra={
-                      "event_type": "knowledge_update_skipped",
-                      "reason": "no_data"
-                  }
-              )
-          return False
-
-      # Step 2: Quality check using heuristics
-      should_update, reason = self._should_update_knowledge(turn_data)
-
-      # Override for final updates if there's a death or significant content
-      if is_final_update and not should_update:
-          if turn_data.get('death_events') or len(turn_data['actions_and_responses'])
-     >
-         + = 5:
-              should_update = True
-              reason = "Final update with significant content"
-
-      if self.logger:
-          self.logger.info(
-              f"Knowledge update decision: {'proceed' if should_update else 'skip'} -
-     {
-         + reason}",
-              extra={
-                  "event_type": "knowledge_update_decision",
-                  "should_update": should_update,
-                  "reason": reason
-              }
-          )
-
-      if not should_update:
-          return False
-
-      # Step 3: Load existing knowledge
-      existing_knowledge = ""
-      try:
-          if os.path.exists(self.output_file):
-              with open(self.output_file, 'r', encoding='utf-8') as f:
-                  existing_knowledge = f.read()
-
-              # Trim map section for LLM processing
-              existing_knowledge = self._trim_map_section(existing_knowledge)
-
-      except Exception as e:
-          if self.logger:
-              self.logger.warning(
-                  f"Could not load existing knowledge: {e}",
-                  extra={"event_type": "knowledge_update"}
-              )
-
-      # Step 4: Generate new knowledge in single pass
-      if self.logger:
-          self.logger.info(
-              "Generating knowledge base update",
-              extra={"event_type": "knowledge_generation_start"}
-          )
-
-      new_knowledge = self._generate_knowledge_directly(turn_data, existing_knowledge)
-
-      if not new_knowledge or new_knowledge.startswith("SKIP:"):
-          if self.logger:
-              self.logger.warning(
-                  f"Knowledge generation returned skip or empty:
-     {new_knowledge[:100]}"
-         + ,
-                  extra={"event_type": "knowledge_update_skipped"}
-              )
-          return False
-
-      # Step 5: Preserve map section if it exists
-      if existing_knowledge and "## CURRENT WORLD MAP" in existing_knowledge:
-          # Extract and preserve the map section
-          original_with_map = ""
-          try:
-              with open(self.output_file, 'r', encoding='utf-8') as f:
-                  original_with_map = f.read()
-              new_knowledge = self._preserve_map_section(original_with_map,
-     new_knowled
-         + ge)
-          except:
-              pass  # Map preservation is non-critical
-
-      # Step 6: Write updated knowledge to file
-      try:
-          with open(self.output_file, 'w', encoding='utf-8') as f:
-              f.write(new_knowledge)
-
-          if self.logger:
-              self.logger.info(
-                  "Knowledge base updated successfully",
-                  extra={
-                      "event_type": "knowledge_update_success",
-                      "file": self.output_file,
-                      "size": len(new_knowledge)
-                  }
-              )
-
-          # Step 7: Log the prompt if in debug mode
-          if hasattr(self, 'log_prompts') and self.log_prompts:
-              self._log_prompt_to_file(
-                  "knowledge_update",
-                  turn_data,
-                  new_knowledge
-              )
-
-          return True
-
-      except Exception as e:
-          if self.logger:
-              self.logger.error(
-                  f"Failed to write knowledge base: {e}",
-                  extra={
-                      "event_type": "knowledge_update_error",
-                      "error": str(e)
-                  }
-              )
-          return False
-  ```
-
-  ## Migration Strategy
-
-  ### Phase 1: Parallel Implementation (Week 1)
-  1. Add configuration flag to `AdaptiveKnowledgeManager.__init__()`:
-     ```python
-     def __init__(self, ..., use_single_stage: bool = False):
-         self.use_single_stage = use_single_stage
-     ```
-
-  2. Implement new methods alongside existing ones
-
-  3. Add conditional logic in `update_knowledge_from_turns()`:
-     ```python
-     if self.use_single_stage:
-         return self._update_knowledge_single_stage(...)
-     else:
-         return self._update_knowledge_multi_stage(...)  # Current implementation
-     ```
-
-  ### Phase 2: Testing & Validation (Week 2)
-  1. Create test script that runs both versions:
-     ```python
-     # Test script: test_single_stage_knowledge.py
-     def compare_knowledge_generation():
-         # Create identical test data
-         test_episodes = load_test_episodes()
-
-         # Run both versions
-         multi_stage_kb = AdaptiveKnowledgeManager(use_single_stage=False)
-         single_stage_kb = AdaptiveKnowledgeManager(use_single_stage=True)
-
-         # Compare outputs
-         for episode in test_episodes:
-             multi_result = multi_stage_kb.update_knowledge_from_turns(...)
-             single_result = single_stage_kb.update_knowledge_from_turns(...)
-
-             # Analyze differences
-             compare_results(multi_result, single_result)
-     ```
-
-  2. Metrics to compare:
-     - Specific facts captured
-     - Processing time
-     - Token usage
-     - API costs
-     - Knowledge quality
-
-  ### Phase 3: Gradual Rollout (Week 3)
-  1. Enable for 10% of updates (random selection)
-  2. Monitor logs for issues
-  3. Increase to 50% if successful
-  4. Full rollout if metrics are positive
-
-  ### Phase 4: Cleanup (Week 4)
-  1. Set `use_single_stage=True` as default
-  2. Mark old methods as deprecated
-  3. Remove old code in next major version
-
-  ## Testing Strategy
-
-  ### Unit Tests
-  ```python
-  # test_knowledge_generation.py
-  class TestSingleStageKnowledge(unittest.TestCase):
-
-      def test_should_update_knowledge_minimum_actions(self):
-          """Test quality check with too few actions."""
-          turn_data = {'actions_and_responses': [{'action': 'look'}]}
-          should_update, reason = self.km._should_update_knowledge(turn_data)
-          self.assertFalse(should_update)
-          self.assertIn("few actions", reason)
-
-      def test_should_update_knowledge_death_events(self):
-          """Test that death events always trigger update."""
-          turn_data = {
-              'actions_and_responses': [{'action': 'north'}] * 3,
-              'death_events': [{'turn': 10, 'reason': 'grue'}]
-          }
-          should_update, reason = self.km._should_update_knowledge(turn_data)
-          self.assertTrue(should_update)
-          self.assertIn("death", reason)
-
-      def test_format_turn_data_truncation(self):
-          """Test that long responses are truncated properly."""
-          long_response = "A" * 500
-          turn_data = {
-              'actions_and_responses': [{
-                  'turn': 1,
-                  'action': 'look',
-                  'response': long_response
-              }]
-          }
-          formatted = self.km._format_turn_data_for_prompt(turn_data)
-          self.assertIn("[truncated]", formatted)
-          self.assertLess(len(formatted), 1000)
-  ```
-
-  ### Integration Tests
-  ```python
-  def test_knowledge_preserves_specific_facts():
-      """Verify specific facts are preserved, not abstracted."""
-      # Create test log with specific facts
-      test_log = create_test_log_with_facts()
-
-      # Generate knowledge
-      km = AdaptiveKnowledgeManager(use_single_stage=True)
-      km.update_knowledge_from_turns("test", 1, 10)
-
-      # Read generated knowledge
-      with open("knowledgebase.md", "r") as f:
-          knowledge = f.read()
-
-      # Verify specific facts are present
-      assert "mailbox at West of House contains leaflet" in knowledge
-      assert "north from West of House leads to North of House" in knowledge
-      assert "grue in darkness east of North of House" in knowledge
-
-      # Verify it's not just generic advice
-      assert knowledge.count("specific") < knowledge.count("mailbox")
-  ```
-
-  ## Risk Mitigation
-
-  ### Risk 1: Prompt Too Large
-  **Mitigation**:
-  - Implement smart truncation in `_format_turn_data_for_prompt()`
-  - Limit to most recent 50 actions if over token limit
-  - Prioritize death events and score changes
-
-  ### Risk 2: Loss of Quality Control
-  **Mitigation**:
-  - Comprehensive heuristic checks in `_should_update_knowledge()`
-  - Add "SKIP:" prefix handling in prompt
-  - Monitor skipped updates in logs
-
-  ### Risk 3: Existing Knowledge Corruption
-  **Mitigation**:
-  - Always backup existing file before update
-  - Validate new knowledge isn't empty
-  - Preserve map section separately
-
-  ### Risk 4: Persistent Wisdom Integration
-  **Mitigation**:
-  - Load wisdom in separate try/except block
-  - Continue without wisdom if unavailable
-  - Test with and without wisdom file
-
-  ## Configuration Changes
-
-  Add to `config.yaml`:
-  ```yaml
-  adaptive_knowledge:
-    use_single_stage: false  # Set to true to enable new system
-    min_actions_for_update: 3
-    max_actions_per_prompt: 50
-    preserve_backups: true
-  ```
-
-  ## Monitoring & Metrics
-
-  Log these metrics for comparison:
-  ```python
-  self.logger.info(
-      "Knowledge update completed",
-      extra={
-          "event_type": "knowledge_update_metrics",
-          "method": "single_stage" if self.use_single_stage else "multi_stage",
-          "processing_time": end_time - start_time,
-          "turns_processed": len(turn_data['actions_and_responses']),
-          "knowledge_size": len(new_knowledge),
-          "api_calls": 1 if self.use_single_stage else 3,
-          "skipped": not should_update
-      }
-  )
-  ```
-
-  ## Success Criteria
-
-  The refactor is successful if:
-  1. **Cost Reduction**: 66% reduction in API calls
-  2. **Quality Improvement**: More specific facts in knowledge base
-  3. **Performance**: 3x faster knowledge updates
-  4. **Reliability**: No increase in error rates
-  5. **Specificity**: Concrete facts preserved (not abstracted)
-
-  ## Implementation Checklist
-
-  - [ ] Add configuration flag for single-stage mode
-  - [ ] Implement `_should_update_knowledge()` method
-  - [ ] Implement `_format_turn_data_for_prompt()` method
-  - [ ] Implement `_load_persistent_wisdom()` method
-  - [ ] Implement `_generate_knowledge_directly()` method
-  - [ ] Refactor `update_knowledge_from_turns()` to use new flow
-  - [ ] Add comprehensive unit tests
-  - [ ] Add integration tests comparing both approaches
-  - [ ] Test with various episode logs (deaths, loops, progress)
-  - [ ] Test persistent wisdom integration
-  - [ ] Run A/B comparison on real gameplay data
-  - [ ] Update documentation
-  - [ ] Add monitoring/metrics
-  - [ ] Deploy with feature flag
-  - [ ] Monitor production metrics
-  - [ ] Gradual rollout
-  - [ ] Remove old code after validation
-
-  ## Notes for Implementation
-
-  1. **Preserve ALL specific details** - The main goal is to stop losing specific
-     facts through abstraction
-  2. **Persistent wisdom is context, not primary content** - It should inform but not
-     dominate
-  3. **Quality filtering should be simple** - Complex LLM-based filtering defeats the
-     purpose
-  4. **One prompt to rule them all** - The single prompt must be comprehensive but
-     clear
-  5. **Test with edge cases** - Deaths, loops, first episode, 500+ turn episodes
-
-  This refactor will significantly simplify the codebase while improving the quality
-     of knowledge capture and reducing operational costs.
+# Jericho Integration Refactoring Plan
+
+**Document Version**: 1.0
+**Date**: 2025-01-17
+**Status**: Phase 3 Ready to Start
+
+## Executive Summary
+
+This plan implements **complete migration from dfrotz to Jericho** with zero backwards compatibility. We eliminate ~660-690 lines of brittle text parsing and map consolidation code (11% of codebase) while gaining:
+
+- ✅ **Phase 1 COMPLETE**: JerichoInterface replaces dfrotz entirely
+- ✅ **Phase 2 COMPLETE**: Direct Z-machine access for inventory, location, objects, score
+- ✅ **Phase 3 COMPLETE**: Integer-based map with stable location IDs (~317 lines to delete)
+- 📋 **Phase 4-7**: Movement detection, context enhancement, knowledge tracking, testing
+
+**Key Metrics**:
+- Code reduction: ~660-690 lines (11% of codebase)
+- LLM call reduction: ~40% (instant Z-machine data access)
+- Zero room fragmentation: Location IDs guarantee uniqueness
+- Perfect movement detection: ID comparison replaces heuristics
+
+---
+
+## Phase Status Report
+
+### ✅ Phase 1: Foundation (COMPLETE)
+
+**Implemented**:
+- ✅ JerichoInterface fully implemented at `game_interface/core/jericho_interface.py`
+- ✅ Orchestrator uses JerichoInterface directly (line 29, 78-80 of `zork_orchestrator_v2.py`)
+- ✅ dfrotz completely removed from codebase
+- ✅ Tests exist: `tests/test_jericho_interface.py`, `tests/test_jericho_interface_session_methods.py`
+- ✅ Session methods implemented: `trigger_zork_save()`, `trigger_zork_restore()`, `is_game_over()`
+
+**Verification**:
+```bash
+# Confirm no dfrotz references remain
+grep -r "dfrotz" --exclude-dir=".git" --exclude="*.md" --exclude="repomix-output.xml"
+# Should only find references in documentation/history
+```
+
+---
+
+### ✅ Phase 2: Extractor - Direct Z-Machine Access (COMPLETE)
+
+**Implemented**:
+- ✅ `_get_location_from_jericho()` at line 248 of `hybrid_zork_extractor.py`
+- ✅ `_get_inventory_from_jericho()` at line 261
+- ✅ `_get_visible_objects_from_jericho()` at line 274
+- ✅ `_get_visible_characters_from_jericho()` at line 306
+- ✅ `_get_score_from_jericho()` at line 350
+- ✅ LLM only used for exits, combat, and important messages (line 364)
+
+**Results**:
+- Zero regex parsing for inventory/location/score
+- Extractor response includes structured Jericho data
+- ~100 lines of regex parsing eliminated
+
+**Verification**:
+```python
+# Confirm extractor uses only Jericho methods
+grep -n "get_.*_from_jericho" hybrid_zork_extractor.py
+```
+
+---
+
+## 🔜 Phase 3: Map Intelligence - Location ID Migration (READY TO START)
+
+**Status**: NOT STARTED
+**Estimated Impact**: ~317 lines deleted, ~150 lines modified
+**Risk Level**: MEDIUM (core data structure change)
+
+### Current State Analysis
+
+**Files Requiring Changes**:
+1. `session/game_state.py` (line 26): `current_room_name_for_map: str` → needs ID
+2. `map_graph.py` (line 219): `self.rooms: Dict[str, Room]` → needs `Dict[int, Room]`
+3. `map_graph.py` (lines 1028-1135): `_create_unique_location_id()` → DELETE (107 lines)
+4. `map_graph.py` (lines 1363-1499): `consolidate_base_name_variants()` → DELETE (136 lines)
+5. `map_graph.py` (lines 1501-1575): `_choose_best_base_name_variant()` → DELETE (74 lines)
+
+**Total Code to Delete**: ~317 lines of consolidation logic
+
+### Phase 3 Implementation Plan
+
+#### 3.1: Update GameState Data Model
+
+**File**: `session/game_state.py`
+
+**Changes**:
+```python
+# BEFORE (line 26):
+current_room_name_for_map: str = ""
+
+# AFTER:
+current_room_id: int = 0  # Primary identifier for map operations
+current_room_name: str = ""  # Display name only
+```
+
+**Additional Updates**:
+- Line 141: Update export_data to include both ID and name
+- Update all docstrings mentioning room names
+
+**Validation**:
+- All tests pass after data model change
+- State export includes both `current_room_id` and `current_room_name`
+
+---
+
+#### 3.2: Refactor Room Class for Integer IDs
+
+**File**: `map_graph.py`
+
+**Changes to Room class** (line 201-213):
+```python
+# BEFORE:
+class Room:
+    def __init__(self, name: str, base_name: str = None):
+        self.name: str = name
+        self.base_name: str = base_name or name
+        self.exits: Set[str] = set()
+
+# AFTER:
+class Room:
+    def __init__(self, room_id: int, name: str):
+        self.id: int = room_id  # PRIMARY KEY - Z-machine object ID
+        self.name: str = name    # Display name only
+        self.exits: Set[str] = set()
+
+    def __repr__(self) -> str:
+        return f"Room(id={self.id}, name='{self.name}', exits={self.exits})"
+```
+
+**Rationale**: Eliminate base_name complexity, use Z-machine IDs directly
+
+---
+
+#### 3.3: Refactor MapGraph to Integer Keys
+
+**File**: `map_graph.py`
+
+**Changes to MapGraph.__init__** (line 217-233):
+```python
+# BEFORE (line 219):
+self.rooms: Dict[str, Room] = {}
+
+# AFTER:
+self.rooms: Dict[int, Room] = {}  # Integer keys = location IDs
+self.room_names: Dict[int, str] = {}  # ID -> name mapping for display
+```
+
+**Update all MapGraph methods**:
+
+1. **`add_room()`** (line 361-368):
+```python
+# BEFORE:
+def add_room(self, room_name: str, base_name: str = None) -> Room:
+    room_key = room_name
+    if room_key not in self.rooms:
+        self.rooms[room_key] = Room(name=room_key, base_name=base_name)
+        self.has_new_rooms_since_consolidation = True
+    return self.rooms[room_key]
+
+# AFTER:
+def add_room(self, room_id: int, room_name: str) -> Room:
+    if room_id not in self.rooms:
+        self.rooms[room_id] = Room(room_id=room_id, name=room_name)
+        self.room_names[room_id] = room_name
+    return self.rooms[room_id]
+```
+
+2. **`add_connection()`** (line 448-612):
+```python
+# BEFORE signature:
+def add_connection(self, from_room_name: str, exit_taken: str, to_room_name: str, confidence: float = 1.0)
+
+# AFTER signature:
+def add_connection(self, from_room_id: int, exit_taken: str, to_room_id: int, confidence: float = 1.0)
+
+# Implementation changes:
+# - Replace all string-based room lookups with integer lookups
+# - Update self.connections to use integer keys
+# - Update confidence tracking to use integer keys
+```
+
+3. **`update_room_exits()`** (line 370-410):
+```python
+# BEFORE:
+def update_room_exits(self, room_name: str, new_exits: List[str]):
+
+# AFTER:
+def update_room_exits(self, room_id: int, new_exits: List[str]):
+    if room_id not in self.rooms:
+        # Cannot add exits for non-existent room
+        return
+    # Rest of logic remains the same, just use room_id instead of room_name
+```
+
+4. **`get_room_info()`** (line 614-650):
+```python
+# BEFORE:
+def get_room_info(self, room_name: str) -> str:
+    normalized_name = self._normalize_room_name(room_name)
+    if normalized_name not in self.rooms:
+        return f"Room '{room_name}' is unknown."
+
+# AFTER:
+def get_room_info(self, room_id: int) -> str:
+    if room_id not in self.rooms:
+        return f"Room ID {room_id} is unknown."
+
+    room = self.rooms[room_id]
+    # Build info string using room.id and room.name
+```
+
+5. **`get_context_for_prompt()`** (line 652-740):
+```python
+# BEFORE:
+def get_context_for_prompt(
+    self,
+    current_room_name: str,
+    previous_room_name: str = None,
+    action_taken_to_current: str = None,
+) -> str:
+
+# AFTER:
+def get_context_for_prompt(
+    self,
+    current_room_id: int,
+    current_room_name: str,  # For display only
+    previous_room_id: int = None,
+    previous_room_name: str = None,  # For display only
+    action_taken_to_current: str = None,
+) -> str:
+    # Use IDs for all lookups, names only for display strings
+```
+
+---
+
+#### 3.4: DELETE Consolidation Methods
+
+**File**: `map_graph.py`
+
+**DELETE ENTIRELY** (no replacement needed):
+
+1. **`_create_unique_location_id()`** (lines 1028-1135) - **107 lines**
+   - Reason: Z-machine provides stable IDs, no need to generate unique identifiers
+
+2. **`consolidate_base_name_variants()`** (lines 1363-1499) - **136 lines**
+   - Reason: Integer IDs prevent fragmentation, consolidation not needed
+
+3. **`_choose_best_base_name_variant()`** (lines 1501-1575) - **74 lines**
+   - Reason: Supporting method for consolidation, no longer needed
+
+4. **`needs_consolidation()`** (lines 1137-1166) - **29 lines**
+   - Reason: Consolidation logic removed
+
+5. **`consolidate_similar_locations()`** (lines 1168-1291) - **123 lines**
+   - Reason: Case variation consolidation not needed with integer IDs
+
+6. **`_choose_best_variant()`** (lines 1293-1336) - **43 lines**
+   - Reason: Supporting method for consolidation
+
+**Total Deleted**: ~512 lines (more than initially estimated!)
+
+**Methods to KEEP** (still useful):
+- `_get_opposite_direction()` (line 235) - Still useful for reverse connections
+- `normalize_direction()` (line 174) - Still useful for exit normalization
+- `get_navigation_suggestions()` (line 988) - Useful with integer-based lookups
+- `render_ascii()` (line 742) - Visualization still needed
+- `render_mermaid()` (line 797) - Visualization still needed
+
+---
+
+#### 3.5: Update get_or_create_node_id Logic
+
+**File**: `map_graph.py`
+
+**REPLACE** `get_or_create_node_id()` (lines 283-359):
+
+```python
+# BEFORE (77 lines of complex exit compatibility logic):
+def get_or_create_node_id(
+    self, base_location_name: str, current_exits: List[str], description: str = ""
+) -> str:
+    # ... 77 lines of string-based compatibility checking ...
+
+# AFTER (5-10 lines - trivial ID pass-through):
+def get_or_create_room(self, location_id: int, location_name: str) -> int:
+    """
+    Get or create a room using Z-machine location ID.
+
+    With Jericho, location IDs come from the Z-machine and are guaranteed
+    unique. This method simply ensures the room exists in our graph.
+
+    Args:
+        location_id: Z-machine object ID (from location.num)
+        location_name: Display name (from location.name)
+
+    Returns:
+        The location ID (same as input)
+    """
+    if location_id not in self.rooms:
+        self.add_room(location_id, location_name)
+    return location_id
+```
+
+**Impact**: Eliminates 77 lines of complex exit compatibility logic
+
+---
+
+#### 3.6: Update MapManager Integration
+
+**File**: `managers/map_manager.py`
+
+**Key Changes**:
+
+1. Update `update_from_movement()` to accept and use location IDs
+2. Update `add_initial_room()` to use location ID
+3. Update all calls to `game_map` methods to use IDs
+
+**Example**:
+```python
+# BEFORE:
+def update_from_movement(
+    self,
+    action_taken: str,
+    new_room_name: str,
+    previous_room_name: str,
+    game_response: str
+):
+    # ... uses room names as keys ...
+
+# AFTER:
+def update_from_movement(
+    self,
+    action_taken: str,
+    new_room_id: int,
+    new_room_name: str,
+    previous_room_id: int,
+    previous_room_name: str,
+    game_response: str
+):
+    # ... uses room IDs as keys ...
+```
+
+---
+
+#### 3.7: Update Orchestrator to Extract Location IDs
+
+**File**: `orchestration/zork_orchestrator_v2.py`
+
+**Changes in `_process_extraction()`** (line 621):
+
+```python
+# BEFORE (line 639-658):
+if (
+    hasattr(extracted_info, "current_location_name")
+    and extracted_info.current_location_name
+):
+    new_location = extracted_info.current_location_name
+    self.game_state.visited_locations.add(new_location)
+
+    if action and self.game_state.current_room_name_for_map:
+        self.map_manager.update_from_movement(
+            action_taken=action,
+            new_room_name=new_location,
+            previous_room_name=self.game_state.current_room_name_for_map,
+            game_response=response,
+        )
+
+# AFTER:
+if (
+    hasattr(extracted_info, "current_location_name")
+    and extracted_info.current_location_name
+):
+    # Get location ID from Jericho
+    location_obj = self.jericho_interface.get_location_structured()
+    new_location_id = location_obj.num
+    new_location_name = location_obj.name
+
+    # Update game state with both ID and name
+    self.game_state.current_room_id = new_location_id
+    self.game_state.current_room_name = new_location_name
+    self.game_state.visited_locations.add(new_location_name)
+
+    # Update map using location IDs
+    if action and self.game_state.current_room_id != 0:
+        self.map_manager.update_from_movement(
+            action_taken=action,
+            new_room_id=new_location_id,
+            new_room_name=new_location_name,
+            previous_room_id=self.game_state.current_room_id,
+            previous_room_name=self.game_state.current_room_name,
+            game_response=response,
+        )
+    elif self.game_state.current_room_id == 0:
+        # Initial room
+        self.map_manager.add_initial_room(new_location_id, new_location_name)
+```
+
+---
+
+#### 3.8: Update Tests
+
+**Files**: `tests/test_map_graph.py`, `tests/test_integration.py`
+
+**Changes**:
+- Update all test assertions to use integer IDs
+- Update test fixtures to use integer IDs
+- Remove tests for consolidation methods (no longer exist)
+- Add new tests for ID-based room operations
+
+**New Test Cases**:
+```python
+def test_map_handles_multiple_rooms_same_name():
+    """Test that rooms with same name but different IDs are distinct."""
+    map_graph = MapGraph()
+
+    # Two clearings with same name, different IDs
+    map_graph.add_room(42, "Clearing")
+    map_graph.add_room(78, "Clearing")
+
+    assert len(map_graph.rooms) == 2
+    assert 42 in map_graph.rooms
+    assert 78 in map_graph.rooms
+    assert map_graph.rooms[42].name == "Clearing"
+    assert map_graph.rooms[78].name == "Clearing"
+```
+
+---
+
+### Phase 3 Deliverables
+
+**Code Changes**:
+- ✅ GameState uses `current_room_id: int` as primary key
+- ✅ MapGraph uses `Dict[int, Room]` with integer keys
+- ✅ Room class uses `id: int` as primary key
+- ✅ ~512 lines of consolidation code DELETED
+- ✅ MapManager integration updated for IDs
+- ✅ Orchestrator extracts location IDs from Jericho
+
+**Tests**:
+- ✅ All existing tests updated for integer IDs
+- ✅ New tests for ID-based operations
+- ✅ Test for multiple rooms with same name (different IDs)
+- ✅ No tests for deleted consolidation methods
+
+**Validation Criteria**:
+```bash
+# 1. No consolidation code remains
+grep -n "consolidate" map_graph.py
+# Should return zero results (or only comments)
+
+# 2. No _create_unique_location_id remains
+grep -n "_create_unique_location_id" map_graph.py
+# Should return zero results
+
+# 3. Map uses integer keys
+grep -n "self.rooms: Dict\[str" map_graph.py
+# Should return zero results
+
+# 4. GameState uses room ID
+grep -n "current_room_id" session/game_state.py
+# Should show new field definition
+
+# 5. All tests pass
+uv run pytest tests/ -v
+```
+
+**Success Metrics**:
+- Zero room fragmentation (guaranteed by Z-machine IDs)
+- ~512 lines deleted (11% of map_graph.py)
+- All tests passing with ID-based operations
+- Map correctly handles 5 rooms named "Forest" with distinct IDs
+
+---
+
+## 📋 Phase 4: Movement - Perfect Detection via ID Comparison
+
+**Status**: NOT STARTED
+**Estimated Impact**: ~150 lines deleted/simplified
+**Dependencies**: Phase 3 complete (location IDs available)
+
+### Current State
+
+**File**: `movement_analyzer.py`
+
+**Code to Simplify/Delete**:
+- `PendingConnection` class (lines 49-69) - **20 lines** → DELETE
+- `_indicates_pending_movement()` (lines 251-287) - **36 lines** → DELETE
+- `_should_resolve_pending()` (lines 223-243) - **20 lines** → DELETE
+- `_check_pending_resolution()` (lines 106-129) - **23 lines** → DELETE
+- Dark room heuristics → REPLACE with ID comparison
+
+**Total Simplification**: ~100 lines deleted, ~50 lines simplified
+
+### Implementation Plan
+
+#### 4.1: Simplify MovementResult
+
+**File**: `movement_analyzer.py`
+
+```python
+# BEFORE (lines 28-46):
+@dataclass
+class MovementResult:
+    movement_occurred: bool
+    from_location: Optional[str]
+    to_location: Optional[str]
+    action: str
+    is_pending: bool
+    environmental_factors: List[str]
+    requires_resolution: bool
+    connection_created: bool = False
+    from_description: str = ""
+    from_objects: List[str] = None
+    from_exits: List[str] = None
+    to_description: str = ""
+    to_objects: List[str] = None
+    to_exits: List[str] = None
+
+# AFTER:
+@dataclass
+class MovementResult:
+    movement_occurred: bool
+    from_location_id: int
+    to_location_id: int
+    action: str
+    # All pending-related fields REMOVED
+    # All description/object fields REMOVED (not needed with IDs)
+```
+
+---
+
+#### 4.2: Simplify MovementAnalyzer
+
+**File**: `movement_analyzer.py`
+
+**DELETE**:
+- `pending_connections` list (line 84)
+- `max_pending_turns` (line 85)
+- `_check_pending_resolution()` method (lines 106-129)
+- `_should_resolve_pending()` method (lines 223-243)
+- `_indicates_pending_movement()` method (lines 251-287)
+- `add_intermediate_action_to_pending()` method (lines 367-371)
+- `cleanup_expired_pending()` method (lines 373-385)
+- `get_pending_connections()` method (lines 387-389)
+- `has_pending_connections()` method (lines 391-393)
+- `clear_pending_connections()` method (lines 395-397)
+
+**REPLACE** `analyze_movement()` (lines 87-104):
+
+```python
+# BEFORE (complex pending connection logic):
+def analyze_movement(self, context: MovementContext) -> MovementResult:
+    # First, check if this resolves any pending connections
+    resolved_connection = self._check_pending_resolution(context)
+    if resolved_connection:
+        return resolved_connection
+
+    # Then check if this creates a new movement
+    return self._analyze_new_movement(context)
+
+# AFTER (simple ID comparison):
+def analyze_movement(
+    self,
+    before_location_id: int,
+    after_location_id: int,
+    action: str
+) -> MovementResult:
+    """
+    Analyze movement by comparing location IDs.
+
+    With Jericho, movement detection is trivial: if the location ID
+    changed, movement occurred. No heuristics needed.
+
+    Args:
+        before_location_id: Location ID before action
+        after_location_id: Location ID after action
+        action: Action taken
+
+    Returns:
+        MovementResult indicating if movement occurred
+    """
+    movement_occurred = (before_location_id != after_location_id)
+
+    return MovementResult(
+        movement_occurred=movement_occurred,
+        from_location_id=before_location_id,
+        to_location_id=after_location_id,
+        action=action,
+    )
+```
+
+**Impact**: Replaces ~300 lines of heuristics with ~20 lines of ID comparison
+
+---
+
+#### 4.3: Update MapManager Integration
+
+**File**: `managers/map_manager.py`
+
+**Changes**:
+```python
+# BEFORE:
+def update_from_movement(self, ...):
+    # Complex movement analysis with text comparison
+    movement_result = self.movement_analyzer.analyze_movement(context)
+    if movement_result.is_pending:
+        # Handle pending connections...
+
+# AFTER:
+def update_from_movement(
+    self,
+    action_taken: str,
+    before_location_id: int,
+    after_location_id: int,
+    new_room_name: str,
+    previous_room_name: str,
+):
+    # Simple ID comparison
+    if before_location_id != after_location_id:
+        # Movement occurred - add connection
+        self.game_map.add_connection(
+            before_location_id,
+            action_taken,
+            after_location_id
+        )
+```
+
+---
+
+#### 4.4: Update Orchestrator
+
+**File**: `orchestration/zork_orchestrator_v2.py`
+
+**Changes in `_process_extraction()`**:
+
+```python
+# Get location ID before action
+before_location_id = self.game_state.current_room_id
+
+# Execute action
+next_game_state = self.jericho_interface.send_command(action_to_take)
+
+# Get location ID after action
+location_obj = self.jericho_interface.get_location_structured()
+after_location_id = location_obj.num
+
+# Detect movement via ID comparison
+if before_location_id != after_location_id:
+    # Movement occurred
+    self.map_manager.update_from_movement(
+        action_taken=action_to_take,
+        before_location_id=before_location_id,
+        after_location_id=after_location_id,
+        new_room_name=location_obj.name,
+        previous_room_name=self.game_state.current_room_name,
+    )
+```
+
+---
+
+### Phase 4 Deliverables
+
+**Code Changes**:
+- ✅ PendingConnection class DELETED
+- ✅ All pending connection methods DELETED (~100 lines)
+- ✅ Movement detection simplified to ID comparison (~20 lines)
+- ✅ Dark room handling automatic (IDs work regardless of visibility)
+- ✅ MapManager uses simple ID comparison
+- ✅ Orchestrator tracks before/after location IDs
+
+**Tests**:
+- ✅ Test movement detection in dark rooms
+- ✅ Test movement detection with same-named rooms
+- ✅ Test no-movement actions (ID stays same)
+- ✅ Remove all pending connection tests
+
+**Validation Criteria**:
+```bash
+# 1. No pending connection code remains
+grep -n "PendingConnection" movement_analyzer.py
+# Should return zero results
+
+# 2. No dark room heuristics remain
+grep -n "_indicates_pending" movement_analyzer.py
+# Should return zero results
+
+# 3. Movement detection is simple
+wc -l movement_analyzer.py
+# Should be ~200 lines (down from ~400)
+```
+
+**Success Metrics**:
+- Movement correctly detected in pitch dark rooms
+- Zero false positives/negatives
+- No pending connections needed
+- ~150-200 lines deleted from movement_analyzer.py
+
+---
+
+## 📋 Phase 5: Enhanced Context - Object Tree Integration
+
+**Status**: NOT STARTED
+**Estimated Impact**: ~100 lines added (context enhancement)
+**Dependencies**: Phases 3-4 complete
+
+### Goal
+
+Provide Agent and Critic with direct Z-machine object data for better reasoning.
+
+### Implementation Plan
+
+#### 5.1: Enhance Agent Context
+
+**File**: `managers/context_manager.py`
+
+**Add structured world snapshot**:
+```python
+def get_agent_context(self, ...):
+    # ... existing context ...
+
+    # NEW: Add structured Z-machine data
+    context["current_location_id"] = current_room_id
+    context["inventory_objects"] = [
+        {
+            "id": obj.num,
+            "name": obj.name,
+            "attributes": self._get_object_attributes(obj)
+        }
+        for obj in jericho_interface.get_inventory_structured()
+    ]
+    context["visible_objects"] = [
+        {
+            "id": obj.num,
+            "name": obj.name,
+            "attributes": self._get_object_attributes(obj)
+        }
+        for obj in self._get_visible_objects()
+    ]
+    context["action_vocabulary"] = self._get_action_vocabulary()
+
+    return context
+```
+
+---
+
+#### 5.2: Enhance Critic Validation
+
+**File**: `zork_critic.py`
+
+**Add object tree validation**:
+```python
+def evaluate_action(self, proposed_action, ...):
+    # ... existing evaluation ...
+
+    # NEW: Validate against Z-machine object tree
+    validation_result = self._validate_against_object_tree(
+        proposed_action,
+        jericho_interface
+    )
+
+    if not validation_result.valid:
+        return CriticResult(
+            score=0.2,
+            justification=validation_result.reason,
+            confidence=0.9  # High confidence in Z-machine data
+        )
+```
+
+---
+
+#### 5.3: Add Object Attribute Helper
+
+**File**: `game_interface/core/jericho_interface.py`
+
+**Add utility method**:
+```python
+def get_object_attributes(self, obj) -> Dict[str, bool]:
+    """
+    Extract useful attributes from a ZObject.
+
+    Returns:
+        Dictionary of attribute flags (takeable, openable, etc.)
+    """
+    # Z-machine attribute bits (game-specific)
+    return {
+        "takeable": self._check_attribute(obj, 10),  # Example bit
+        "openable": self._check_attribute(obj, 12),
+        "container": self._check_attribute(obj, 5),
+        # ... more as needed
+    }
+
+def _check_attribute(self, obj, bit: int) -> bool:
+    """Check if a specific attribute bit is set."""
+    if len(obj.attr) > bit // 8:
+        byte_index = bit // 8
+        bit_index = bit % 8
+        return bool(obj.attr[byte_index] & (1 << bit_index))
+    return False
+```
+
+---
+
+### Phase 5 Deliverables
+
+**Code Changes**:
+- ✅ Agent receives structured world snapshot
+- ✅ Critic validates against object tree
+- ✅ Action vocabulary included in context
+- ✅ Object attributes extracted from Z-machine
+
+**Tests**:
+- ✅ Test agent context includes object IDs
+- ✅ Test critic rejects "take lamp" when lamp not in room
+- ✅ Test object attribute extraction
+
+**Success Metrics**:
+- Agent sees takeable items with attributes
+- Critic precisely validates object presence
+- Fewer "I don't see that here" failures
+
+---
+
+## 📋 Phase 6: Knowledge & State - Object Tracking
+
+**Status**: NOT STARTED
+**Estimated Impact**: ~50 lines added
+**Dependencies**: Phases 3-5 complete
+
+### Goal
+
+Track object state changes and detect exact game state loops.
+
+### Implementation Plan
+
+#### 6.1: Add State Hash Tracking
+
+**File**: `managers/state_manager.py`
+
+```python
+def process_turn(self):
+    # ... existing logic ...
+
+    # NEW: Track state hash
+    state_hash = self.jericho_interface.env.get_world_state_hash()
+
+    if state_hash in self.state_history:
+        self.logger.warning(
+            "Exact game state loop detected",
+            extra={"state_hash": state_hash}
+        )
+        # Trigger intervention logic
+
+    self.state_history.append(state_hash)
+```
+
+---
+
+#### 6.2: Track Object Events
+
+**File**: `managers/knowledge_manager.py`
+
+```python
+def track_object_event(self, event_type: str, obj_id: int, obj_name: str, turn: int):
+    """
+    Track object-related events for knowledge synthesis.
+
+    Args:
+        event_type: "acquired", "dropped", "opened", "relocated"
+        obj_id: Z-machine object ID
+        obj_name: Object name
+        turn: Turn number
+    """
+    event = {
+        "turn": turn,
+        "event_type": event_type,
+        "object_id": obj_id,
+        "object_name": obj_name,
+        "timestamp": datetime.now().isoformat()
+    }
+
+    self.object_events.append(event)
+```
+
+---
+
+### Phase 6 Deliverables
+
+**Code Changes**:
+- ✅ State hash tracking implemented
+- ✅ Object event tracking implemented
+- ✅ Loop detection logic added
+
+**Success Metrics**:
+- Detects exact state loops
+- Tracks object acquisitions/relocations
+- Knowledge synthesis includes object events
+
+---
+
+## 📋 Phase 7: Testing, Documentation & Deployment
+
+**Status**: NOT STARTED
+**Estimated Impact**: Comprehensive testing and validation
+**Dependencies**: Phases 3-6 complete
+
+### Implementation Plan
+
+#### 7.1: Integration Tests
+
+**New Test File**: `tests/test_jericho_integration.py`
+
+```python
+def test_full_game_session_with_location_ids():
+    """Test complete game session using location IDs."""
+    # ... 100-turn game session
+    # Verify map uses integer IDs
+    # Verify no room fragmentation
+    # Verify movement detection works
+
+def test_multiple_rooms_same_name():
+    """Test system handles duplicate room names with different IDs."""
+    # ... create 5 rooms named "Forest"
+    # Verify all are distinct in map
+    # Verify connections correct
+
+def test_dark_room_movement():
+    """Test movement detection in pitch dark rooms."""
+    # ... move in dark
+    # Verify movement detected via ID change
+    # Verify connection created
+```
+
+---
+
+#### 7.2: Performance Benchmarking
+
+**Script**: `benchmarks/jericho_performance.py`
+
+```python
+def benchmark_llm_call_reduction():
+    """Measure LLM call reduction with Jericho."""
+    # Run same episode with old vs new system
+    # Count LLM calls
+    # Verify ~40% reduction
+
+def benchmark_turn_processing_speed():
+    """Measure turn processing speed improvement."""
+    # Time 100 turns
+    # Compare before/after Jericho
+    # Verify faster processing
+```
+
+---
+
+#### 7.3: Documentation Updates
+
+**Files to Update**:
+- `README.md`: Update architecture section
+- `CLAUDE.md`: Add Jericho architecture notes
+- `game_interface/README.md`: Document Jericho interface
+- `jericho/README.md`: Keep as reference
+
+---
+
+#### 7.4: Code Cleanup
+
+**Delete**:
+- Any remaining dfrotz references
+- Old consolidation tests
+- Legacy text parsing code
+
+**Verify**:
+```bash
+# No dfrotz remaining
+grep -r "dfrotz" --exclude-dir=".git" --exclude="*.md"
+
+# No consolidation code remaining
+grep -r "consolidate" map_graph.py
+
+# No pending connection code remaining
+grep -r "PendingConnection" movement_analyzer.py
+```
+
+---
+
+### Phase 7 Deliverables
+
+**Tests**:
+- ✅ Full integration test suite
+- ✅ Performance benchmarks
+- ✅ Dark room movement tests
+- ✅ Duplicate room name tests
+
+**Documentation**:
+- ✅ Updated README
+- ✅ Updated CLAUDE.md
+- ✅ Jericho architecture documented
+
+**Validation**:
+- ✅ All tests pass
+- ✅ ~40% LLM reduction achieved
+- ✅ ~660 lines deleted total
+- ✅ Zero dfrotz artifacts
+
+---
+
+## Success Criteria
+
+### Overall Metrics
+
+| Metric | Target | Validation |
+|--------|--------|------------|
+| Code Reduction | ~660-690 lines | `git diff --stat` |
+| LLM Call Reduction | ~40% | Benchmark script |
+| Room Fragmentation | Zero | Test suite |
+| Test Pass Rate | 100% | `pytest tests/` |
+| Movement Detection | 100% accuracy | Integration tests |
+
+### Per-Phase Success
+
+- ✅ **Phase 1**: JerichoInterface only, zero dfrotz
+- ✅ **Phase 2**: Zero regex parsing for core data
+- 🔜 **Phase 3**: Integer-based map, ~512 lines deleted
+- 📋 **Phase 4**: ~150 lines deleted, perfect movement
+- 📋 **Phase 5**: Agent/Critic use object tree
+- 📋 **Phase 6**: Object tracking, loop detection
+- 📋 **Phase 7**: All tests pass, docs updated
+
+---
+
+## Implementation Strategy
+
+### Execution Per Phase
+
+1. **Plan Review**: Review this plan with `@agent-python-engineer`
+2. **Implementation**: Execute phase with `@agent-python-engineer`
+3. **Code Review**: Review with `@agent-code-reviewer`
+4. **Fix Issues**: Address any issues with `@agent-python-engineer`
+5. **Validate**: Run tests, verify success criteria
+6. **Next Phase**: Only proceed after current phase validated
+
+### Validation Before Next Phase
+
+**Required for Phase 3 → Phase 4**:
+```bash
+# All Phase 3 validations pass
+uv run pytest tests/test_map_graph.py -v
+uv run pytest tests/test_integration.py -v
+grep -c "consolidate" map_graph.py  # Should be 0
+grep -c "Dict\[str, Room\]" map_graph.py  # Should be 0
+```
+
+**Required for Phase 4 → Phase 5**:
+```bash
+# All Phase 4 validations pass
+uv run pytest tests/test_movement_analyzer.py -v
+grep -c "PendingConnection" movement_analyzer.py  # Should be 0
+wc -l movement_analyzer.py  # Should be ~200 lines
+```
+
+---
+
+## Risk Management
+
+### Medium Risks
+
+**Risk**: Breaking existing map functionality during ID migration
+**Mitigation**:
+- Comprehensive test coverage before changes
+- Incremental updates with validation at each step
+- Keep git commits small and reversible
+
+**Risk**: Missing edge cases in movement detection
+**Mitigation**:
+- Test dark rooms, teleportation, same-named rooms
+- Add integration tests covering 100+ turns
+
+### Low Risks
+
+**Risk**: Object attribute extraction complexity
+**Mitigation**:
+- Start with basic attributes only
+- Expand as needed based on actual requirements
+
+---
+
+## Current Status: Phase 3 Ready
+
+**Next Steps**:
+1. Review this plan with Ryan
+2. Execute Phase 3.1 (Update GameState)
+3. Execute Phase 3.2 (Update Room class)
+4. Execute Phase 3.3 (Update MapGraph)
+5. Execute Phase 3.4 (DELETE consolidation code)
+6. Execute Phase 3.5-3.8 (Integration updates)
+7. Validate Phase 3 complete before Phase 4
+
+**Estimated Timeline**:
+- Phase 3: 3-4 hours (data model changes + deletions)
+- Phase 4: 2-3 hours (movement simplification)
+- Phase 5: 2-3 hours (context enhancement)
+- Phase 6: 1-2 hours (object tracking)
+- Phase 7: 2-3 hours (testing & docs)
+- **Total**: 10-15 hours
+
+**Ready to proceed with Phase 3?**

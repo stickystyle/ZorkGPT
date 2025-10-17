@@ -32,6 +32,7 @@ class GameConfiguration:
     json_log_file: str
     state_export_file: str
     zork_game_workdir: str
+    game_file_path: str
 
     # LLM client settings
     client_base_url: str
@@ -65,9 +66,6 @@ class GameConfiguration:
     critic_rejection_threshold: float
 
     # Optional fields (with defaults)
-    # Game server
-    game_server_url: str = "http://localhost:8000"
-
     # LLM client settings
     client_api_key: Optional[str] = None
 
@@ -151,6 +149,7 @@ class GameConfiguration:
             zork_game_workdir=require_key(
                 gameplay_config, "zork_game_workdir", "gameplay"
             ),
+            game_file_path=files_config.get("game_file_path", "infrastructure/zork.z5"),
             # LLM client settings
             client_base_url=require_key(llm_config, "client_base_url", "llm"),
             # Model specifications

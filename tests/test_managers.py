@@ -37,6 +37,8 @@ class TestBaseManagerSetup:
             # Core game settings
             max_turns_per_episode=1000,
             turn_delay_seconds=0.0,
+            game_file_path="test_game.z5",  # Required: path to game file
+            critic_rejection_threshold=0.5,  # Required: rejection threshold
             # File paths
             episode_log_file="test_episode.log",
             json_log_file="test_episode.jsonl",
@@ -336,27 +338,45 @@ class TestMapManager(TestBaseManagerSetup):
 
     def test_add_initial_room(self, map_manager, game_state):
         """Test adding initial room to map."""
-        map_manager.add_initial_room("Starting Room")
+        # Room ID for test
+        STARTING_ROOM_ID = 1
+
+        map_manager.add_initial_room(STARTING_ROOM_ID, "Starting Room")
+        assert game_state.current_room_id == STARTING_ROOM_ID
         assert game_state.current_room_name_for_map == "Starting Room"
 
     def test_update_from_movement(self, map_manager, game_state):
         """Test map update from movement."""
+        # Room IDs for test
+        ROOM_A_ID = 1
+        ROOM_B_ID = 2
+
+        # Set up initial state
+        game_state.current_room_id = ROOM_A_ID
         game_state.current_room_name_for_map = "Room A"
 
         map_manager.update_from_movement(
-            action_taken="north", new_room_name="Room B", previous_room_name="Room A"
+            action_taken="north",
+            new_room_id=ROOM_B_ID,
+            new_room_name="Room B",
+            previous_room_id=ROOM_A_ID,
+            previous_room_name="Room A",
         )
 
+        assert game_state.current_room_id == ROOM_B_ID
         assert game_state.current_room_name_for_map == "Room B"
         assert game_state.prev_room_for_prompt_context == "Room A"
         assert game_state.action_leading_to_current_room_for_prompt_context == "north"
 
     def test_track_failed_action(self, map_manager, game_state):
         """Test failed action tracking."""
+        # Room ID for test
+        TEST_ROOM_ID = 1
+
         location = "Test Room"
         action = "north"
 
-        map_manager.track_failed_action(action, location)
+        map_manager.track_failed_action(action, TEST_ROOM_ID, location)
 
         assert location in game_state.failed_actions_by_location
         assert action in game_state.failed_actions_by_location[location]

@@ -23,7 +23,9 @@ class GameState:
     # Core game state
     episode_id: str = ""
     turn_count: int = 0
-    current_room_name_for_map: str = ""
+    current_room_id: int = 0  # Z-machine location ID (primary key for map operations)
+    current_room_name: str = ""  # Display name only
+    current_room_name_for_map: str = ""  # DEPRECATED: Use current_room_id instead
     current_inventory: List[str] = field(default_factory=list)
     previous_zork_score: int = 0
     game_over_flag: bool = False
@@ -86,6 +88,8 @@ class GameState:
             # Fallback for backward compatibility
             self.episode_id = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
         self.turn_count = 0
+        self.current_room_id = 0
+        self.current_room_name = ""
         self.current_room_name_for_map = ""
         self.current_inventory.clear()
         self.previous_zork_score = 0
@@ -138,7 +142,8 @@ class GameState:
                 "game_over": self.game_over_flag,
             },
             "game_state": {
-                "current_room": self.current_room_name_for_map,
+                "current_room_id": self.current_room_id,
+                "current_room": self.current_room_name,  # Keep key name for backward compatibility
                 "current_inventory": self.current_inventory,
                 "current_score": self.previous_zork_score,
                 "visited_locations": list(self.visited_locations),

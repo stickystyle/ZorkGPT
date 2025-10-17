@@ -98,6 +98,7 @@ class ContextManager(BaseManager):
         current_state: str,
         inventory: List[str],
         location: str,
+        location_id: int = None,
         game_map=None,
         in_combat: bool = False,
         failed_actions: List[str] = None,
@@ -121,7 +122,11 @@ class ContextManager(BaseManager):
             # Add map context if available
             if game_map and hasattr(game_map, "get_context_for_prompt"):
                 try:
-                    context["map_context"] = game_map.get_context_for_prompt(location)
+                    # Pass both location_id and location_name to Phase 3-compliant method
+                    context["map_context"] = game_map.get_context_for_prompt(
+                        current_room_id=location_id,
+                        current_room_name=location
+                    )
                 except Exception as e:
                     self.log_warning(f"Failed to get map context: {e}")
                     context["map_context"] = ""

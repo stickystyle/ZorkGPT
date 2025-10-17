@@ -215,7 +215,7 @@ class StateManager(BaseManager):
 
             # Prepare context for summarization
             recent_actions = self.game_state.action_history[-30:]  # Last 30 actions
-            recent_memories = self.game_state.memory_log_history[
+            self.game_state.memory_log_history[
                 -20:
             ]  # Last 20 memories
 

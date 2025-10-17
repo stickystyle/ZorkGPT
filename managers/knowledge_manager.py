@@ -207,9 +207,8 @@ class KnowledgeManager(BaseManager):
 
             if not skip_final_update or is_death_episode:
                 # Include map quality metrics
-                map_metrics = {}
                 try:
-                    map_metrics = self.map_manager.get_quality_metrics()
+                    self.map_manager.get_quality_metrics()
                 except Exception as e:
                     self.log_warning(f"Failed to get map quality metrics: {e}")
 
