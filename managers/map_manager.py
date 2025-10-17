@@ -15,7 +15,7 @@ from managers.base_manager import BaseManager
 from session.game_state import GameState
 from session.game_configuration import GameConfiguration
 from map_graph import MapGraph
-from movement_analyzer import MovementAnalyzer, MovementContext
+from movement_analyzer import MovementAnalyzer
 
 
 class MapManager(BaseManager):
@@ -165,58 +165,45 @@ class MapManager(BaseManager):
         to_room_name: str,
         game_response: str = ""
     ) -> None:
-        """Update movement tracking between rooms.
+        """Update movement tracking using simple ID comparison.
 
         Args:
             action: Movement action taken
             from_room_id: Origin room location ID
-            from_room_name: Origin room name (for context)
+            from_room_name: Origin room name (for logging only)
             to_room_id: Destination room location ID
-            to_room_name: Destination room name (for context)
-            game_response: Game's response to action
+            to_room_name: Destination room name (for logging only)
+            game_response: Game's response to action (for logging only)
         """
         try:
-            # Create movement context
-            movement_context = MovementContext(
-                current_location=to_room_name,
-                previous_location=from_room_name,
-                action=action,
-                game_response=game_response,
-                turn_number=self.game_state.turn_count,
-            )
-
-            # Analyze the movement
+            # Simple ID comparison - no complex analysis needed
             movement_analysis = self.movement_analyzer.analyze_movement(
-                movement_context
+                before_location_id=from_room_id,
+                after_location_id=to_room_id,
+                action=action
             )
 
-            # Update room exits based on analysis
-            if (
-                hasattr(movement_analysis, "from_exits")
-                and movement_analysis.from_exits
-            ):
-                self.game_map.update_room_exits(
-                    room_id=from_room_id,  # Use integer ID
-                    new_exits=movement_analysis.from_exits
-                )
-
-            # Add connection if movement was successful
-            if (
-                hasattr(movement_analysis, "connection_created")
-                and movement_analysis.connection_created
-            ):
-                # Extract direction from action if possible
+            # Add connection if movement occurred
+            if movement_analysis.movement_occurred:
+                # Extract direction from action
                 direction = self._extract_direction_from_action(action)
                 if direction:
                     self.game_map.add_connection(
-                        from_room_id=from_room_id,  # Use integer ID
+                        from_room_id=from_room_id,
                         exit_taken=direction,
-                        to_room_id=to_room_id,  # Use integer ID
-                        confidence=0.8,  # Default confidence
+                        to_room_id=to_room_id,
+                        confidence=0.8,  # Default confidence for verified movement
                     )
 
-            # Note: Pending connections are automatically cleared by the movement analyzer
-            # when they are resolved, so no manual clearing is needed here
+                    self.log_debug(
+                        f"Movement detected and mapped: {from_room_name} (ID:{from_room_id}) "
+                        f"--[{direction}]--> {to_room_name} (ID:{to_room_id})"
+                    )
+            else:
+                # No movement occurred (action in same room)
+                self.log_debug(
+                    f"No movement: action '{action}' executed in {from_room_name} (ID:{from_room_id})"
+                )
 
         except Exception as e:
             self.log_error(f"Failed to update movement tracking: {e}")
