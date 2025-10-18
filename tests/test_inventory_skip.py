@@ -23,6 +23,7 @@ class TestInventorySkip(unittest.TestCase):
             exits=["north", "south", "east", "west"],
             visible_objects=["bloody axe"],
             visible_characters=["nasty-looking troll"],
+            inventory=[],
             important_messages=[
                 "A troll blocks your path.",
                 "The troll swings at you!",
@@ -49,6 +50,7 @@ class TestInventorySkip(unittest.TestCase):
             exits=["north", "east"],
             visible_objects=["mailbox", "house"],
             visible_characters=[],
+            inventory=[],
             important_messages=["You are in a peaceful area."],
             in_combat=False,
         )
@@ -71,6 +73,7 @@ class TestInventorySkip(unittest.TestCase):
             exits=["north", "south", "east", "west"],
             visible_objects=["bloody axe"],
             visible_characters=["nasty-looking troll"],
+            inventory=[],
             important_messages=[
                 "A troll blocks your path.",
                 "The troll swings at you!",
@@ -79,11 +82,17 @@ class TestInventorySkip(unittest.TestCase):
         )
 
         # Test combat context in memory prompt
+        # Use a mock MapGraph for this test
+        from unittest.mock import Mock
+        mock_map = Mock()
+        mock_map.get_context_for_prompt.return_value = "Mock map context"
+        mock_map.get_navigation_suggestions.return_value = []  # Return empty list for navigation
+
         combat_context = self.agent.get_relevant_memories_for_prompt(
             current_location_name_from_current_extraction="Troll Room",
             memory_log_history=[combat_extraction],
             current_inventory=["sword", "lamp"],
-            game_map=self.agent.game_map,
+            game_map=mock_map,
             in_combat=True,
         )
 
@@ -112,6 +121,7 @@ class TestInventorySkip(unittest.TestCase):
             exits=["north"],
             visible_objects=[],
             visible_characters=[],
+            inventory=[],
             important_messages=[],
             in_combat=False,  # Default value
         )

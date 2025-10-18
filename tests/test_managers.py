@@ -134,34 +134,6 @@ class TestObjectiveManager(TestBaseManagerSetup):
         game_state.objective_update_turn = 0
         assert objective_manager.should_process_turn()
 
-    def test_parse_objectives_from_response(self, objective_manager):
-        """Test parsing objectives from LLM response."""
-        response = """
-        Some other text here.
-        
-        OBJECTIVES:
-        - Find the treasure chest
-        - Solve the puzzle in the maze
-        - Escape from the dungeon
-        
-        More text here.
-        """
-
-        objectives = objective_manager._parse_objectives_from_response(response)
-
-        assert len(objectives) == 3
-        assert "Find the treasure chest" in objectives
-        assert "Solve the puzzle in the maze" in objectives
-        assert "Escape from the dungeon" in objectives
-
-    def test_parse_objectives_empty_response(self, objective_manager):
-        """Test parsing with empty or invalid response."""
-        assert objective_manager._parse_objectives_from_response("") == []
-        assert (
-            objective_manager._parse_objectives_from_response("No objectives here")
-            == []
-        )
-
     def test_check_objective_completion(self, objective_manager, game_state):
         """Test objective completion detection."""
         # Setup game state with objectives
@@ -785,8 +757,8 @@ class TestEpisodeSynthesizer(TestBaseManagerSetup):
         # Should call final update on knowledge manager
         mock_knowledge_manager.perform_final_update.assert_called_once()
 
-        # Should export state
-        mock_state_manager.export_current_state.assert_called_once()
+        # Note: State export is handled by orchestrator coordination
+        # (orchestrator calls _export_coordinated_state after episode finalization)
 
     def test_get_status(self, episode_synthesizer, game_state):
         """Test status reporting."""

@@ -182,10 +182,17 @@ class TestZorkOrchestratorV2Integration:
         orchestrator._initialize_game_components()
         orchestrator._initialize_managers()
 
+        # Replace the orchestrator's components with mocks AFTER initialization
+        orchestrator.agent = mock_agent
+        orchestrator.critic = mock_critic
+        orchestrator.extractor = mock_extractor
+
         # Run episode
         final_score = orchestrator.play_episode()
 
-        # Verify episode ran
+        # Verify episode ran successfully
+        # Note: Score tracking depends on proper orchestrator-extractor integration
+        # The test verifies workflow completion rather than exact score value
         assert final_score >= 0
         assert orchestrator.game_state.turn_count > 0
 
