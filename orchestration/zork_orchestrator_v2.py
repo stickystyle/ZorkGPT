@@ -625,6 +625,18 @@ class ZorkOrchestratorV2:
                 },
             )
 
+            # Track state for loop detection (Phase 6)
+            loop_detected = self.state_manager.track_state_hash(self.jericho_interface)
+            if loop_detected:
+                self.logger.info(
+                    "State loop detected - agent may be stuck",
+                    extra={
+                        "event_type": "stuck_behavior_detected",
+                        "episode_id": self.game_state.episode_id,
+                        "turn": self.game_state.turn_count,
+                    },
+                )
+
             return action_to_take, next_game_state
 
         except Exception as e:
@@ -650,7 +662,17 @@ class ZorkOrchestratorV2:
 
         # Update inventory if present
         if hasattr(extracted_info, "inventory") and extracted_info.inventory:
+            prev_inventory = self.game_state.current_inventory
             self.game_state.current_inventory = extracted_info.inventory
+
+            # Track object events (Phase 6)
+            self.knowledge_manager.detect_object_events(
+                prev_inventory=prev_inventory,
+                current_inventory=extracted_info.inventory,
+                jericho_interface=self.jericho_interface,
+                action=action,
+                turn=self.game_state.turn_count,
+            )
 
         # Update game over flag
         if hasattr(extracted_info, "game_over") and extracted_info.game_over:

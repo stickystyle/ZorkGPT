@@ -11,7 +11,7 @@ Handles all state management responsibilities:
 """
 
 import json
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from datetime import datetime
 
 from managers.base_manager import BaseManager
@@ -61,6 +61,10 @@ class StateManager(BaseManager):
         # Context management tracking
         self.last_summarization_turn = 0
 
+        # State loop detection (Phase 6)
+        self.state_history: List[int] = []  # Track state hashes for loop detection
+        self.max_state_history_size: int = 1000  # Prevent unbounded memory growth
+
     def reset_episode(self) -> None:
         """Reset episode-specific state for a new episode."""
         self.log_debug("Resetting episode state")
@@ -71,6 +75,9 @@ class StateManager(BaseManager):
 
         # Reset manager-specific tracking
         self.last_summarization_turn = 0
+
+        # Reset state loop detection (Phase 6)
+        self.state_history.clear()
 
         self.log_debug("Episode state reset completed")
 
@@ -86,6 +93,54 @@ class StateManager(BaseManager):
         """Check if state needs processing this turn."""
         # Always process for context management
         return True
+
+    def track_state_hash(self, jericho_interface) -> Optional[bool]:
+        """
+        Track current game state hash and detect loops.
+
+        Uses Jericho's state tuple to generate a hash and detect if we've
+        returned to an exact previous game state, which indicates the agent
+        is stuck in a loop.
+
+        Args:
+            jericho_interface: JerichoInterface instance for accessing game state
+
+        Returns:
+            True if loop detected, False if no loop, None on error
+        """
+        try:
+            # Get state hash from Jericho (hash of state tuple)
+            state_tuple = jericho_interface.save_state()
+            state_hash = hash(state_tuple)
+
+            # Check for loop
+            if state_hash in self.state_history:
+                loop_index = self.state_history.index(state_hash)
+                turns_in_loop = len(self.state_history) - loop_index
+
+                self.logger.warning(
+                    "Exact game state loop detected",
+                    extra={
+                        "event_type": "state_loop_detected",
+                        "episode_id": self.game_state.episode_id,
+                        "turn": self.game_state.turn_count,
+                        "state_hash": state_hash,
+                        "loop_start_turn": loop_index + 1,
+                        "turns_in_loop": turns_in_loop,
+                    },
+                )
+                return True
+
+            # Add to history (with size limit)
+            self.state_history.append(state_hash)
+            if len(self.state_history) > self.max_state_history_size:
+                self.state_history.pop(0)  # Remove oldest
+
+            return False
+
+        except Exception as e:
+            self.log_error(f"Failed to track state hash: {e}")
+            return None
 
     def check_context_overflow(self) -> None:
         """Check if context is approaching token limits and trigger summarization if needed."""
@@ -624,6 +679,8 @@ Keep the summary under 500 words and focus on actionable information for continu
                 "last_summarization_turn": self.last_summarization_turn,
                 "export_enabled": self.config.enable_state_export,
                 "s3_configured": self.s3_client is not None,
+                "state_history_size": len(self.state_history),
+                "loop_detection_enabled": True,
             }
         )
         return status

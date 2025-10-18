@@ -10,6 +10,7 @@ Handles all knowledge management responsibilities:
 """
 
 import re
+from datetime import datetime, timezone
 from typing import List, Dict, Any
 
 from managers.base_manager import BaseManager
@@ -52,10 +53,146 @@ class KnowledgeManager(BaseManager):
         # Knowledge update tracking
         self.last_knowledge_update_turn = 0
 
+        # Object event tracking (Phase 6)
+        self.object_events: List[Dict[str, Any]] = []
+
     def reset_episode(self) -> None:
         """Reset knowledge manager state for a new episode."""
         self.last_knowledge_update_turn = 0
         self.log_debug("Knowledge manager reset for new episode")
+
+        # Reset object event tracking (Phase 6)
+        self.object_events.clear()
+
+    def track_object_event(
+        self,
+        event_type: str,
+        obj_id: int,
+        obj_name: str,
+        turn: int,
+        additional_context: Dict[str, Any] = None,
+    ) -> None:
+        """
+        Track object-related events for knowledge synthesis.
+
+        Args:
+            event_type: Type of event ("acquired", "dropped", "opened", "relocated", "closed", "examined")
+            obj_id: Z-machine object ID
+            obj_name: Object name
+            turn: Turn number when event occurred
+            additional_context: Optional additional context (location, action, etc.)
+        """
+        try:
+            # Validate event type
+            valid_event_types = {
+                "acquired",
+                "dropped",
+                "opened",
+                "relocated",
+                "closed",
+                "examined",
+            }
+            if event_type not in valid_event_types:
+                self.log_warning(f"Unknown object event type: {event_type}")
+
+            event = {
+                "turn": turn,
+                "event_type": event_type,
+                "object_id": obj_id,
+                "object_name": obj_name,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "episode_id": self.game_state.episode_id,
+            }
+
+            # Add optional context
+            if additional_context:
+                event.update(additional_context)
+
+            self.object_events.append(event)
+
+            self.log_debug(
+                "Tracked object event: %s - %s (ID: %s) at turn %s",
+                event_type,
+                obj_name,
+                obj_id,
+                turn,
+            )
+
+            # Log significant events
+            if event_type in {"acquired", "opened"}:
+                self.logger.info(
+                    "Object event: %s - %s",
+                    event_type,
+                    obj_name,
+                    extra={
+                        "event_type": "object_event",
+                        "object_event_type": event_type,
+                        "object_id": obj_id,
+                        "object_name": obj_name,
+                        "turn": turn,
+                        "episode_id": self.game_state.episode_id,
+                    },
+                )
+
+        except Exception as e:
+            self.log_error(f"Failed to track object event: {e}")
+
+    def detect_object_events(
+        self,
+        prev_inventory: List[str],
+        current_inventory: List[str],
+        jericho_interface,
+        action: str,
+        turn: int,
+    ) -> None:
+        """
+        Detect and track object events by comparing game states.
+
+        Args:
+            prev_inventory: Previous inventory
+            current_inventory: Current inventory
+            jericho_interface: JerichoInterface for getting object IDs
+            action: Action that was taken
+            turn: Current turn number
+        """
+        try:
+            # Detect acquired items
+            acquired = set(current_inventory) - set(prev_inventory)
+            for item_name in acquired:
+                # Get object ID from Jericho
+                inv_objects = jericho_interface.get_inventory_structured()
+                obj_id = next(
+                    (obj.num for obj in inv_objects if obj.name == item_name), None
+                )
+                if obj_id:
+                    self.track_object_event(
+                        "acquired", obj_id, item_name, turn, {"action": action}
+                    )
+
+            # Detect dropped items
+            dropped = set(prev_inventory) - set(current_inventory)
+            for item_name in dropped:
+                # For dropped items, we may not have the ID anymore
+                # Track with placeholder ID if needed
+                self.track_object_event(
+                    "dropped", -1, item_name, turn, {"action": action}
+                )
+
+            # Detect open/close actions from action text
+            action_lower = action.lower()
+            if action_lower.startswith("open "):
+                obj_name = action[5:].strip()
+                self.track_object_event(
+                    "opened", -1, obj_name, turn, {"action": action}
+                )
+            elif action_lower.startswith("close "):
+                obj_name = action[6:].strip()
+                self.track_object_event(
+                    "closed", -1, obj_name, turn, {"action": action}
+                )
+
+        except Exception as e:
+            self.log_error(f"Failed to detect object events: {e}")
 
     def process_turn(self) -> None:
         """Process knowledge management for the current turn."""
@@ -323,11 +460,12 @@ class KnowledgeManager(BaseManager):
                 "turn_count": self.game_state.turn_count,
                 "final_score": final_score,
                 "death_count": death_count,
+                "episode_ended_in_death": death_count > 0,  # Add missing key
                 "discovered_objectives": self.game_state.discovered_objectives.copy(),
                 "completed_objectives": [
                     obj["objective"] for obj in self.game_state.completed_objectives
                 ],
-                "critic_confidence_avg": sum(critic_confidence_history)
+                "avg_critic_score": sum(critic_confidence_history)
                 / len(critic_confidence_history)
                 if critic_confidence_history
                 else 0,
@@ -425,6 +563,8 @@ class KnowledgeManager(BaseManager):
                 "last_updated": os.path.getmtime("knowledgebase.md")
                 if os.path.exists("knowledgebase.md")
                 else None,
+                "object_events": self.object_events[-50:],  # Include recent 50 events
+                "total_object_events": len(self.object_events),
             }
         except FileNotFoundError:
             self.log_debug("Knowledge base file not found, returning empty content")
@@ -450,6 +590,7 @@ class KnowledgeManager(BaseManager):
                 "knowledge_update_interval": self.config.knowledge_update_interval,
                 "has_adaptive_manager": self.adaptive_knowledge_manager is not None,
                 "has_llm_client": self.get_llm_client() is not None,
+                "object_events_tracked": len(self.object_events),
             }
         )
         return status
