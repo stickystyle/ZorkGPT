@@ -2,7 +2,6 @@
   "permissions": {
     "allow": [
       "Bash(grep:*)",
-      "Bash(find:*)",
       "Bash(docker-compose logs:*)",
       "Bash(ls:*)",
       "Bash(docker-compose down:*)",
@@ -41,8 +40,13 @@
       "WebFetch(domain:www.inform-fiction.org)",
       "WebFetch(domain:jericho-py.readthedocs.io)",
       "Bash(timeout 10 uv run:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Read(//tmp/**)"
     ],
     "deny": []
-  }
+  },
+  "enabledMcpjsonServers": [
+    "awslabs.code-doc-gen-mcp-server",
+    "awslabs.aws-diagram-mcp-server"
+  ]
 }

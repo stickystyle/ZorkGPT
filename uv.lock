@@ -6,12 +6,6 @@ resolution-markers = [
     "python_full_version < '3.12'",
 ]
 
-[manifest]
-members = [
-    "jericho-poc",
-    "zorkgpt",
-]
-
 [[package]]
 name = "annotated-types"
 version = "0.7.0"
@@ -368,21 +362,6 @@ dependencies = [
     { name = "termcolor" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/15/71/30eca3b3bc4ee25c1f0b02a026ff67a4000255861b86b2ae975728cb9c22/jericho-3.3.0.tar.gz", hash = "sha256:31743e72eb528dfeb3c48aa7559396f9592375a323d8dfa682c5a1d55b61fa09", size = 1472150 }
-
-[[package]]
-name = "jericho-poc"
-version = "0.1.0"
-source = { virtual = "jericho" }
-dependencies = [
-    { name = "jericho" },
-    { name = "pytest" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "jericho", specifier = ">=3.3.0" },
-    { name = "pytest", specifier = ">=8.3.5" },
-]
 
 [[package]]
 name = "jinja2"

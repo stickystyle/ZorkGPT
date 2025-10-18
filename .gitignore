@@ -262,3 +262,5 @@ tmp/
 infrastructure/cdk.out/
 
 zorkgpt/
+
+repomix-output.xml
