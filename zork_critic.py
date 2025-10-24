@@ -816,7 +816,11 @@ Evaluate this action based on your criteria. Respond with ONLY a JSON object in 
 {{"score": 0.0, "justification": "Your justification here", "confidence": 0.8}}
 """
         messages = [
-            {"role": "system", "content": self.system_prompt},
+            {
+                "role": "system",
+                "content": self.system_prompt,
+                "cache_control": {"type": "ephemeral"},
+            },
             {"role": "user", "content": user_prompt},
         ]
 

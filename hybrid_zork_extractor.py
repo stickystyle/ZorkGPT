@@ -375,9 +375,13 @@ Extract key information from the game text and return it as JSON with these fiel
                 game_text, current_location, previous_location
             )
 
-            # Use proper system/user message structure
+            # Use proper system/user message structure with caching
             messages = [
-                {"role": "system", "content": self.system_prompt},
+                {
+                    "role": "system",
+                    "content": self.system_prompt,
+                    "cache_control": {"type": "ephemeral"},
+                },
                 {"role": "user", "content": extraction_prompt},
             ]
 

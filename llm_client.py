@@ -414,11 +414,16 @@ class LLMClient:
         is_o3_model = "o3-" in model.lower()
         is_reasoning_model = is_o1_model or is_o3_model
 
-        # For o1/o3 models, set all message roles to "user"
+        # For o1/o3 models, set all message roles to "user" but preserve cache_control
         if is_reasoning_model:
-            messages = [
-                {"role": "user", "content": msg.get("content", "")} for msg in messages
-            ]
+            processed_messages = []
+            for msg in messages:
+                new_msg = {"role": "user", "content": msg.get("content", "")}
+                # Preserve cache_control if present
+                if "cache_control" in msg:
+                    new_msg["cache_control"] = msg["cache_control"]
+                processed_messages.append(new_msg)
+            messages = processed_messages
 
         # Build the request payload
         payload = {

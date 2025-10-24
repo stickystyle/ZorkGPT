@@ -195,10 +195,22 @@ The following strategic guide has been compiled from analyzing previous episodes
             The agent's chosen action as a string
         """
         if "o1" in self.model:
-            # Use user prompt for o1 models
-            messages = [{"role": "user", "content": self.system_prompt}]
+            # Use user prompt for o1 models with caching
+            messages = [
+                {
+                    "role": "user",
+                    "content": self.system_prompt,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ]
         else:
-            messages = [{"role": "system", "content": self.system_prompt}]
+            messages = [
+                {
+                    "role": "system",
+                    "content": self.system_prompt,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ]
 
         # Add history if provided
         if previous_actions_and_responses:
@@ -308,10 +320,22 @@ The following strategic guide has been compiled from analyzing previous episodes
             Dict with 'action' (cleaned) and 'reasoning' (raw thinking/reasoning)
         """
         if "o1" in self.model:
-            # Use user prompt for o1 models
-            messages = [{"role": "user", "content": self.system_prompt}]
+            # Use user prompt for o1 models with caching
+            messages = [
+                {
+                    "role": "user",
+                    "content": self.system_prompt,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ]
         else:
-            messages = [{"role": "system", "content": self.system_prompt}]
+            messages = [
+                {
+                    "role": "system",
+                    "content": self.system_prompt,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ]
 
         # Add history if provided
         if previous_actions_and_responses:
