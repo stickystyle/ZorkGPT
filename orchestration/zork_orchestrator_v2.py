@@ -1,12 +1,3 @@
-"""
-Streamlined ZorkOrchestrator v2 - Clean orchestration layer with Jericho.
-
-This is the refactored orchestrator that coordinates specialized managers
-instead of handling all responsibilities directly. It follows the
-orchestration pattern, delegating work to focused manager classes.
-
-Phase 2: Uses JerichoInterface directly, NO GameServerClient.
-"""
 
 import time
 import logging

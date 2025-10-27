@@ -41,7 +41,8 @@
       "WebFetch(domain:jericho-py.readthedocs.io)",
       "Bash(timeout 10 uv run:*)",
       "Bash(python3:*)",
-      "Read(//tmp/**)"
+      "Read(//tmp/**)",
+      "mcp__awslabs_code-doc-gen-mcp-server__prepare_repository"
     ],
     "deny": []
   },

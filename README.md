@@ -49,13 +49,6 @@ The system leverages the **Jericho** library for direct Z-machine memory access,
 * **Built-in Save/Restore**: Leverages Z-machine state management for session handling
 * **Perfect Movement Detection**: Location ID comparison replaces error-prone heuristics
 
-**Performance Benefits:**
-- 40% reduction in LLM calls per turn (inventory, location, score now instant)
-- 739 lines of parsing/consolidation code eliminated (11-12% of codebase)
-- Zero room fragmentation guaranteed by Z-machine IDs
-- 15,000+ actions/second processing throughput
-- Perfect walkthrough completion (350/350 score)
-
 ### Central Coordinator
 
 A **ZorkOrchestrator** class serves as the primary coordinator. It manages extended gameplay sessions (potentially thousands of turns), coordinates the interactions between all other system components, handles the overall game loop, and orchestrates the periodic adaptive knowledge updates.
@@ -117,7 +110,6 @@ A typical gameplay loop involves several stages:
 2. **Extraction (Hybrid)**:
    - **Instant Z-machine Access**: Inventory, location, score, and visible objects retrieved directly from game memory
    - **LLM Parsing**: Extractor LM processes text for exits, combat, and important messages only
-   - Result: 40% fewer LLM calls per turn
 3. **State Update**: Session memory and the spatial map are updated with the new information. Movement detection uses location ID comparison (perfect accuracy).
 4. **Contextualization**: Relevant memories, spatial data, strategic knowledge, and structured Z-machine object data are assembled for the Agent LM.
 5. **Action Generation**: The Agent LM proposes an action, informed by structured object attributes and valid action vocabulary.
