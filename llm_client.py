@@ -13,6 +13,13 @@ from dataclasses import dataclass
 from config import get_config, get_client_api_key
 from enum import Enum
 
+# Langfuse integration for LLM observability
+try:
+    from langfuse import get_client as get_langfuse_client
+    LANGFUSE_AVAILABLE = True
+except ImportError:
+    LANGFUSE_AVAILABLE = False
+
 
 @dataclass
 class LLMResponse:
@@ -169,6 +176,32 @@ class LLMClient:
             "X-Title": "ZorkGPT",
             "HTTP-Referer": "https://zorkgpt.com",
         }
+
+        # Initialize Langfuse client for observability (optional)
+        self.langfuse_client = None
+        if LANGFUSE_AVAILABLE:
+            try:
+                self.langfuse_client = get_langfuse_client()
+                if self.logger:
+                    self.logger.info("Langfuse integration enabled for LLM observability")
+            except (ImportError, ValueError, ConnectionError, RuntimeError) as e:
+                # Expected initialization failures
+                if self.logger:
+                    self.logger.warning(
+                        f"Langfuse initialization failed, continuing without tracing: {e}",
+                        extra={"extras": {"event_type": "langfuse_init_failed", "error": str(e)}}
+                    )
+            except Exception as e:
+                # Unexpected error - log at ERROR level but continue without tracing
+                if self.logger:
+                    self.logger.error(
+                        f"Unexpected error during Langfuse initialization: {e}",
+                        extra={"extras": {"event_type": "langfuse_unexpected_error", "error": str(e), "error_type": type(e).__name__}}
+                    )
+                # Continue without tracing to prevent breaking LLM calls
+        else:
+            if self.logger:
+                self.logger.info("Langfuse not available, continuing without tracing")
 
         # Ensure base_url ends with /v1 if it doesn't already
         # if not self.base_url.endswith('/v1'):
@@ -425,43 +458,215 @@ class LLMClient:
                 processed_messages.append(new_msg)
             messages = processed_messages
 
-        # Build the request payload
+        # Build model_parameters dict with filtering for reasoning models
+        # This single source of truth is used for both payload and Langfuse tracking
+        model_parameters = {}
+
+        # Sampling parameters (not supported by o1/o3 reasoning models)
+        if temperature is not None and not is_reasoning_model:
+            model_parameters["temperature"] = temperature
+        if top_p is not None and not is_reasoning_model:
+            model_parameters["top_p"] = top_p
+        if top_k is not None and not is_reasoning_model:
+            model_parameters["top_k"] = top_k
+        if min_p is not None and not is_reasoning_model:
+            model_parameters["min_p"] = min_p
+
+        # max_tokens is supported by all models
+        if max_tokens is not None:
+            model_parameters["max_tokens"] = max_tokens
+
+        # stop sequences (supported by most models)
+        if stop is not None:
+            model_parameters["stop"] = stop
+
+        # response_format (not supported by o1/o3 reasoning models)
+        if response_format is not None and not is_reasoning_model:
+            model_parameters["response_format"] = response_format
+
+        # Build the request payload from model_parameters
         payload = {
             "model": model,
             "messages": messages,
         }
-
-        # Only include sampling parameters if they're not None and supported by the model
-        if temperature is not None:
-            if not is_reasoning_model:  # o1/o3 models don't support temperature
-                payload["temperature"] = temperature
-
-        if top_p is not None:
-            if not is_reasoning_model:  # o1/o3 models don't support top_p
-                payload["top_p"] = top_p
-
-        if top_k is not None:
-            if not is_reasoning_model:  # o1/o3 models don't support top_k
-                payload["top_k"] = top_k
-
-        if min_p is not None:
-            if not is_reasoning_model:  # o1/o3 models don't support min_p
-                payload["min_p"] = min_p
-
-        # Add optional parameters
-        if max_tokens is not None:
-            payload["max_tokens"] = max_tokens
-
-        if stop is not None:
-            payload["stop"] = stop
-
-        if response_format is not None:
-            if not is_reasoning_model:  # o1/o3 models don't support response_format
-                payload["response_format"] = response_format
+        payload.update(model_parameters)
 
         # Add any additional kwargs
         payload.update(kwargs)
 
+        # Wrap request with Langfuse generation tracking if available
+        if self.langfuse_client:
+            try:
+                with self.langfuse_client.start_as_current_observation(
+                    name="llm-client-call",
+                    as_type="generation",
+                    model=model,
+                    input=messages,
+                    model_parameters=model_parameters,
+                ) as generation:
+                    result = self._execute_request(url, headers, payload)
+
+                    # Update generation with output and usage details
+                    generation.update(output=result.content)
+
+                    # Extract and update usage details if available
+                    if result.usage:
+                        usage_details = self._extract_usage_details(result.usage)
+                        if usage_details:
+                            generation.update(usage_details=usage_details)
+
+                    return result
+            except (ConnectionError, RuntimeError, ValueError, KeyError) as e:
+                # Expected Langfuse tracking failures
+                if self.logger:
+                    self.logger.warning(
+                        f"Langfuse generation tracking failed, continuing without tracing: {e}",
+                        extra={"extras": {"event_type": "langfuse_tracking_failed", "error": str(e)}}
+                    )
+                # Fall through to execute request without Langfuse
+            except (RetryableError, CircuitOpenError):
+                # Re-raise LLM client exceptions without catching them
+                raise
+            except Exception as e:
+                # Unexpected error - log at ERROR level but continue
+                if self.logger:
+                    self.logger.error(
+                        f"Unexpected error during Langfuse tracking: {e}",
+                        extra={"extras": {"event_type": "langfuse_unexpected_error", "error": str(e), "error_type": type(e).__name__}}
+                    )
+                # Fall through to execute request without Langfuse
+
+        # Execute request without Langfuse (if not available or if tracking failed)
+        return self._execute_request(url, headers, payload)
+
+    def _extract_usage_details(self, usage: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """
+        Extract usage details from LLM response for Langfuse tracking.
+
+        This method extracts token usage information from LLM API responses and formats
+        it for Langfuse cost tracking and analytics. It handles multiple response formats:
+
+        1. OpenAI-style fields:
+           - prompt_tokens → input
+           - completion_tokens → output
+           - total_tokens → total
+
+        2. Anthropic-specific cache fields (for prompt caching):
+           - cache_creation_input_tokens (tokens written to cache)
+           - cache_read_input_tokens (tokens read from cache)
+
+        Edge cases handled:
+        - None or empty usage: Returns None
+        - Invalid types (string, int, list, etc.): Returns None with warning
+        - Partial fields: Returns only available fields
+        - Unknown fields: Silently ignored
+        - Zero/negative/float values: Preserved as-is (Langfuse handles validation)
+
+        Args:
+            usage: Usage dictionary from LLM response. Expected format:
+                {
+                    "prompt_tokens": int,
+                    "completion_tokens": int,
+                    "total_tokens": int,
+                    "cache_creation_input_tokens": int (optional),
+                    "cache_read_input_tokens": int (optional)
+                }
+
+        Returns:
+            Dictionary with usage details for Langfuse in format:
+                {
+                    "input": int,
+                    "output": int,
+                    "total": int,
+                    "cache_creation_input_tokens": int (optional),
+                    "cache_read_input_tokens": int (optional)
+                }
+            Or None if no valid usage data is present.
+
+        Examples:
+            >>> # Standard OpenAI format
+            >>> client._extract_usage_details({
+            ...     "prompt_tokens": 100,
+            ...     "completion_tokens": 50,
+            ...     "total_tokens": 150
+            ... })
+            {"input": 100, "output": 50, "total": 150}
+
+            >>> # Anthropic with caching
+            >>> client._extract_usage_details({
+            ...     "prompt_tokens": 1000,
+            ...     "completion_tokens": 200,
+            ...     "cache_creation_input_tokens": 500,
+            ...     "cache_read_input_tokens": 300
+            ... })
+            {
+                "input": 1000,
+                "output": 200,
+                "cache_creation_input_tokens": 500,
+                "cache_read_input_tokens": 300
+            }
+
+            >>> # Empty usage
+            >>> client._extract_usage_details({})
+            None
+
+            >>> # Invalid type
+            >>> client._extract_usage_details("not a dict")
+            None
+        """
+        if not usage:
+            return None
+
+        # Validate usage is a dict (some providers might return unexpected types)
+        if not isinstance(usage, dict):
+            if self.logger:
+                self.logger.warning(
+                    f"Usage data is not a dict: {type(usage).__name__}",
+                    extra={"extras": {"event_type": "invalid_usage_format", "usage_type": type(usage).__name__}}
+                )
+            return None
+
+        usage_details = {}
+
+        # Extract standard OpenAI-style token counts
+        # Use 'in' operator to safely handle missing fields
+        if "prompt_tokens" in usage:
+            usage_details["input"] = usage["prompt_tokens"]
+        if "completion_tokens" in usage:
+            usage_details["output"] = usage["completion_tokens"]
+        if "total_tokens" in usage:
+            usage_details["total"] = usage["total_tokens"]
+
+        # Extract Anthropic prompt caching fields (if present)
+        # These track tokens written to and read from the prompt cache
+        if "cache_creation_input_tokens" in usage:
+            usage_details["cache_creation_input_tokens"] = usage["cache_creation_input_tokens"]
+        if "cache_read_input_tokens" in usage:
+            usage_details["cache_read_input_tokens"] = usage["cache_read_input_tokens"]
+
+        # Return None if no fields were extracted (empty usage dict or all unknown fields)
+        return usage_details if usage_details else None
+
+    def _execute_request(
+        self,
+        url: str,
+        headers: Dict[str, str],
+        payload: Dict[str, Any]
+    ) -> LLMResponse:
+        """
+        Execute the actual HTTP request to the LLM API.
+
+        This method is separated from _make_request to allow Langfuse wrapping
+        without duplicating the request logic.
+
+        Args:
+            url: API endpoint URL
+            headers: Request headers
+            payload: Request payload
+
+        Returns:
+            LLMResponse with content and usage information
+        """
         try:
             response = requests.post(
                 url,
@@ -489,6 +694,9 @@ class LLMClient:
 
             # Extract usage information if available
             usage = response_data.get("usage")
+
+            # Extract model from response (or use from payload)
+            model = response_data.get("model", payload.get("model", "unknown"))
 
             return LLMResponse(content=content, model=model, usage=usage)
 

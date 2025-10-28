@@ -259,6 +259,30 @@ class TestObjectTree:
             assert item.parent == player_id, \
                 f"Inventory item should have player ID {player_id} as parent, got {item.parent}"
 
+    def test_visible_objects_exclude_player(self, game_interface):
+        """Test that visible objects do not include the player object."""
+        # Get player object
+        player_obj = game_interface.get_player_object()
+        player_id = player_obj.num
+        player_name = player_obj.name.lower()
+
+        # Get visible objects in starting location
+        visible = game_interface.get_visible_objects_in_location()
+
+        # Player object should not be in visible objects
+        visible_ids = [obj.num for obj in visible]
+        assert player_id not in visible_ids, \
+            f"Player object (ID {player_id}) should not be in visible objects"
+
+        # Player name should not appear in visible objects
+        visible_names = [obj.name.lower() for obj in visible]
+        assert player_name not in visible_names, \
+            f"Player name '{player_name}' should not be in visible objects"
+
+        # But mailbox should be visible
+        assert any("mailbox" in name for name in visible_names), \
+            "Mailbox should be visible at starting location"
+
 
 class TestInitialization:
     """Test initialization and cleanup."""

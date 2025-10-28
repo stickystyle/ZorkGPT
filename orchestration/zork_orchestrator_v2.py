@@ -1,7 +1,7 @@
 
 import time
 import logging
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple, Optional
 
 from session.game_state import GameState
 from session.game_configuration import GameConfiguration
@@ -19,6 +19,14 @@ from zork_critic import ZorkCritic
 from hybrid_zork_extractor import HybridZorkExtractor
 from game_interface.core.jericho_interface import JerichoInterface
 from logger import setup_logging
+
+# Langfuse for observability
+try:
+    from langfuse import Langfuse
+    LANGFUSE_AVAILABLE = True
+except ImportError:
+    LANGFUSE_AVAILABLE = False
+    Langfuse = None
 
 
 class ZorkOrchestratorV2:
@@ -58,6 +66,29 @@ class ZorkOrchestratorV2:
         # Initialize shared game state
         self.game_state = GameState()
         self.game_state.episode_id = episode_id
+
+        # Initialize Langfuse client for observability
+        self.langfuse_client: Optional[Langfuse] = None
+        if LANGFUSE_AVAILABLE:
+            try:
+                self.langfuse_client = Langfuse()
+                self.logger.info(
+                    "Langfuse session tracking enabled",
+                    extra={
+                        "event_type": "langfuse_enabled",
+                        "episode_id": episode_id,
+                    }
+                )
+            except Exception as e:
+                self.logger.warning(
+                    f"Langfuse not available, continuing without session tracking: {e}",
+                    extra={"event_type": "langfuse_unavailable"}
+                )
+        else:
+            self.logger.info(
+                "Langfuse not installed, continuing without session tracking",
+                extra={"event_type": "langfuse_not_installed"}
+            )
 
         # Setup episode-specific logging
         from logger import setup_episode_logging
@@ -242,6 +273,26 @@ class ZorkOrchestratorV2:
             # Export final coordinated state (including map data)
             self._export_coordinated_state()
 
+            # Flush Langfuse traces if available (BEFORE closing Jericho to ensure delivery)
+            if self.langfuse_client:
+                try:
+                    self.langfuse_client.flush(timeout_seconds=10)
+                    self.logger.info(
+                        "Langfuse traces flushed for episode",
+                        extra={
+                            "event_type": "langfuse_flushed",
+                            "episode_id": self.game_state.episode_id,
+                        }
+                    )
+                except Exception as e:
+                    self.logger.warning(
+                        f"Failed to flush Langfuse traces: {e}",
+                        extra={
+                            "event_type": "langfuse_flush_error",
+                            "error": str(e)
+                        }
+                    )
+
             # Close Jericho interface
             self.jericho_interface.close()
 
@@ -303,60 +354,232 @@ class ZorkOrchestratorV2:
         return self.game_state.previous_zork_score
 
     def _run_turn(self, current_state: str) -> Tuple[str, str]:
-        """Run a single game turn."""
+        """Run a single game turn with optional Langfuse tracing and error recovery."""
         try:
-            # Generate action using agent
-            agent_context = self.context_manager.get_agent_context(
-                current_state=current_state,
-                inventory=self.game_state.current_inventory,
-                location=self.game_state.current_room_name_for_map,
-                location_id=self.game_state.current_room_id,
-                game_map=self.map_manager.game_map,
-                in_combat=self.state_manager.get_combat_status(),
-                failed_actions=self.game_state.failed_actions_by_location.get(
-                    self.game_state.current_room_name_for_map, []
-                ),
-                discovered_objectives=self.game_state.discovered_objectives,
-                jericho_interface=self.jericho_interface,  # NEW: Pass Jericho interface for structured data
+            # Start Langfuse trace for this turn if available
+            if self.langfuse_client:
+                with self.langfuse_client.start_as_current_span(
+                    name=f"turn-{self.game_state.turn_count}",
+                    input={"game_state_preview": current_state[:200]},  # First 200 chars
+                    metadata={
+                        "turn_number": self.game_state.turn_count,
+                        "score_before": self.game_state.previous_zork_score,
+                        "location_id": self.game_state.current_room_id,
+                        "location_name": self.game_state.current_room_name_for_map,
+                    },
+                ) as turn_span:
+                    # Set trace-level attributes (session, user, tags)
+                    turn_span.update_trace(
+                        session_id=self.game_state.episode_id,
+                        user_id="zorkgpt-agent",
+                        tags=["zorkgpt", "game-turn"],
+                    )
+
+                    # Execute turn logic with trace context
+                    action_taken, next_game_state = self._execute_turn_logic(current_state)
+
+                    # Update span with outcome
+                    turn_span.update(
+                        output={
+                            "action_taken": action_taken,
+                            "score_after": self.game_state.previous_zork_score,
+                            "game_over": self.game_state.game_over_flag,
+                        }
+                    )
+
+                    return action_taken, next_game_state
+            else:
+                # No Langfuse - execute turn without tracing
+                return self._execute_turn_logic(current_state)
+
+        except Exception as e:
+            self.logger.error(
+                f"Turn failed with exception, using fallback 'look' action: {e}",
+                extra={
+                    "event_type": "turn_exception",
+                    "episode_id": self.game_state.episode_id,
+                    "turn": self.game_state.turn_count,
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "fallback_action": "look",
+                },
+                exc_info=True,  # Include full traceback in logs
+            )
+            # Fallback action to maintain game continuity after exceptions
+            return "look", current_state
+
+    def _execute_turn_logic(self, current_state: str) -> Tuple[str, str]:
+        """Execute the main turn logic (with or without Langfuse tracing)."""
+        # Generate action using agent
+        agent_context = self.context_manager.get_agent_context(
+            current_state=current_state,
+            inventory=self.game_state.current_inventory,
+            location=self.game_state.current_room_name_for_map,
+            location_id=self.game_state.current_room_id,
+            game_map=self.map_manager.game_map,
+            in_combat=self.state_manager.get_combat_status(),
+            failed_actions=self.game_state.failed_actions_by_location.get(
+                self.game_state.current_room_name_for_map, []
+            ),
+            discovered_objectives=self.game_state.discovered_objectives,
+            jericho_interface=self.jericho_interface,  # NEW: Pass Jericho interface for structured data
+        )
+
+        # Format context for agent
+        formatted_context = self.context_manager.get_formatted_agent_prompt_context(
+            agent_context
+        )
+
+        # Get agent action
+        agent_result = self.agent.get_action_with_reasoning(
+            game_state_text=current_state,
+            previous_actions_and_responses=agent_context.get("recent_actions", []),
+            action_counts=agent_context.get("action_counts"),
+            relevant_memories=formatted_context,
+        )
+
+        proposed_action = agent_result["action"]
+        agent_reasoning = agent_result.get("reasoning", "")
+
+        # Add reasoning to context
+        self.context_manager.add_reasoning(agent_reasoning, proposed_action)
+
+        # Get critic evaluation
+        critic_context = self.context_manager.get_critic_context(
+            current_state=current_state,
+            proposed_action=proposed_action,
+            location=self.game_state.current_room_name_for_map,
+            available_exits=self.map_manager.game_map.get_available_exits(
+                self.game_state.current_room_name_for_map
+            )
+            if hasattr(self.map_manager.game_map, "get_available_exits")
+            else [],
+            failed_actions=self.game_state.failed_actions_by_location.get(
+                self.game_state.current_room_name_for_map, []
+            ),
+        )
+
+        critic_result = self.critic.evaluate_action(
+            game_state_text=current_state,
+            proposed_action=proposed_action,
+            available_exits=critic_context.get("available_exits", []),
+            action_counts=self.game_state.action_counts,
+            current_location_name=self.game_state.current_room_name_for_map,
+            failed_actions_by_location=self.game_state.failed_actions_by_location,
+            previous_actions_and_responses=self.game_state.action_history[-3:],
+            jericho_interface=self.jericho_interface,  # NEW: Pass Jericho interface
+        )
+
+        # Start new turn for rejection tracking
+        self.rejection_manager.start_new_turn()
+
+        # Implement rejection logic with retry loop
+        max_rejections = 3
+        rejected_actions_this_turn = []
+        action_to_take = proposed_action
+        final_critic_score = critic_result.score
+        final_critic_justification = critic_result.justification
+        final_critic_confidence = critic_result.confidence
+        was_overridden = False
+
+        for rejection_attempt in range(max_rejections):
+            rejection_threshold = self.rejection_manager.get_rejection_threshold()
+
+            if critic_result.score >= rejection_threshold:
+                break  # Action is acceptable
+
+            # Check if we should override the rejection
+            override_context = {
+                "recent_locations": [
+                    getattr(entry, "current_location_name", "")
+                    for entry in self.game_state.memory_log_history[-10:]
+                    if hasattr(entry, "current_location_name")
+                ],
+                "recent_actions": [
+                    action for action, _ in self.game_state.action_history[-8:]
+                ],
+                "previous_actions_and_responses": self.game_state.action_history[
+                    -8:
+                ],
+                "turns_since_movement": self.rejection_manager.state.turns_since_movement,
+                "critic_confidence": critic_result.confidence,
+            }
+
+            should_override, override_reason = (
+                self.rejection_manager.should_override_rejection(
+                    action=action_to_take,
+                    current_location=self.game_state.current_room_name_for_map,
+                    failed_actions_by_location=self.game_state.failed_actions_by_location,
+                    context=override_context,
+                )
             )
 
-            # Format context for agent
-            formatted_context = self.context_manager.get_formatted_agent_prompt_context(
-                agent_context
+            if should_override:
+                was_overridden = True
+                self.logger.info(
+                    f"Overriding critic rejection: {override_reason}",
+                    extra={
+                        "event_type": "critic_override",
+                        "episode_id": self.game_state.episode_id,
+                        "reason": override_reason,
+                        "turn": self.game_state.turn_count,
+                        "original_action": action_to_take,
+                        "original_score": critic_result.score,
+                        "original_reasoning": critic_result.justification,
+                    },
+                )
+                break
+
+            # Action was rejected and not overridden
+            rejected_actions_this_turn.append(
+                {
+                    "action": action_to_take,
+                    "score": critic_result.score,
+                    "justification": critic_result.justification,
+                }
             )
 
-            # Get agent action
+            self.rejection_manager.add_rejected_action(
+                action_to_take, critic_result.score, critic_result.justification
+            )
+
+            # Log rejection
+            self.logger.info(
+                f"Critic rejected action: {action_to_take} (score: {critic_result.score:.2f})",
+                extra={
+                    "event_type": "action_rejected",
+                    "episode_id": self.game_state.episode_id,
+                    "turn": self.game_state.turn_count,
+                    "action": action_to_take,
+                    "score": critic_result.score,
+                    "justification": critic_result.justification,
+                    "rejection_attempt": rejection_attempt + 1,
+                },
+            )
+
+            # Get new action from agent with rejection context
+            rejected_actions_context = ", ".join(
+                self.rejection_manager.rejected_actions_this_turn
+            )
+            rejection_feedback = f"\n\n[Previous action(s) '{rejected_actions_context}' were rejected by critic: {critic_result.justification}]"
+
+            # Get new action with rejection context
             agent_result = self.agent.get_action_with_reasoning(
-                game_state_text=current_state,
-                previous_actions_and_responses=agent_context.get("recent_actions", []),
+                game_state_text=current_state + rejection_feedback,
+                previous_actions_and_responses=agent_context.get(
+                    "recent_actions", []
+                ),
                 action_counts=agent_context.get("action_counts"),
                 relevant_memories=formatted_context,
             )
 
-            proposed_action = agent_result["action"]
+            action_to_take = agent_result["action"]
             agent_reasoning = agent_result.get("reasoning", "")
 
-            # Add reasoning to context
-            self.context_manager.add_reasoning(agent_reasoning, proposed_action)
-
-            # Get critic evaluation
-            critic_context = self.context_manager.get_critic_context(
-                current_state=current_state,
-                proposed_action=proposed_action,
-                location=self.game_state.current_room_name_for_map,
-                available_exits=self.map_manager.game_map.get_available_exits(
-                    self.game_state.current_room_name_for_map
-                )
-                if hasattr(self.map_manager.game_map, "get_available_exits")
-                else [],
-                failed_actions=self.game_state.failed_actions_by_location.get(
-                    self.game_state.current_room_name_for_map, []
-                ),
-            )
-
+            # Re-evaluate new action
             critic_result = self.critic.evaluate_action(
                 game_state_text=current_state,
-                proposed_action=proposed_action,
+                proposed_action=action_to_take,
                 available_exits=critic_context.get("available_exits", []),
                 action_counts=self.game_state.action_counts,
                 current_location_name=self.game_state.current_room_name_for_map,
@@ -365,282 +588,152 @@ class ZorkOrchestratorV2:
                 jericho_interface=self.jericho_interface,  # NEW: Pass Jericho interface
             )
 
-            # Start new turn for rejection tracking
-            self.rejection_manager.start_new_turn()
-
-            # Implement rejection logic with retry loop
-            max_rejections = 3
-            rejected_actions_this_turn = []
-            action_to_take = proposed_action
             final_critic_score = critic_result.score
             final_critic_justification = critic_result.justification
             final_critic_confidence = critic_result.confidence
-            was_overridden = False
 
-            for rejection_attempt in range(max_rejections):
-                rejection_threshold = self.rejection_manager.get_rejection_threshold()
+        # Check if we exhausted all rejection attempts
+        if (
+            rejection_attempt == max_rejections - 1
+            and critic_result.score < rejection_threshold
+            and not was_overridden
+        ):
+            self.logger.warning(
+                f"Exhausted rejection attempts, proceeding with low-scoring action: {action_to_take} (score: {critic_result.score:.2f})",
+                extra={
+                    "event_type": "rejection_attempts_exhausted",
+                    "episode_id": self.game_state.episode_id,
+                    "turn": self.game_state.turn_count,
+                    "final_action": action_to_take,
+                    "final_score": critic_result.score,
+                    "threshold": rejection_threshold,
+                },
+            )
 
-                if critic_result.score >= rejection_threshold:
-                    break  # Action is acceptable
+        # Store rejected actions for this turn
+        if rejected_actions_this_turn:
+            self.game_state.rejected_actions_per_turn[
+                self.game_state.turn_count
+            ] = rejected_actions_this_turn
 
-                # Check if we should override the rejection
-                override_context = {
-                    "recent_locations": [
-                        getattr(entry, "current_location_name", "")
-                        for entry in self.game_state.memory_log_history[-10:]
-                        if hasattr(entry, "current_location_name")
-                    ],
-                    "recent_actions": [
-                        action for action, _ in self.game_state.action_history[-8:]
-                    ],
-                    "previous_actions_and_responses": self.game_state.action_history[
-                        -8:
-                    ],
-                    "turns_since_movement": self.rejection_manager.state.turns_since_movement,
-                    "critic_confidence": critic_result.confidence,
-                }
+        # Update confidence history
+        self.critic_confidence_history.append(final_critic_confidence)
 
-                should_override, override_reason = (
-                    self.rejection_manager.should_override_rejection(
-                        action=action_to_take,
-                        current_location=self.game_state.current_room_name_for_map,
-                        failed_actions_by_location=self.game_state.failed_actions_by_location,
-                        context=override_context,
-                    )
-                )
+        # Store critic evaluation for viewer (state export)
+        critic_eval_data = {
+            "critic_score": final_critic_score,
+            "critic_justification": final_critic_justification,
+            "was_overridden": was_overridden,
+            "rejected_actions": rejected_actions_this_turn,
+        }
+        self.game_state.critic_evaluation_history.append(critic_eval_data)
 
-                if should_override:
-                    was_overridden = True
-                    self.logger.info(
-                        f"Overriding critic rejection: {override_reason}",
-                        extra={
-                            "event_type": "critic_override",
-                            "episode_id": self.game_state.episode_id,
-                            "reason": override_reason,
-                            "turn": self.game_state.turn_count,
-                            "original_action": action_to_take,
-                            "original_score": critic_result.score,
-                            "original_reasoning": critic_result.justification,
-                        },
-                    )
-                    break
+        # Update action counts
+        self.game_state.action_counts[action_to_take] += 1
 
-                # Action was rejected and not overridden
-                rejected_actions_this_turn.append(
-                    {
-                        "action": action_to_take,
-                        "score": critic_result.score,
-                        "justification": critic_result.justification,
-                    }
-                )
-
-                self.rejection_manager.add_rejected_action(
-                    action_to_take, critic_result.score, critic_result.justification
-                )
-
-                # Log rejection
-                self.logger.info(
-                    f"Critic rejected action: {action_to_take} (score: {critic_result.score:.2f})",
-                    extra={
-                        "event_type": "action_rejected",
-                        "episode_id": self.game_state.episode_id,
-                        "turn": self.game_state.turn_count,
-                        "action": action_to_take,
-                        "score": critic_result.score,
-                        "justification": critic_result.justification,
-                        "rejection_attempt": rejection_attempt + 1,
-                    },
-                )
-
-                # Get new action from agent with rejection context
-                rejected_actions_context = ", ".join(
-                    self.rejection_manager.rejected_actions_this_turn
-                )
-                rejection_feedback = f"\n\n[Previous action(s) '{rejected_actions_context}' were rejected by critic: {critic_result.justification}]"
-
-                # Get new action with rejection context
-                agent_result = self.agent.get_action_with_reasoning(
-                    game_state_text=current_state + rejection_feedback,
-                    previous_actions_and_responses=agent_context.get(
-                        "recent_actions", []
-                    ),
-                    action_counts=agent_context.get("action_counts"),
-                    relevant_memories=formatted_context,
-                )
-
-                action_to_take = agent_result["action"]
-                agent_reasoning = agent_result.get("reasoning", "")
-
-                # Re-evaluate new action
-                critic_result = self.critic.evaluate_action(
-                    game_state_text=current_state,
-                    proposed_action=action_to_take,
-                    available_exits=critic_context.get("available_exits", []),
-                    action_counts=self.game_state.action_counts,
-                    current_location_name=self.game_state.current_room_name_for_map,
-                    failed_actions_by_location=self.game_state.failed_actions_by_location,
-                    previous_actions_and_responses=self.game_state.action_history[-3:],
-                    jericho_interface=self.jericho_interface,  # NEW: Pass Jericho interface
-                )
-
-                final_critic_score = critic_result.score
-                final_critic_justification = critic_result.justification
-                final_critic_confidence = critic_result.confidence
-
-            # Check if we exhausted all rejection attempts
-            if (
-                rejection_attempt == max_rejections - 1
-                and critic_result.score < rejection_threshold
-                and not was_overridden
-            ):
-                self.logger.warning(
-                    f"Exhausted rejection attempts, proceeding with low-scoring action: {action_to_take} (score: {critic_result.score:.2f})",
-                    extra={
-                        "event_type": "rejection_attempts_exhausted",
-                        "episode_id": self.game_state.episode_id,
-                        "turn": self.game_state.turn_count,
-                        "final_action": action_to_take,
-                        "final_score": critic_result.score,
-                        "threshold": rejection_threshold,
-                    },
-                )
-
-            # Store rejected actions for this turn
-            if rejected_actions_this_turn:
-                self.game_state.rejected_actions_per_turn[
-                    self.game_state.turn_count
-                ] = rejected_actions_this_turn
-
-            # Update confidence history
-            self.critic_confidence_history.append(final_critic_confidence)
-
-            # Store critic evaluation for viewer (state export)
-            critic_eval_data = {
+        # Log final action selection (for knowledge manager compatibility)
+        self.logger.info(
+            f"SELECTED ACTION: {action_to_take} (Score: {final_critic_score:.2f}, Confidence: {final_critic_confidence:.2f}, Override: {was_overridden})",
+            extra={
+                "event_type": "final_action_selection",
+                "episode_id": self.game_state.episode_id,
+                "turn": self.game_state.turn_count,
+                "agent_action": action_to_take,
+                "agent_reasoning": agent_reasoning,
                 "critic_score": final_critic_score,
-                "critic_justification": final_critic_justification,
+                "critic_confidence": final_critic_confidence,
                 "was_overridden": was_overridden,
-                "rejected_actions": rejected_actions_this_turn,
+            },
+        )
+
+        # Execute action using Jericho
+        next_game_state = self.jericho_interface.send_command(action_to_take)
+
+        # Check for game over
+        is_game_over, game_over_reason = self.jericho_interface.is_game_over(
+            next_game_state
+        )
+        if is_game_over:
+            self.game_state.game_over_flag = True
+            self.logger.info(
+                f"Game over detected: {game_over_reason}",
+                extra={
+                    "event_type": "game_over_detected",
+                    "episode_id": self.game_state.episode_id,
+                    "turn_number": self.game_state.turn_count,
+                    "reason": game_over_reason,
+                },
+            )
+
+        # Clean the game response before storing in history
+        clean_response = self.extractor.get_clean_game_text(next_game_state)
+
+        # Log zork response (for knowledge manager compatibility)
+        self.logger.info(
+            f"ZORK RESPONSE for '{action_to_take}':\n{clean_response}\n",
+            extra={
+                "event_type": "zork_response",
+                "episode_id": self.game_state.episode_id,
+                "turn": self.game_state.turn_count,
+                "action": action_to_take,
+                "zork_response": clean_response,
+                "raw_zork_response": next_game_state,
+            },
+        )
+
+        # Add action to history
+        self.context_manager.add_action(action_to_take, clean_response)
+
+        # Extract information from response
+        extracted_info = self.extractor.extract_info(next_game_state)
+        self._process_extraction(extracted_info, action_to_take, next_game_state)
+
+        # Store extracted info for viewer (state export)
+        extracted_dict = {}
+        if hasattr(extracted_info, "__dict__"):
+            extracted_dict = {
+                k: v
+                for k, v in extracted_info.__dict__.items()
+                if not k.startswith("_")
             }
-            self.game_state.critic_evaluation_history.append(critic_eval_data)
+        elif isinstance(extracted_info, dict):
+            extracted_dict = extracted_info
+        self.game_state.extracted_info_history.append(extracted_dict)
 
-            # Update action counts
-            self.game_state.action_counts[action_to_take] += 1
+        # Check for objective completion
+        self.objective_manager.check_objective_completion(
+            action_taken=action_to_take,
+            game_response=next_game_state,
+            extracted_info=extracted_info,
+        )
 
-            # Log final action selection (for knowledge manager compatibility)
+        # Log turn completion
+        self.logger.info(
+            f"Turn {self.game_state.turn_count} completed",
+            extra={
+                "event_type": "turn_completed",
+                "episode_id": self.game_state.episode_id,
+                "turn": self.game_state.turn_count,
+                "action": action_to_take,
+                "score": self.game_state.previous_zork_score,
+                "location": self.game_state.current_room_name_for_map,
+                "confidence": final_critic_confidence,
+            },
+        )
+
+        # Track state for loop detection (Phase 6)
+        loop_detected = self.state_manager.track_state_hash(self.jericho_interface)
+        if loop_detected:
             self.logger.info(
-                f"SELECTED ACTION: {action_to_take} (Score: {final_critic_score:.2f}, Confidence: {final_critic_confidence:.2f}, Override: {was_overridden})",
+                "State loop detected - agent may be stuck",
                 extra={
-                    "event_type": "final_action_selection",
+                    "event_type": "stuck_behavior_detected",
                     "episode_id": self.game_state.episode_id,
                     "turn": self.game_state.turn_count,
-                    "agent_action": action_to_take,
-                    "agent_reasoning": agent_reasoning,
-                    "critic_score": final_critic_score,
-                    "critic_confidence": final_critic_confidence,
-                    "was_overridden": was_overridden,
                 },
             )
 
-            # Execute action using Jericho
-            next_game_state = self.jericho_interface.send_command(action_to_take)
-
-            # Check for game over
-            is_game_over, game_over_reason = self.jericho_interface.is_game_over(
-                next_game_state
-            )
-            if is_game_over:
-                self.game_state.game_over_flag = True
-                self.logger.info(
-                    f"Game over detected: {game_over_reason}",
-                    extra={
-                        "event_type": "game_over_detected",
-                        "episode_id": self.game_state.episode_id,
-                        "turn_number": self.game_state.turn_count,
-                        "reason": game_over_reason,
-                    },
-                )
-
-            # Clean the game response before storing in history
-            clean_response = self.extractor.get_clean_game_text(next_game_state)
-
-            # Log zork response (for knowledge manager compatibility)
-            self.logger.info(
-                f"ZORK RESPONSE for '{action_to_take}':\n{clean_response}\n",
-                extra={
-                    "event_type": "zork_response",
-                    "episode_id": self.game_state.episode_id,
-                    "turn": self.game_state.turn_count,
-                    "action": action_to_take,
-                    "zork_response": clean_response,
-                    "raw_zork_response": next_game_state,
-                },
-            )
-
-            # Add action to history
-            self.context_manager.add_action(action_to_take, clean_response)
-
-            # Extract information from response
-            extracted_info = self.extractor.extract_info(next_game_state)
-            self._process_extraction(extracted_info, action_to_take, next_game_state)
-
-            # Store extracted info for viewer (state export)
-            extracted_dict = {}
-            if hasattr(extracted_info, "__dict__"):
-                extracted_dict = {
-                    k: v
-                    for k, v in extracted_info.__dict__.items()
-                    if not k.startswith("_")
-                }
-            elif isinstance(extracted_info, dict):
-                extracted_dict = extracted_info
-            self.game_state.extracted_info_history.append(extracted_dict)
-
-            # Check for objective completion
-            self.objective_manager.check_objective_completion(
-                action_taken=action_to_take,
-                game_response=next_game_state,
-                extracted_info=extracted_info,
-            )
-
-            # Log turn completion
-            self.logger.info(
-                f"Turn {self.game_state.turn_count} completed",
-                extra={
-                    "event_type": "turn_completed",
-                    "episode_id": self.game_state.episode_id,
-                    "turn": self.game_state.turn_count,
-                    "action": action_to_take,
-                    "score": self.game_state.previous_zork_score,
-                    "location": self.game_state.current_room_name_for_map,
-                    "confidence": final_critic_confidence,
-                },
-            )
-
-            # Track state for loop detection (Phase 6)
-            loop_detected = self.state_manager.track_state_hash(self.jericho_interface)
-            if loop_detected:
-                self.logger.info(
-                    "State loop detected - agent may be stuck",
-                    extra={
-                        "event_type": "stuck_behavior_detected",
-                        "episode_id": self.game_state.episode_id,
-                        "turn": self.game_state.turn_count,
-                    },
-                )
-
-            return action_to_take, next_game_state
-
-        except Exception as e:
-            self.logger.error(
-                f"Turn failed with exception: {e}",
-                extra={
-                    "event_type": "turn_exception",
-                    "episode_id": self.game_state.episode_id,
-                    "turn": self.game_state.turn_count,
-                    "error": str(e),
-                },
-            )
-            return "look", current_state
+        return action_to_take, next_game_state
 
     def _process_extraction(self, extracted_info, action: str, response: str) -> None:
         """Process extracted information and update game state."""

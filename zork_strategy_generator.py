@@ -17,6 +17,17 @@ from pathlib import Path
 # Import shared utilities
 from shared_utils import estimate_tokens
 
+try:
+    from langfuse.decorators import observe
+    LANGFUSE_AVAILABLE = True
+except ImportError:
+    # Graceful fallback - no-op decorator
+    def observe(*args, **kwargs):
+        def decorator(func):
+            return func
+        return decorator
+    LANGFUSE_AVAILABLE = False
+
 
 class AdaptiveKnowledgeManager:
     """
@@ -803,6 +814,7 @@ TOTAL ACTIONS: {len(turn_data["actions_and_responses"])}
 
         return output
 
+    @observe(name="strategy-generate-update")
     def _generate_knowledge_directly(
         self, turn_data: Dict, existing_knowledge: str
     ) -> str:
@@ -1422,6 +1434,7 @@ This knowledge base contains discovered information about the Zork game world, i
         with open(self.output_file, "w", encoding="utf-8") as f:
             f.write(f"# Zork Strategy Guide\n\n## {initial_section}\n{content}\n")
 
+    @observe(name="knowledge-synthesize-strategic")
     def synthesize_inter_episode_wisdom(self, episode_data: Dict) -> bool:
         """
         Synthesize persistent wisdom from episode completion that should carry forward

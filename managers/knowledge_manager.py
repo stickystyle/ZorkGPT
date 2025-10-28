@@ -111,11 +111,7 @@ class KnowledgeManager(BaseManager):
             self.object_events.append(event)
 
             self.log_debug(
-                "Tracked object event: %s - %s (ID: %s) at turn %s",
-                event_type,
-                obj_name,
-                obj_id,
-                turn,
+                f"Tracked object event: {event_type} - {obj_name} (ID: {obj_id}) at turn {turn}"
             )
 
             # Log significant events
@@ -386,14 +382,11 @@ class KnowledgeManager(BaseManager):
     def update_map_in_knowledge_base(self) -> None:
         """Update the mermaid map in knowledge base."""
         try:
-            mermaid_map = self.map_manager.game_map.render_mermaid()
-            if mermaid_map:
-                self.adaptive_knowledge_manager.update_knowledge_with_map(
-                    mermaid_content=mermaid_map, episode_id=self.game_state.episode_id
-                )
-                self.log_debug("Updated map in knowledge base")
-            else:
-                self.log_warning("No mermaid map content available")
+            self.adaptive_knowledge_manager.update_knowledge_with_map(
+                episode_id=self.game_state.episode_id,
+                game_map=self.map_manager.game_map
+            )
+            self.log_debug("Updated map in knowledge base")
 
         except Exception as e:
             self.log_error(f"Failed to update map in knowledge base: {e}")

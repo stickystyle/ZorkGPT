@@ -11,6 +11,7 @@ Handles all state management responsibilities:
 """
 
 import json
+import pickle
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 
@@ -111,7 +112,9 @@ class StateManager(BaseManager):
         try:
             # Get state hash from Jericho (hash of state tuple)
             state_tuple = jericho_interface.save_state()
-            state_hash = hash(state_tuple)
+            # Serialize the state tuple to bytes (handles numpy arrays inside)
+            # and hash the bytes for consistent comparison
+            state_hash = hash(pickle.dumps(state_tuple))
 
             # Check for loop
             if state_hash in self.state_history:

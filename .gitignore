@@ -202,6 +202,7 @@ celerybeat.pid
 *.sage.py
 
 # Environments
+# .env contains API keys and secrets - NEVER commit to version control
 .env
 .venv
 env/

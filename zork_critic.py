@@ -13,6 +13,17 @@ from config import get_config, get_client_api_key
 # Import create_json_schema from shared utilities
 from shared_utils import create_json_schema
 
+try:
+    from langfuse.decorators import observe
+    LANGFUSE_AVAILABLE = True
+except ImportError:
+    # Graceful fallback - no-op decorator
+    def observe(*args, **kwargs):
+        def decorator(func):
+            return func
+        return decorator
+    LANGFUSE_AVAILABLE = False
+
 
 class CriticResponse(BaseModel):
     score: float
@@ -707,6 +718,7 @@ class ZorkCritic:
                 self.logger.warning(f"Object tree validation error: {e}")
             return ValidationResult(valid=True, reason="Validation error - defaulting to allow")
 
+    @observe(name="critic-evaluate-action")
     def evaluate_action(
         self,
         game_state_text: str,

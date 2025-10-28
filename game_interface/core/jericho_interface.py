@@ -526,6 +526,7 @@ class JerichoInterface:
 
         This method traverses the Z-machine object tree to find objects
         whose parent is the current location and filters for visible objects.
+        The player object itself is excluded from the results.
 
         Returns:
             List of ZObject instances that are visible in the current location
@@ -549,13 +550,21 @@ class JerichoInterface:
             location_id = current_location.num
             visible_objects = []
 
+            # Get the player object to exclude it from visible objects
+            player = self.get_player_object()
+            player_id = player.num if player else None
+
             # Get all objects in the world
             all_objects = self.env.get_world_objects()
 
             # Find objects whose parent is the current location
             for obj in all_objects:
                 if obj.parent == location_id:
-                    # Include all objects whose parent is the current location
+                    # Exclude the player object - you can't interact with yourself
+                    if player_id is not None and obj.num == player_id:
+                        continue
+
+                    # Include all other objects whose parent is the current location
                     # In Z-machine, parent relationship determines visibility
                     visible_objects.append(obj)
 

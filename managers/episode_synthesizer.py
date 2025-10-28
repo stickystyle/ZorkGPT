@@ -17,6 +17,17 @@ from managers.base_manager import BaseManager
 from session.game_state import GameState
 from session.game_configuration import GameConfiguration
 
+try:
+    from langfuse.decorators import observe
+    LANGFUSE_AVAILABLE = True
+except ImportError:
+    # Graceful fallback - no-op decorator
+    def observe(*args, **kwargs):
+        def decorator(func):
+            return func
+        return decorator
+    LANGFUSE_AVAILABLE = False
+
 
 class EpisodeSynthesizer(BaseManager):
     """
@@ -316,6 +327,7 @@ class EpisodeSynthesizer(BaseManager):
             self.log_error(f"Failed to generate episode summary: {e}")
             return self.generate_fallback_episode_summary(final_score, is_death)
 
+    @observe(name="episode-generate-synthesis")
     def generate_llm_episode_summary(self, final_score: int, is_death: bool) -> str:
         """Generate LLM-powered episode summary."""
         try:

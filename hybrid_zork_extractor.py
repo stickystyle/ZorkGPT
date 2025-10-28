@@ -17,6 +17,17 @@ from game_interface.core.jericho_interface import JerichoInterface
 from shared_utils import create_json_schema
 from config import get_config, get_client_api_key
 
+try:
+    from langfuse.decorators import observe
+    LANGFUSE_AVAILABLE = True
+except ImportError:
+    # Graceful fallback - no-op decorator
+    def observe(*args, **kwargs):
+        def decorator(func):
+            return func
+        return decorator
+    LANGFUSE_AVAILABLE = False
+
 # Generic location fallbacks for location persistence (used by movement_analyzer)
 GENERIC_LOCATION_FALLBACKS = {
     "unknown location",
@@ -172,6 +183,7 @@ Extract key information from the game text and return it as JSON with these fiel
 - important_messages: List of important messages (gameplay events, not flavor text)
 - in_combat: Boolean indicating combat status"""
 
+    @observe(name="extractor-extract-information")
     def extract_info(
         self, game_text_from_zork: str, previous_location: str = None
     ) -> Optional[ExtractorResponse]:

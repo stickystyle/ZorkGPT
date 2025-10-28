@@ -11,6 +11,17 @@ from hybrid_zork_extractor import ExtractorResponse
 from llm_client import LLMClientWrapper
 from config import get_config, get_client_api_key
 
+try:
+    from langfuse.decorators import observe
+    LANGFUSE_AVAILABLE = True
+except ImportError:
+    # Graceful fallback - no-op decorator
+    def observe(*args, **kwargs):
+        def decorator(func):
+            return func
+        return decorator
+    LANGFUSE_AVAILABLE = False
+
 
 class ZorkAgent:
     """
@@ -300,6 +311,7 @@ The following strategic guide has been compiled from analyzing previous episodes
             # Return a fallback action - let the critic evaluate it
             return {"action": "look", "reasoning": f"Error in action generation: {e}"}
 
+    @observe(name="agent-generate-action")
     def get_action_with_reasoning(
         self,
         game_state_text: str,

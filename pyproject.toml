@@ -9,6 +9,7 @@ dependencies = [
     "requests>=2.31.0",
     "python-dotenv>=1.0.0",
     "jericho>=3.3.0",
+    "langfuse>=3.8.1,<4.0",
 ]
 
 [project.optional-dependencies]
@@ -30,9 +31,9 @@ dev = [
 client_base_url = "https://openrouter.ai/api/v1"
 agent_model = "openai/gpt-oss-120b"
 #info_ext_model = "gemma-3-12b-it-qat"
-info_ext_model = "openai/gpt-oss-20b:nitro"
+info_ext_model = "google/gemma-3-12b-it"
 #critic_model = "gemma-3-12b-it-qat"
-critic_model = "openai/gpt-oss-20b:nitro"
+critic_model = "google/gemma-3-12b-it"
 analysis_model = "meta-llama/llama-4-scout"
 
 # Per-model base URLs (optional, for cost optimization)
