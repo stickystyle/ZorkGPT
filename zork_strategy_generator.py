@@ -705,12 +705,14 @@ class AdaptiveKnowledgeManager:
                 if self.logger:
                     self.logger.info(
                         "Stuck pattern detected - forcing knowledge update",
-                        event_type="knowledge_update_quality",
-                        episode_id=turn_data.get("episode_id", "unknown"),
-                        stuck_pattern_unique_actions=unique_last_10,
-                        window_size=window_size,
-                        recent_variety=f"{recent_variety:.1%}",
-                        episode_variety=f"{episode_variety:.1%}",
+                        extra={
+                            "event_type": "knowledge_update_quality",
+                            "episode_id": turn_data.get("episode_id", "unknown"),
+                            "stuck_pattern_unique_actions": unique_last_10,
+                            "window_size": window_size,
+                            "recent_variety": f"{recent_variety:.1%}",
+                            "episode_variety": f"{episode_variety:.1%}",
+                        }
                     )
                 return True, f"Stuck pattern detected (only {unique_last_10} unique actions in last 10 turns) - forcing update"
 
@@ -720,15 +722,17 @@ class AdaptiveKnowledgeManager:
             if self.logger:
                 self.logger.info(
                     "Knowledge update decision: skip - Too repetitive",
-                    event_type="knowledge_update_quality",
-                    episode_id=turn_data.get("episode_id", "unknown"),
-                    window_size=window_size,
-                    recent_variety=f"{recent_variety:.1%}",
-                    episode_variety=f"{episode_variety:.1%}",
-                    recent_unique_count=len(recent_unique),
-                    total_actions=len(actions),
-                    threshold_used="15%",
-                    decision="skip",
+                    extra={
+                        "event_type": "knowledge_update_quality",
+                        "episode_id": turn_data.get("episode_id", "unknown"),
+                        "window_size": window_size,
+                        "recent_variety": f"{recent_variety:.1%}",
+                        "episode_variety": f"{episode_variety:.1%}",
+                        "recent_unique_count": len(recent_unique),
+                        "total_actions": len(actions),
+                        "threshold_used": "15%",
+                        "decision": "skip",
+                    }
                 )
             return False, f"Too repetitive in recent window ({recent_variety:.1%} unique actions in last {window_size} turns)"
 
@@ -747,15 +751,17 @@ class AdaptiveKnowledgeManager:
         if self.logger:
             self.logger.info(
                 "Knowledge update decision: proceed - Varied gameplay",
-                event_type="knowledge_update_quality",
-                episode_id=turn_data.get("episode_id", "unknown"),
-                window_size=window_size,
-                recent_variety=f"{recent_variety:.1%}",
-                episode_variety=f"{episode_variety:.1%}",
-                recent_unique_count=len(recent_unique),
-                total_actions=len(actions),
-                threshold_used="15%",
-                decision="proceed",
+                extra={
+                    "event_type": "knowledge_update_quality",
+                    "episode_id": turn_data.get("episode_id", "unknown"),
+                    "window_size": window_size,
+                    "recent_variety": f"{recent_variety:.1%}",
+                    "episode_variety": f"{episode_variety:.1%}",
+                    "recent_unique_count": len(recent_unique),
+                    "total_actions": len(actions),
+                    "threshold_used": "15%",
+                    "decision": "proceed",
+                }
             )
 
         return True, f"Varied gameplay ({len(recent_unique)} unique actions in last {window_size} turns)"
