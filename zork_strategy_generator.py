@@ -654,6 +654,9 @@ class AdaptiveKnowledgeManager:
         """
         Determine if turn data warrants a knowledge update using simple heuristics.
 
+        Uses a sliding window approach to evaluate recent action variety rather than
+        entire episode variety, preventing permanent blocking in long episodes.
+
         Returns:
             Tuple[bool, str]: (should_update, reason)
         """
@@ -677,12 +680,57 @@ class AdaptiveKnowledgeManager:
                 f"Discovered {len(turn_data['location_changes'])} new locations",
             )
 
-        # Check action variety (avoid pure repetition)
-        unique_actions = set(a["action"] for a in actions)
-        action_variety = len(unique_actions) / len(actions)
+        # Check action variety using sliding window approach (last 75 turns)
+        # This prevents permanent blocking in long episodes where episode-wide
+        # variety naturally decreases over time
+        window_size = min(75, len(actions))
+        recent_actions = actions[-window_size:]
 
-        if action_variety < 0.3:  # Less than 30% unique actions
-            return False, f"Too repetitive ({action_variety:.1%} unique actions)"
+        # Calculate variety in recent window
+        recent_unique = set(a["action"] for a in recent_actions)
+        recent_variety = len(recent_unique) / len(recent_actions)
+
+        # Also calculate episode-wide metrics for logging
+        all_unique = set(a["action"] for a in actions)
+        episode_variety = len(all_unique) / len(actions)
+
+        # Detect stuck patterns - consecutive similar actions
+        # Force update if agent is stuck, even if variety is low
+        if len(recent_actions) >= 10:
+            last_10_actions = [a["action"] for a in recent_actions[-10:]]
+            unique_last_10 = len(set(last_10_actions))
+
+            # If doing the same ~3 actions repeatedly, force update to help learn
+            if unique_last_10 <= 3:
+                if self.logger:
+                    self.logger.info(
+                        "Stuck pattern detected - forcing knowledge update",
+                        event_type="knowledge_update_quality",
+                        episode_id=turn_data.get("episode_id", "unknown"),
+                        stuck_pattern_unique_actions=unique_last_10,
+                        window_size=window_size,
+                        recent_variety=f"{recent_variety:.1%}",
+                        episode_variety=f"{episode_variety:.1%}",
+                    )
+                return True, f"Stuck pattern detected (only {unique_last_10} unique actions in last 10 turns) - forcing update"
+
+        # Use lower threshold (15%) for window-based variety
+        # (lower than episode-wide 30% because window is smaller)
+        if recent_variety < 0.15:
+            if self.logger:
+                self.logger.info(
+                    "Knowledge update decision: skip - Too repetitive",
+                    event_type="knowledge_update_quality",
+                    episode_id=turn_data.get("episode_id", "unknown"),
+                    window_size=window_size,
+                    recent_variety=f"{recent_variety:.1%}",
+                    episode_variety=f"{episode_variety:.1%}",
+                    recent_unique_count=len(recent_unique),
+                    total_actions=len(actions),
+                    threshold_used="15%",
+                    decision="skip",
+                )
+            return False, f"Too repetitive in recent window ({recent_variety:.1%} unique actions in last {window_size} turns)"
 
         # Check response variety (ensure new information)
         unique_responses = set(a["response"][:50] for a in actions)
@@ -695,7 +743,22 @@ class AdaptiveKnowledgeManager:
         if total_response_length < 100:
             return False, "Responses too short/uninformative"
 
-        return True, f"Varied gameplay ({len(unique_actions)} unique actions)"
+        # Log successful quality check
+        if self.logger:
+            self.logger.info(
+                "Knowledge update decision: proceed - Varied gameplay",
+                event_type="knowledge_update_quality",
+                episode_id=turn_data.get("episode_id", "unknown"),
+                window_size=window_size,
+                recent_variety=f"{recent_variety:.1%}",
+                episode_variety=f"{episode_variety:.1%}",
+                recent_unique_count=len(recent_unique),
+                total_actions=len(actions),
+                threshold_used="15%",
+                decision="proceed",
+            )
+
+        return True, f"Varied gameplay ({len(recent_unique)} unique actions in last {window_size} turns)"
 
     def _format_turn_data_for_prompt(self, turn_data: Dict) -> str:
         """Format turn data for LLM prompt with clear structure."""
