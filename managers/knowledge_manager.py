@@ -507,6 +507,83 @@ class KnowledgeManager(BaseManager):
                 details=f"Synthesis failed with exception: {e}",
             )
 
+    def migrate_persistent_wisdom_to_knowledgebase(self) -> bool:
+        """
+        One-time migration: merge existing persistent_wisdom.md into knowledgebase.md
+        CROSS-EPISODE INSIGHTS section. Can be safely called multiple times.
+
+        Returns:
+            True if migration occurred, False if skipped or failed
+        """
+        try:
+            import os
+            from config import get_config
+
+            config = get_config()
+            old_wisdom_file = config.orchestrator.persistent_wisdom_file
+
+            # Check if old file exists
+            if not os.path.exists(old_wisdom_file):
+                self.log_debug("No persistent_wisdom.md file to migrate")
+                return False
+
+            # Read old wisdom content
+            with open(old_wisdom_file, "r", encoding="utf-8") as f:
+                old_wisdom = f.read().strip()
+
+            if not old_wisdom:
+                self.log_debug("persistent_wisdom.md is empty, skipping migration")
+                os.remove(old_wisdom_file)  # Clean up empty file
+                return False
+
+            # Load current knowledge base
+            kb_file = self.adaptive_knowledge_manager.output_file
+            existing_kb = ""
+            try:
+                with open(kb_file, "r", encoding="utf-8") as f:
+                    existing_kb = f.read()
+            except FileNotFoundError:
+                existing_kb = "# Zork Game World Knowledge Base\n\n"
+
+            # Check if CROSS-EPISODE INSIGHTS section already exists
+            if "## CROSS-EPISODE INSIGHTS" in existing_kb:
+                self.log_info("CROSS-EPISODE INSIGHTS section already exists in knowledgebase.md")
+                # Backup old file and remove it
+                backup_path = f"{old_wisdom_file}.migrated"
+                os.rename(old_wisdom_file, backup_path)
+                self.log_info(f"Backed up persistent_wisdom.md to {backup_path}")
+                return False
+
+            # Merge old wisdom into new section
+            self.log_info("Migrating persistent_wisdom.md to knowledgebase.md CROSS-EPISODE INSIGHTS section")
+
+            # Use adaptive knowledge manager to update the section
+            updated_kb = self.adaptive_knowledge_manager._update_section_content(
+                existing_kb,
+                "CROSS-EPISODE INSIGHTS",
+                f"### Migrated from persistent_wisdom.md\n\n{old_wisdom}"
+            )
+
+            # Save updated knowledge base
+            with open(kb_file, "w", encoding="utf-8") as f:
+                f.write(updated_kb)
+
+            # Backup and remove old file
+            backup_path = f"{old_wisdom_file}.migrated"
+            os.rename(old_wisdom_file, backup_path)
+
+            self.log_progress(
+                "Successfully migrated persistent_wisdom.md to knowledgebase.md",
+                stage="migration",
+                details=f"Old file backed up to {backup_path}"
+            )
+
+            return True
+
+        except Exception as e:
+            self.log_error(f"Failed to migrate persistent_wisdom.md: {e}")
+            return False
+
     def get_knowledge_base_summary(self) -> str:
         """Get knowledge base content without the map section."""
         try:

@@ -297,11 +297,41 @@ Managers follow a standardized lifecycle:
 
 Dependency flow:
 - MapManager → no dependencies
-- ContextManager → no dependencies  
+- ContextManager → no dependencies
 - StateManager → needs LLM client
 - KnowledgeManager → needs agent and map references
 - ObjectiveManager → needs knowledge manager reference
 - EpisodeSynthesizer → needs knowledge and state managers
+
+### Knowledge Base Structure
+
+The ZorkGPT knowledge base (`knowledgebase.md`) is a consolidated document containing:
+
+#### Strategic Sections (Updated during gameplay)
+- **DANGERS & THREATS**: Specific dangers and recognition patterns
+- **PUZZLE SOLUTIONS**: Puzzle mechanics and solutions
+- **STRATEGIC PATTERNS**: Successful/failed approaches and patterns
+- **DEATH & DANGER ANALYSIS**: Death event analysis and prevention
+- **COMMAND SYNTAX**: Exact commands that worked
+- **LESSONS LEARNED**: Session-specific insights
+
+#### CROSS-EPISODE INSIGHTS (Updated at episode completion)
+This section synthesizes persistent wisdom that carries across multiple episodes:
+- **Death Patterns Across Episodes**: Consistent death causes and prevention strategies
+- **Environmental Knowledge**: Persistent facts about game world (dangerous locations, item behaviors, puzzle mechanics)
+- **Strategic Meta-Patterns**: Approaches that prove consistently effective/ineffective across different situations
+- **Major Discoveries**: Game mechanics, hidden areas, puzzle solutions discovered
+
+This section is updated via `synthesize_inter_episode_wisdom()` at episode end when:
+- Episode ended in death (critical learning event), OR
+- Final score >= 50, OR
+- Turn count >= 100, OR
+- Average critic score >= 0.3
+
+#### CURRENT WORLD MAP (Updated periodically)
+- Mermaid diagram of discovered world
+
+**Legacy Note**: Prior to this refactoring, cross-episode wisdom was stored in a separate `persistent_wisdom.md` file. This has been consolidated into the CROSS-EPISODE INSIGHTS section of `knowledgebase.md`. The migration can be performed using the `scripts/migrate_persistent_wisdom.py` script or the `KnowledgeManager.migrate_persistent_wisdom_to_knowledgebase()` method.
 
 ## Memories and Principles
 

@@ -249,7 +249,8 @@ zork_experiences.json
 zork_episode_log.txt
 
 knowledgebase.md
-persistent_wisdom.md
+persistent_wisdom.md.migrated
+persistent_wisdom.md.backup
 test_current_state.json
 current_state.json
 

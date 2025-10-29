@@ -10,6 +10,7 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "jericho>=3.3.0",
     "langfuse>=3.8.1,<4.0",
+    "filelock>=3.20.0",
 ]
 
 [project.optional-dependencies]
@@ -131,7 +132,14 @@ refined_objectives_target_count = 8
 
 # Inter-episode synthesis configuration
 enable_inter_episode_synthesis = true
+# Legacy: kept for migration purposes only - cross-episode insights now in knowledgebase.md
 persistent_wisdom_file = "persistent_wisdom.md"
+
+[tool.zorkgpt.simple_memory]
+# Simple Memory System Configuration
+enabled = true
+memory_file = "Memories.md"
+max_memories_shown = 10
 
 [tool.zorkgpt.files]
 # File Configuration

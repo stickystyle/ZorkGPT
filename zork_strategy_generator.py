@@ -819,45 +819,6 @@ TOTAL ACTIONS: {len(turn_data["actions_and_responses"])}
 
         return output
 
-    def _load_persistent_wisdom(self) -> str:
-        """
-        Load persistent wisdom from previous episodes.
-
-        Returns:
-            str: Formatted persistent wisdom or empty string if not available
-        """
-        try:
-            from config import get_config
-
-            config = get_config()
-            persistent_wisdom_file = config.orchestrator.persistent_wisdom_file
-
-            with open(persistent_wisdom_file, "r", encoding="utf-8") as f:
-                wisdom = f.read().strip()
-
-            if wisdom:
-                return f"""
-**PERSISTENT WISDOM FROM PREVIOUS EPISODES:**
-{"-" * 50}
-{wisdom}
-{"-" * 50}
-"""
-
-        except FileNotFoundError:
-            # No persistent wisdom file yet - this is fine for early episodes
-            if self.logger:
-                self.logger.debug(
-                    "No persistent wisdom file found (normal for early episodes)"
-                )
-        except Exception as e:
-            if self.logger:
-                self.logger.warning(
-                    f"Could not load persistent wisdom: {e}",
-                    extra={"event_type": "knowledge_update"},
-                )
-
-        return ""
-
     def _format_death_analysis_section(self, turn_data: Dict) -> str:
         """Format death events for the knowledge base."""
         if not turn_data.get("death_events"):
@@ -900,11 +861,14 @@ TOTAL ACTIONS: {len(turn_data["actions_and_responses"])}
         # Format turn data
         formatted_data = self._format_turn_data_for_prompt(turn_data)
 
-        # Load persistent wisdom for context
-        persistent_wisdom = self._load_persistent_wisdom()
+        # Extract cross-episode insights from existing knowledge base
+        cross_episode_section = self._extract_cross_episode_section(existing_knowledge)
 
         # Construct comprehensive prompt
         prompt = f"""Analyze this Zork gameplay data and create/update the knowledge base.
+
+NOTE: Item locations, room connections, and object properties are now tracked in a separate structured memory system.
+This knowledge base should focus on STRATEGIC insights, patterns, and lessons learned from gameplay.
 
 {formatted_data}
 
@@ -913,19 +877,24 @@ EXISTING KNOWLEDGE BASE:
 {existing_knowledge if existing_knowledge else "No existing knowledge - this is the first update"}
 {"-" * 50}
 
-{persistent_wisdom}
+{cross_episode_section}
 
 INSTRUCTIONS:
 Create a comprehensive knowledge base with ALL of the following sections. If a section has no new information, keep the existing content for that section.
 
-## WORLD KNOWLEDGE
-List ALL specific facts discovered about the game world:
-- **Item Locations**: Exact items and where found (e.g., "mailbox at West of House contains leaflet")
-- **Room Connections**: Specific navigation paths (e.g., "north from West of House → North of House")
-- **Dangers**: Specific threats and their locations (e.g., "grue in darkness east of North of House")
-- **Object Interactions**: What happens with objects (e.g., "leaflet can be read, contains game introduction")
-- **Puzzle Solutions**: Any puzzles solved and their solutions
-- **Environmental Details**: Properties of locations, special features
+## DANGERS & THREATS
+Document specific dangers and how to recognize them:
+- **Death Patterns**: What actions/locations consistently lead to death? (e.g., "moving east from dark cellar without light causes grue death")
+- **Warning Signs**: What game text signals danger? (e.g., "slavering fangs" indicates imminent grue attack)
+- **Safe Approaches**: How to safely navigate dangerous areas?
+- **Environmental Hazards**: Special location properties that pose risks
+
+## PUZZLE SOLUTIONS
+Document puzzle mechanics and solutions:
+- **Solved Puzzles**: Complete solutions to puzzles encountered
+- **Puzzle Patterns**: Common puzzle types and approaches that work
+- **Failed Solutions**: What didn't work and why (avoid repeating mistakes)
+- **Partial Progress**: Puzzles partially solved with notes on next steps
 
 ## STRATEGIC PATTERNS
 Identify patterns from this gameplay session:
@@ -939,33 +908,36 @@ Identify patterns from this gameplay session:
 {self._format_death_analysis_section(turn_data) if turn_data.get("death_events") else "No deaths occurred in this session."}
 
 ## COMMAND SYNTAX
-List exact commands that worked:
-- Movement: [specific successful movement commands]
-- Interaction: [specific object interaction commands]
-- Combat: [any combat-related commands]
-- Special: [any special or unusual commands]
+List exact commands that worked (focus on non-obvious or puzzle-specific commands):
+- **Puzzle Commands**: Commands that solved specific puzzles
+- **Special Interactions**: Unusual but effective command patterns
+- **Combat**: Any combat-related commands
+- **Syntax Discoveries**: Command formats that worked when standard approaches failed
 
 ## LESSONS LEARNED
 Specific insights from this session:
-- **New Discoveries**: What was learned for the first time?
-- **Confirmed Patterns**: What previous knowledge was validated?
+- **New Discoveries**: What strategic insights were learned for the first time?
+- **Confirmed Patterns**: What previous strategic knowledge was validated?
 - **Updated Understanding**: What previous assumptions were corrected?
 - **Future Strategies**: What should be tried next based on these learnings?
 
 ## CROSS-EPISODE INSIGHTS
-How this session relates to persistent wisdom:
-- **Confirmations**: Which persistent patterns were observed again?
-- **Contradictions**: What differed from previous episodes?
-- **Extensions**: What new details extend existing knowledge?
+Persistent strategic wisdom that carries across episodes (updated at episode completion):
+- **Death Patterns Across Episodes**: Consistent death causes and prevention strategies
+- **Environmental Knowledge**: Persistent facts about game world (dangerous locations, item behaviors, puzzle mechanics)
+- **Strategic Meta-Patterns**: Approaches that prove consistently effective/ineffective across different situations
+- **Major Discoveries**: Game mechanics, hidden areas, puzzle solutions discovered
+- **NOTE**: This section is primarily updated during inter-episode synthesis at episode end, but may include observations from current session that relate to cross-episode patterns.
 
 CRITICAL REQUIREMENTS:
-1. **Be Specific**: Include exact names, locations, and commands
-2. **Preserve Details**: Never generalize specific facts into vague advice
-3. **Additive Updates**: When updating, ADD new facts, don't remove existing ones
-4. **Fact-First**: Prioritize concrete discoveries over abstract strategies
+1. **Strategic Focus**: Focus on WHY and HOW, not just WHAT (factual data is in memory system)
+2. **Pattern Recognition**: Identify patterns across multiple situations
+3. **Danger Prevention**: Emphasize death avoidance and danger recognition
+4. **Actionable Insights**: Provide decision-making guidance, not just facts
 5. **Complete Sections**: Include all sections even if some have minimal updates
 
-Remember: The agent needs BOTH specific facts ("mailbox contains leaflet") AND strategic insights ("reading items provides information")."""
+Remember: The structured memory system handles factual data (locations, connections, inventory).
+This knowledge base provides strategic intelligence to make better decisions."""
 
         # Add qwen3-30b-a3b optimization if needed
         prompt = r"\no_think " + prompt
@@ -976,7 +948,7 @@ Remember: The agent needs BOTH specific facts ("mailbox contains leaflet") AND s
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are creating a knowledge base for an AI agent playing Zork. Focus on preserving specific, actionable facts from the gameplay while also identifying strategic patterns. Never abstract specific discoveries into generic advice.",
+                        "content": "You are creating a strategic knowledge base for an AI agent playing Zork. A separate memory system already tracks factual data (room locations, item positions, connections). Your role is to identify strategic patterns, danger signals, puzzle solutions, and actionable decision-making insights. Focus on WHY things happen and HOW to approach situations, not just cataloging WHAT exists.",
                     },
                     {"role": "user", "content": prompt},
                 ],
@@ -1503,11 +1475,104 @@ This knowledge base contains discovered information about the Zork game world, i
         with open(self.output_file, "w", encoding="utf-8") as f:
             f.write(f"# Zork Strategy Guide\n\n## {initial_section}\n{content}\n")
 
+    def _extract_cross_episode_section(self, knowledge_content: str) -> str:
+        """
+        Extract the CROSS-EPISODE INSIGHTS section from existing knowledge base.
+
+        Args:
+            knowledge_content: Full knowledge base content
+
+        Returns:
+            str: Formatted cross-episode section or empty string if not found
+        """
+        if not knowledge_content:
+            return ""
+
+        # Look for the CROSS-EPISODE INSIGHTS section
+        pattern = r"## CROSS-EPISODE INSIGHTS(.*?)(?=\n## |$)"
+        match = re.search(pattern, knowledge_content, re.DOTALL)
+
+        if match:
+            section_content = match.group(1).strip()
+            if section_content:
+                return f"""
+**CROSS-EPISODE INSIGHTS FROM PREVIOUS EPISODES:**
+{"-" * 50}
+{section_content}
+{"-" * 50}
+"""
+
+        return ""
+
+    def _extract_section_content(self, knowledge_content: str, section_name: str) -> str:
+        """
+        Extract content from a specific section of the knowledge base.
+
+        Args:
+            knowledge_content: Full knowledge base content
+            section_name: Name of section to extract (without ## prefix)
+
+        Returns:
+            str: Section content or empty string if not found
+        """
+        if not knowledge_content:
+            return ""
+
+        # Look for the section heading followed by content until next section or end
+        pattern = rf"## {re.escape(section_name)}(.*?)(?=\n## |$)"
+        match = re.search(pattern, knowledge_content, re.DOTALL)
+
+        if match:
+            return match.group(1).strip()
+
+        return ""
+
+    def _update_section_content(
+        self, knowledge_content: str, section_name: str, new_content: str
+    ) -> str:
+        """
+        Update or add a section in the knowledge base.
+
+        Args:
+            knowledge_content: Full knowledge base content
+            section_name: Name of section to update (without ## prefix)
+            new_content: New content for the section
+
+        Returns:
+            str: Updated knowledge base content
+        """
+        if not knowledge_content:
+            knowledge_content = "# Zork Game World Knowledge Base\n\n"
+
+        section_header = f"## {section_name}"
+
+        # Check if section exists
+        pattern = rf"## {re.escape(section_name)}(.*?)(?=\n## |$)"
+        match = re.search(pattern, knowledge_content, re.DOTALL)
+
+        if match:
+            # Replace existing section (only first occurrence)
+            old_section = match.group(0)
+            new_section = f"{section_header}\n\n{new_content}\n"
+            updated = knowledge_content.replace(old_section, new_section, 1)
+            return updated
+        else:
+            # Add new section before the map section (if it exists) or at the end
+            if "## CURRENT WORLD MAP" in knowledge_content:
+                # Insert before map
+                map_index = knowledge_content.find("## CURRENT WORLD MAP")
+                before_map = knowledge_content[:map_index]
+                map_section = knowledge_content[map_index:]
+                return f"{before_map}\n{section_header}\n\n{new_content}\n\n{map_section}"
+            else:
+                # Append at end
+                return f"{knowledge_content}\n\n{section_header}\n\n{new_content}\n"
+
     @observe(name="knowledge-synthesize-strategic")
     def synthesize_inter_episode_wisdom(self, episode_data: Dict) -> bool:
         """
-        Synthesize persistent wisdom from episode completion that should carry forward
-        to future episodes. Focuses on deaths, major discoveries, and cross-episode patterns.
+        Synthesize persistent wisdom from episode completion into the CROSS-EPISODE INSIGHTS
+        section of knowledgebase.md. Focuses on deaths, major discoveries, and cross-episode patterns.
 
         Args:
             episode_data: Dictionary containing episode summary information
@@ -1515,15 +1580,9 @@ This knowledge base contains discovered information about the Zork game world, i
         Returns:
             True if synthesis was performed and wisdom was updated, False if skipped
         """
-        from config import get_config
-
-        config = get_config()
-
-        persistent_wisdom_file = config.orchestrator.persistent_wisdom_file
-
         if self.logger:
             self.logger.info(
-                f"Synthesizing inter-episode wisdom from episode {episode_data['episode_id']}",
+                f"Synthesizing cross-episode insights from episode {episode_data['episode_id']}",
                 extra={"event_type": "knowledge_update"},
             )
 
@@ -1547,7 +1606,7 @@ This knowledge base contains discovered information about the Zork game world, i
         if not should_synthesize:
             if self.logger:
                 self.logger.info(
-                    "Episode not significant enough for wisdom synthesis",
+                    "Episode not significant enough for cross-episode synthesis",
                     extra={
                         "event_type": "knowledge_update",
                         "details": f"Death: {episode_ended_in_death}, Score: {final_score}, Turns: {turn_count}, Avg Critic: {avg_critic_score:.2f}",
@@ -1560,25 +1619,31 @@ This knowledge base contains discovered information about the Zork game world, i
         if not turn_data:
             if self.logger:
                 self.logger.warning(
-                    "Could not extract turn data for wisdom synthesis",
+                    "Could not extract turn data for cross-episode synthesis",
                     extra={"event_type": "knowledge_update"},
                 )
             return False
 
-        # Load existing persistent wisdom
-        existing_wisdom = ""
+        # Load existing knowledge base
+        existing_knowledge = ""
         try:
-            with open(persistent_wisdom_file, "r", encoding="utf-8") as f:
-                existing_wisdom = f.read()
+            with open(self.output_file, "r", encoding="utf-8") as f:
+                existing_knowledge = f.read()
         except FileNotFoundError:
-            # No existing wisdom file - this is fine for first episode
-            existing_wisdom = ""
+            # No existing knowledge base - create basic one
+            existing_knowledge = "# Zork Game World Knowledge Base\n\n"
         except Exception as e:
             if self.logger:
                 self.logger.warning(
-                    f"Could not load existing wisdom: {e}",
+                    f"Could not load existing knowledge base: {e}",
                     extra={"event_type": "knowledge_update"},
                 )
+            existing_knowledge = "# Zork Game World Knowledge Base\n\n"
+
+        # Extract existing cross-episode insights section
+        existing_cross_episode = self._extract_section_content(
+            existing_knowledge, "CROSS-EPISODE INSIGHTS"
+        )
 
         # Prepare death event analysis if applicable
         death_analysis = ""
@@ -1597,7 +1662,7 @@ This knowledge base contains discovered information about the Zork game world, i
                 death_analysis += "\n"
 
         # Create synthesis prompt
-        prompt = f"""Analyze this completed Zork episode and update the persistent wisdom base with key learnings that should carry forward to future episodes.
+        prompt = f"""Analyze this completed Zork episode and update the CROSS-EPISODE INSIGHTS section with key learnings that should carry forward to future episodes.
 
 **CURRENT EPISODE SUMMARY:**
 - Episode ID: {episode_id}
@@ -1610,36 +1675,39 @@ This knowledge base contains discovered information about the Zork game world, i
 - Completed objectives: {len(episode_data.get("completed_objectives", []))}
 
 **EPISODE ACTIONS SUMMARY:**
-{turn_data["actions_and_responses"][:10] if turn_data.get("actions_and_responses") else "No action data available"}
+{self._format_turn_data_for_prompt(turn_data)[:2000] if turn_data.get("actions_and_responses") else "No action data available"}
 
 {death_analysis}
 
-**EXISTING PERSISTENT WISDOM:**
-{existing_wisdom if existing_wisdom else "No previous wisdom recorded."}
+**EXISTING CROSS-EPISODE INSIGHTS:**
+{existing_cross_episode if existing_cross_episode else "No previous cross-episode insights recorded."}
 
 **SYNTHESIS TASK:**
 
-Extract and synthesize the most critical learnings from this episode that should persist across future episodes. Focus on:
+Update the CROSS-EPISODE INSIGHTS section with the most critical learnings from this episode that should persist across future episodes. Focus on:
 
-1. **Death Pattern Analysis**: If deaths occurred, what specific patterns, locations, or actions consistently lead to death? What environmental cues signal danger?
+1. **Death Patterns Across Episodes**: If deaths occurred, what specific patterns, locations, or actions consistently lead to death? What environmental cues signal danger?
 
-2. **Critical Environmental Knowledge**: What persistent facts about the game world were discovered? (Dangerous locations, item behaviors, puzzle mechanics)
+2. **Environmental Knowledge**: What persistent facts about the game world were discovered? (Dangerous locations, item behaviors, puzzle mechanics)
 
-3. **Strategic Patterns**: What meta-strategies or approaches proved consistently effective or ineffective across different situations?
+3. **Strategic Meta-Patterns**: What approaches proved consistently effective or ineffective across different situations?
 
-4. **Discovery Insights**: What major discoveries about game mechanics, hidden areas, or puzzle solutions should be remembered?
-
-5. **Cross-Episode Learning**: How does this episode's experience relate to patterns from previous episodes?
+4. **Major Discoveries**: What major discoveries about game mechanics, hidden areas, or puzzle solutions should be remembered?
 
 **REQUIREMENTS:**
 - Focus on persistent, reusable knowledge rather than episode-specific details
 - Emphasize death avoidance and danger recognition patterns
-- Maintain existing wisdom while adding new insights
+- Maintain existing insights while adding new discoveries
 - Remove outdated or contradicted information
-- Keep wisdom concise but actionable for an AI agent
+- Keep insights concise but actionable for an AI agent
+- Structure the output with the four subsections above
 
 **OUTPUT FORMAT:**
-Provide the updated persistent wisdom as a well-organized markdown document. If no significant new wisdom emerged, return "NO_SIGNIFICANT_WISDOM" instead."""
+Provide ONLY the updated CROSS-EPISODE INSIGHTS section content (without the ## header).
+If no significant new insights emerged, return the existing content unchanged."""
+
+        # Add qwen3-30b-a3b optimization if needed
+        prompt = r"\no_think " + prompt
 
         try:
             response = self.client.chat.completions.create(
@@ -1658,24 +1726,23 @@ Provide the updated persistent wisdom as a well-organized markdown document. If 
                 max_tokens=self.analysis_sampling.max_tokens or 2000,
             )
 
-            wisdom_response = response.content.strip()
+            new_cross_episode_content = response.content.strip()
 
-            if wisdom_response == "NO_SIGNIFICANT_WISDOM":
-                if self.logger:
-                    self.logger.info(
-                        "No significant wisdom to synthesize from this episode",
-                        extra={"event_type": "knowledge_update"},
-                    )
-                return False
+            # Update the knowledge base with new cross-episode section
+            updated_knowledge = self._update_section_content(
+                existing_knowledge,
+                "CROSS-EPISODE INSIGHTS",
+                new_cross_episode_content
+            )
 
-            # Save the updated persistent wisdom
+            # Save the updated knowledge base
             try:
-                with open(persistent_wisdom_file, "w", encoding="utf-8") as f:
-                    f.write(wisdom_response)
+                with open(self.output_file, "w", encoding="utf-8") as f:
+                    f.write(updated_knowledge)
 
                 if self.logger:
                     self.logger.info(
-                        f"Persistent wisdom updated and saved to {persistent_wisdom_file}",
+                        f"Cross-episode insights updated in {self.output_file}",
                         extra={
                             "event_type": "knowledge_update",
                             "details": f"Synthesized from episode with {turn_count} turns, score {final_score}",
@@ -1687,7 +1754,7 @@ Provide the updated persistent wisdom as a well-organized markdown document. If 
             except Exception as e:
                 if self.logger:
                     self.logger.error(
-                        f"Failed to save persistent wisdom: {e}",
+                        f"Failed to save updated knowledge base: {e}",
                         extra={"event_type": "knowledge_update"},
                     )
                 return False
@@ -1695,7 +1762,7 @@ Provide the updated persistent wisdom as a well-organized markdown document. If 
         except Exception as e:
             if self.logger:
                 self.logger.error(
-                    f"Inter-episode wisdom synthesis failed: {e}",
+                    f"Cross-episode synthesis failed: {e}",
                     extra={"event_type": "knowledge_update"},
                 )
             return False
