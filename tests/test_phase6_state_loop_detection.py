@@ -33,6 +33,8 @@ class TestPhase6StateLoopDetection:
             critic_model="test-critic-model",
             info_ext_model="test-extractor-model",
             analysis_model="test-analysis-model",
+            memory_model="test-memory-model",
+            condensation_model="test-condensation-model",
             # Update intervals
             knowledge_update_interval=100,
             map_update_interval=50,
@@ -49,6 +51,17 @@ class TestPhase6StateLoopDetection:
             enable_state_export=False,  # Disable export for tests
             s3_bucket="test-bucket",
             s3_key_prefix="test/",
+            # Simple Memory
+            simple_memory_enabled=True,
+            simple_memory_file="Memories.md",
+            simple_memory_max_shown=10,
+            # Sampling parameters
+            agent_sampling={},
+            critic_sampling={},
+            extractor_sampling={},
+            analysis_sampling={},
+            memory_sampling={},
+            condensation_sampling={},
         )
 
     @pytest.fixture
@@ -204,6 +217,7 @@ class TestPhase6StateLoopDetection:
 
     def test_state_history_maintains_order(self, state_manager):
         """Test that state history maintains insertion order."""
+        import pickle
         mock_jericho = Mock()
 
         states = [(1, 2, 3), (4, 5, 6), (7, 8, 9)]
@@ -212,7 +226,8 @@ class TestPhase6StateLoopDetection:
         for state in states:
             mock_jericho.save_state.return_value = state
             state_manager.track_state_hash(mock_jericho)
-            hashes.append(hash(state))
+            # Compute hash the same way StateManager does: hash(pickle.dumps(state_tuple))
+            hashes.append(hash(pickle.dumps(state)))
 
         # State history should match the order of hashes
         assert state_manager.state_history == hashes

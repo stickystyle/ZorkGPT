@@ -47,6 +47,8 @@ class TestPhase6Integration:
                 critic_model="test-critic-model",
                 info_ext_model="test-extractor-model",
                 analysis_model="test-analysis-model",
+                memory_model="test-memory-model",
+                condensation_model="test-condensation-model",
                 knowledge_update_interval=100,
                 map_update_interval=50,
                 objective_update_interval=20,
@@ -59,6 +61,16 @@ class TestPhase6Integration:
                 enable_state_export=False,
                 s3_bucket="test-bucket",
                 s3_key_prefix="test/",
+                simple_memory_enabled=True,
+                simple_memory_file="Memories.md",
+                simple_memory_max_shown=10,
+                # Sampling parameters
+                agent_sampling={},
+                critic_sampling={},
+                extractor_sampling={},
+                analysis_sampling={},
+                memory_sampling={},
+                condensation_sampling={},
             )
 
             # Mock other components

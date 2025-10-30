@@ -123,6 +123,7 @@ class HumanReadableFormatter(logging.Formatter):
                 "final_reasoning_debug",
                 "map_consolidation",
                 "agent_llm_response",
+                "zork_response",  # Hide raw game responses from console
             ]:
                 return None  # Don't display these on console
 
