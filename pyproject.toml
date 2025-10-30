@@ -30,12 +30,14 @@ dev = [
 [tool.zorkgpt.llm]
 # LLM Configuration
 client_base_url = "https://openrouter.ai/api/v1"
-agent_model = "openai/gpt-oss-120b"
+agent_model = "deepseek/deepseek-r1-0528"
 #info_ext_model = "gemma-3-12b-it-qat"
 info_ext_model = "google/gemma-3-12b-it"
 #critic_model = "gemma-3-12b-it-qat"
 critic_model = "google/gemma-3-12b-it"
 analysis_model = "meta-llama/llama-4-scout"
+memory_model = "qwen/qwq-32b"
+condensation_model = "qwen/qwq-32b"
 
 # Per-model base URLs (optional, for cost optimization)
 # If not specified, will fall back to client_base_url
@@ -86,6 +88,14 @@ max_tokens = 400
 # top_k = null     # Optional - leave commented for default
 # min_p = null     # Optional - leave commented for default
 
+[tool.zorkgpt.memory_sampling]
+# Memory Synthesis LLM Sampling Parameters
+temperature = 0.3
+max_tokens = 1000
+# top_p = null     # Optional - leave commented for default
+# top_k = null     # Optional - leave commented for default
+# min_p = null     # Optional - leave commented for default
+
 [tool.zorkgpt.analysis_sampling]
 # Analysis Model LLM Sampling Parameters (for knowledge generation)
 temperature = 0.3
@@ -93,6 +103,14 @@ top_p = 0.8     # Optional - leave commented for default
 top_k = 20     # Optional - leave commented for default
 min_p = 0.0     # Optional - leave commented for default
 max_tokens = 5000  # Optional - leave commented to use default
+
+[tool.zorkgpt.condensation_sampling]
+# Knowledge Condensation LLM Sampling Parameters
+temperature = 0.3
+top_p = 0.8
+top_k = 20
+min_p = 0.0
+max_tokens = 5000
 
 [tool.zorkgpt.gameplay]
 # Gameplay Configuration

@@ -42,6 +42,8 @@ class GameConfiguration:
     critic_model: str
     info_ext_model: str
     analysis_model: str
+    memory_model: str
+    condensation_model: str
 
     # Update intervals
     knowledge_update_interval: int
@@ -65,6 +67,11 @@ class GameConfiguration:
     # Gameplay settings
     critic_rejection_threshold: float
 
+    # Simple memory settings
+    simple_memory_enabled: bool
+    simple_memory_file: str
+    simple_memory_max_shown: int
+
     # Optional fields (with defaults)
     # LLM client settings
     client_api_key: Optional[str] = None
@@ -74,9 +81,19 @@ class GameConfiguration:
     info_ext_base_url: Optional[str] = None
     critic_base_url: Optional[str] = None
     analysis_base_url: Optional[str] = None
+    memory_base_url: Optional[str] = None
+    condensation_base_url: Optional[str] = None
 
     # State export
     s3_bucket: Optional[str] = None
+
+    # Sampling parameters (loaded from TOML)
+    agent_sampling: dict = None
+    critic_sampling: dict = None
+    extractor_sampling: dict = None
+    analysis_sampling: dict = None
+    memory_sampling: dict = None
+    condensation_sampling: dict = None
 
     def __post_init__(self):
         """Load environment variables after initialization."""
@@ -125,6 +142,15 @@ class GameConfiguration:
         files_config = zorkgpt_config.get("files", {})
         gameplay_config = zorkgpt_config.get("gameplay", {})
         aws_config = zorkgpt_config.get("aws", {})
+        simple_memory_config = zorkgpt_config.get("simple_memory", {})
+
+        # Extract sampling parameter sections
+        agent_sampling = zorkgpt_config.get("agent_sampling", {})
+        critic_sampling = zorkgpt_config.get("critic_sampling", {})
+        extractor_sampling = zorkgpt_config.get("extractor_sampling", {})
+        analysis_sampling = zorkgpt_config.get("analysis_sampling", {})
+        memory_sampling = zorkgpt_config.get("memory_sampling", {})
+        condensation_sampling = zorkgpt_config.get("condensation_sampling", {})
 
         def require_key(config_dict: dict, key: str, section: str) -> any:
             """Helper to get required config values with clear error messages."""
@@ -157,11 +183,15 @@ class GameConfiguration:
             critic_model=require_key(llm_config, "critic_model", "llm"),
             info_ext_model=require_key(llm_config, "info_ext_model", "llm"),
             analysis_model=require_key(llm_config, "analysis_model", "llm"),
+            memory_model=require_key(llm_config, "memory_model", "llm"),
+            condensation_model=require_key(llm_config, "condensation_model", "llm"),
             # Per-model base URLs (optional)
             agent_base_url=llm_config.get("agent_base_url"),
             info_ext_base_url=llm_config.get("info_ext_base_url"),
             critic_base_url=llm_config.get("critic_base_url"),
             analysis_base_url=llm_config.get("analysis_base_url"),
+            memory_base_url=llm_config.get("memory_base_url"),
+            condensation_base_url=llm_config.get("condensation_base_url"),
             # Update intervals
             knowledge_update_interval=require_key(
                 orchestrator_config, "knowledge_update_interval", "orchestrator"
@@ -203,6 +233,23 @@ class GameConfiguration:
             critic_rejection_threshold=require_key(
                 gameplay_config, "critic_rejection_threshold", "gameplay"
             ),
+            # Simple memory settings
+            simple_memory_enabled=require_key(
+                simple_memory_config, "enabled", "simple_memory"
+            ),
+            simple_memory_file=require_key(
+                simple_memory_config, "memory_file", "simple_memory"
+            ),
+            simple_memory_max_shown=require_key(
+                simple_memory_config, "max_memories_shown", "simple_memory"
+            ),
+            # Sampling parameters
+            agent_sampling=agent_sampling,
+            critic_sampling=critic_sampling,
+            extractor_sampling=extractor_sampling,
+            analysis_sampling=analysis_sampling,
+            memory_sampling=memory_sampling,
+            condensation_sampling=condensation_sampling,
         )
 
     def get_effective_api_key(self) -> Optional[str]:
@@ -214,7 +261,7 @@ class GameConfiguration:
         Get the effective base URL for a specific model type.
 
         Args:
-            model_type: One of 'agent', 'critic', 'info_ext', 'analysis'
+            model_type: One of 'agent', 'critic', 'info_ext', 'analysis', 'memory', 'condensation'
 
         Returns:
             Base URL for the model type
@@ -224,6 +271,8 @@ class GameConfiguration:
             "critic": self.critic_base_url,
             "info_ext": self.info_ext_base_url,
             "analysis": self.analysis_base_url,
+            "memory": self.memory_base_url,
+            "condensation": self.condensation_base_url,
         }
 
         # Return model-specific URL if available, otherwise fall back to client_base_url

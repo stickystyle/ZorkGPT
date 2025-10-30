@@ -25,19 +25,23 @@ class LLMConfig(BaseModel):
     analysis_model: str = (
         "meta-llama/llama-4-scout"  # Should be configured in pyproject.toml
     )
+    memory_model: str = "qwen3-30b-a3b-mlx"
+    condensation_model: str = "qwen3-30b-a3b-mlx"
 
     # Per-model base URLs (optional, falls back to client_base_url if not specified)
     agent_base_url: Optional[str] = None
     info_ext_base_url: Optional[str] = None
     critic_base_url: Optional[str] = None
     analysis_base_url: Optional[str] = None
+    memory_base_url: Optional[str] = None
+    condensation_base_url: Optional[str] = None
 
     def get_base_url_for_model(self, model_type: str) -> str:
         """
         Get the appropriate base URL for a specific model type.
 
         Args:
-            model_type: One of 'agent', 'info_ext', 'critic', 'analysis'
+            model_type: One of 'agent', 'info_ext', 'critic', 'analysis', 'memory', 'condensation'
 
         Returns:
             The base URL to use for that model type
@@ -47,6 +51,8 @@ class LLMConfig(BaseModel):
             "info_ext": self.info_ext_base_url,
             "critic": self.critic_base_url,
             "analysis": self.analysis_base_url,
+            "memory": self.memory_base_url,
+            "condensation": self.condensation_base_url,
         }
 
         # Return model-specific URL if available, otherwise fall back to client_base_url
@@ -91,6 +97,26 @@ class AnalysisSamplingConfig(BaseModel):
     top_k: Optional[int] = None
     min_p: Optional[float] = None
     max_tokens: Optional[int] = None
+
+
+class MemorySamplingConfig(BaseModel):
+    """Sampling parameters for the memory synthesis model."""
+
+    temperature: float = 0.3
+    top_p: Optional[float] = None
+    top_k: Optional[int] = None
+    min_p: Optional[float] = None
+    max_tokens: int = 1000
+
+
+class CondensationSamplingConfig(BaseModel):
+    """Sampling parameters for the knowledge condensation model."""
+
+    temperature: float = 0.3
+    top_p: Optional[float] = None
+    top_k: Optional[int] = None
+    min_p: Optional[float] = None
+    max_tokens: int = 5000
 
 
 class GameplayConfig(BaseModel):
@@ -198,6 +224,8 @@ class ZorkGPTConfig(BaseModel):
     critic_sampling: CriticSamplingConfig = CriticSamplingConfig()
     extractor_sampling: ExtractorSamplingConfig = ExtractorSamplingConfig()
     analysis_sampling: AnalysisSamplingConfig = AnalysisSamplingConfig()
+    memory_sampling: MemorySamplingConfig = MemorySamplingConfig()
+    condensation_sampling: CondensationSamplingConfig = CondensationSamplingConfig()
     gameplay: GameplayConfig = GameplayConfig()
     logging: LoggingConfig = LoggingConfig()
     orchestrator: OrchestratorConfig = OrchestratorConfig()
