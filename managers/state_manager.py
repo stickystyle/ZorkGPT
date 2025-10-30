@@ -310,6 +310,7 @@ Keep the summary under 500 words and focus on actionable information for continu
                     messages=messages,
                     temperature=0.3,
                     max_tokens=1000,
+                    name="StateManager",
                 )
 
                 return response.content or ""

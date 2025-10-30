@@ -414,6 +414,7 @@ Extract key information from the game text and return it as JSON with these fiel
                 top_p=self.top_p,
                 top_k=self.top_k,
                 min_p=self.min_p,
+                name="Extractor",
                 response_format=create_json_schema(LLMExtraction),
             )
 

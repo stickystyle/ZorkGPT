@@ -289,6 +289,7 @@ class LLMClient:
         stop: Optional[Union[str, List[str]]] = None,
         response_format: Optional[Dict[str, Any]] = None,
         extra_headers: Optional[Dict[str, str]] = None,
+        name: Optional[str] = None,
         **kwargs,
     ) -> LLMResponse:
         """
@@ -305,6 +306,7 @@ class LLMClient:
             stop: Stop sequences
             response_format: Response format specification
             extra_headers: Additional headers to send
+            name: Name for Langfuse generation tracking (e.g., "Agent", "Critic")
             **kwargs: Additional parameters
 
         Returns:
@@ -346,6 +348,7 @@ class LLMClient:
                     stop=stop,
                     response_format=response_format,
                     extra_headers=extra_headers,
+                    name=name,
                     **kwargs,
                 )
 
@@ -425,6 +428,7 @@ class LLMClient:
         stop: Optional[Union[str, List[str]]] = None,
         response_format: Optional[Dict[str, Any]] = None,
         extra_headers: Optional[Dict[str, str]] = None,
+        name: Optional[str] = None,
         **kwargs,
     ) -> LLMResponse:
         """Make the actual HTTP request."""
@@ -498,7 +502,7 @@ class LLMClient:
         if self.langfuse_client:
             try:
                 with self.langfuse_client.start_as_current_observation(
-                    name="llm-client-call",
+                    name=name or "llm-client-call",
                     as_type="generation",
                     model=model,
                     input=messages,

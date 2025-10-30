@@ -362,6 +362,7 @@ Keep it under 200 words."""
                 messages=messages,
                 temperature=0.3,
                 max_tokens=500,
+                name="EpisodeSynthesizer",
             )
 
             return response.content or self.generate_fallback_episode_summary(

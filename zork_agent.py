@@ -258,6 +258,7 @@ The following strategic guide has been compiled from analyzing previous episodes
             llm_response = self.client.chat.completions.create(
                 model=self.model,
                 messages=messages,
+                name="Agent",
                 **self.sampling_params.model_dump(exclude_unset=True),
             )
             action_response = llm_response.content
@@ -393,6 +394,7 @@ The following strategic guide has been compiled from analyzing previous episodes
                 top_k=self.top_k,
                 min_p=self.min_p,
                 max_tokens=self.max_tokens,
+                name="Agent",
             )
 
             response = self.client.chat.completions.create(**client_args)

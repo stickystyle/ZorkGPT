@@ -655,6 +655,15 @@ class ZorkCritic:
             verb = parts[0]
             target = parts[1]
 
+            # Strip prepositional phrases to get the direct object
+            # Common prepositions: from, in, with, to, at, on, under, behind
+            prepositions = ['from', 'in', 'with', 'to', 'at', 'on', 'under', 'behind', 'into']
+            for prep in prepositions:
+                prep_pattern = f' {prep} '
+                if prep_pattern in target:
+                    target = target.split(prep_pattern)[0]
+                    break
+
             # Validate "take" actions
             if verb in ['take', 'get', 'grab', 'pick']:
                 # Get visible objects in location
@@ -848,6 +857,7 @@ Evaluate this action based on your criteria. Respond with ONLY a JSON object in 
                 top_p=self.top_p,
                 top_k=self.top_k,
                 min_p=self.min_p,
+                name="Critic",
                 response_format=create_json_schema(CriticResponse),
             )
 
@@ -1072,6 +1082,7 @@ Respond with ONLY a JSON object in this exact format:
                 messages=messages,
                 temperature=0.1,  # Low temperature for consistent analysis
                 max_tokens=100,
+                name="Critic",
                 response_format=create_json_schema(FailureDetectionResponse),
             )
 

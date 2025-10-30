@@ -302,7 +302,7 @@ Focus on objectives the agent has actually discovered through gameplay patterns 
 
                 response = (
                     self.adaptive_knowledge_manager.client.chat.completions.create(
-                        model=model_to_use, messages=messages, **sampling_params
+                        model=model_to_use, messages=messages, name="ObjectiveManager", **sampling_params
                     )
                 )
 
@@ -527,6 +527,7 @@ Return a JSON object with:
                         messages=[{"role": "user", "content": prompt}],
                         temperature=0.3,
                         max_tokens=500,
+                        name="ObjectiveManager",
                         response_format=create_json_schema(ObjectiveCompletionResponse),
                     )
                 )
@@ -783,6 +784,7 @@ Return a JSON object with:
                         messages=[{"role": "user", "content": prompt}],
                         temperature=0.3,
                         max_tokens=1000,
+                        name="ObjectiveManager",
                         response_format=create_json_schema(ObjectiveRefinementResponse),
                     )
                 )
