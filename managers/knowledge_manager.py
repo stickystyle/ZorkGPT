@@ -268,9 +268,6 @@ class KnowledgeManager(BaseManager):
                     },
                 )
 
-                # Update map in knowledge base
-                self.update_map_in_knowledge_base()
-
                 # Reload agent knowledge
                 self.reload_agent_knowledge()
 
@@ -359,9 +356,6 @@ class KnowledgeManager(BaseManager):
                         stage="final_knowledge_update",
                         details="Final knowledge update completed",
                     )
-
-                    # Update map in knowledge base
-                    self.update_map_in_knowledge_base()
                 else:
                     self.log_error(
                         "Final knowledge update failed",
@@ -378,18 +372,6 @@ class KnowledgeManager(BaseManager):
                 f"Exception during final knowledge update: {e}",
                 details=f"Final knowledge update failed with exception: {e}",
             )
-
-    def update_map_in_knowledge_base(self) -> None:
-        """Update the mermaid map in knowledge base."""
-        try:
-            self.adaptive_knowledge_manager.update_knowledge_with_map(
-                episode_id=self.game_state.episode_id,
-                game_map=self.map_manager.game_map
-            )
-            self.log_debug("Updated map in knowledge base")
-
-        except Exception as e:
-            self.log_error(f"Failed to update map in knowledge base: {e}")
 
     def reload_agent_knowledge(self) -> None:
         """Reload knowledge base in agent for immediate use."""

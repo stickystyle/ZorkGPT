@@ -148,6 +148,12 @@ class ZorkAgent:
             with open(knowledge_file, "r", encoding="utf-8") as f:
                 knowledge_content = f.read()
 
+            # Strip map section from knowledge base (map is now passed dynamically in context)
+            import re
+            pattern = r"## CURRENT WORLD MAP\s*\n\s*```mermaid\s*\n.*?\n```"
+            knowledge_content = re.sub(pattern, "", knowledge_content, flags=re.DOTALL)
+            knowledge_content = knowledge_content.strip()
+
             # Insert strategic guide before the "Output Format" section
             knowledge_section = f"""
 

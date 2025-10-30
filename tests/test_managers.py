@@ -251,11 +251,6 @@ class TestKnowledgeManager(TestBaseManagerSetup):
         knowledge_manager.last_knowledge_update_turn = 0
         assert knowledge_manager.should_process_turn()
 
-    def test_update_map_in_knowledge_base(self, knowledge_manager, mock_map_manager):
-        """Test map update in knowledge base."""
-        knowledge_manager.update_map_in_knowledge_base()
-        mock_map_manager.game_map.render_mermaid.assert_called_once()
-
     def test_reload_agent_knowledge(self, knowledge_manager, mock_agent):
         """Test agent knowledge reloading."""
         knowledge_manager.reload_agent_knowledge()
@@ -592,6 +587,42 @@ class TestContextManager(TestBaseManagerSetup):
         assert context["discovered_objectives"] == ["Find treasure"]
         assert "recent_actions" in context
         assert "recent_memories" in context
+
+    def test_get_agent_context_includes_map(self, context_manager, game_state):
+        """Test that agent context includes map when game_map is provided."""
+        # Mock a game_map with render_mermaid method
+        from unittest.mock import Mock
+        mock_map = Mock()
+        mock_map.render_mermaid.return_value = "graph TD\n  A --> B"
+
+        context = context_manager.get_agent_context(
+            current_state="Test state",
+            inventory=["lamp"],
+            location="Test Room",
+            game_map=mock_map,
+        )
+
+        assert "current_map" in context
+        assert context["current_map"] == "graph TD\n  A --> B"
+        mock_map.render_mermaid.assert_called_once()
+
+    def test_get_formatted_context_includes_map(self, context_manager, game_state):
+        """Test that formatted context includes map section."""
+        context = {
+            "game_state": "Test",
+            "current_location": "Room",
+            "inventory": ["lamp"],
+            "recent_actions": [],
+            "recent_memories": [],
+            "current_map": "graph TD\n  A --> B",
+        }
+
+        formatted = context_manager.get_formatted_agent_prompt_context(context)
+
+        assert "CURRENT WORLD MAP:" in formatted
+        assert "```mermaid" in formatted
+        assert "graph TD" in formatted
+        assert "A --> B" in formatted
 
     def test_detect_loops_in_recent_actions(self, context_manager, game_state):
         """Test loop detection in actions."""

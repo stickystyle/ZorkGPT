@@ -194,6 +194,20 @@ class ContextManager(BaseManager):
                         details=f"Location ID: {location_id}"
                     )
 
+            # Add current map as mermaid diagram
+            if game_map and hasattr(game_map, "render_mermaid"):
+                try:
+                    mermaid_map = game_map.render_mermaid()
+                    if mermaid_map and mermaid_map.strip():
+                        context["current_map"] = mermaid_map
+                        self.log_debug(
+                            f"Added current map: {len(mermaid_map)} chars",
+                            details="Mermaid diagram from MapGraph"
+                        )
+                except Exception as e:
+                    self.log_warning(f"Failed to get mermaid map: {e}")
+                    context["current_map"] = None
+
             self.log_debug(
                 f"Assembled agent context with {len(context['recent_actions'])} actions, "
                 f"{len(context['recent_memories'])} memories",
@@ -466,6 +480,14 @@ class ContextManager(BaseManager):
             if location_memory:
                 formatted_parts.append("\nLOCATION MEMORY:")
                 formatted_parts.append(location_memory)
+
+            # Current world map (mermaid diagram)
+            current_map = context.get("current_map")
+            if current_map:
+                formatted_parts.append("\nCURRENT WORLD MAP:")
+                formatted_parts.append("```mermaid")
+                formatted_parts.append(current_map)
+                formatted_parts.append("```")
 
             return "\n".join(formatted_parts)
 
