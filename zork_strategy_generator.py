@@ -61,11 +61,11 @@ class AdaptiveKnowledgeManager:
 
         # Models for different tasks
         self.analysis_model = config.llm.analysis_model
-        self.info_ext_model = config.llm.info_ext_model
+        self.condensation_model = config.llm.condensation_model
 
         # Load sampling parameters from configuration
         self.analysis_sampling = config.analysis_sampling
-        self.extractor_sampling = config.extractor_sampling
+        self.condensation_sampling = config.condensation_sampling
 
         # Turn-based configuration
         self.turn_window_size = config.gameplay.turn_window_size
@@ -957,6 +957,7 @@ This knowledge base provides strategic intelligence to make better decisions."""
                 top_k=self.analysis_sampling.top_k,
                 min_p=self.analysis_sampling.min_p,
                 max_tokens=self.analysis_sampling.max_tokens or 3000,
+                name="StrategyGenerator",
             )
 
             return response.content.strip()
@@ -1023,6 +1024,7 @@ Do not add new information - only reorganize and clarify existing knowledge for 
                 top_k=self.analysis_sampling.top_k,
                 min_p=self.analysis_sampling.min_p,
                 max_tokens=self.analysis_sampling.max_tokens or 3000,
+                name="StrategyGenerator",
             )
 
             return response.content.strip()
@@ -1069,7 +1071,7 @@ Do not add new information - only reorganize and clarify existing knowledge for 
 
     def _condense_knowledge_base(self, verbose_knowledge: str) -> Optional[str]:
         """
-        Use the info_ext_model to condense a knowledge base into a more concise format.
+        Use the condensation_model to condense a knowledge base into a more concise format.
 
         This step focuses purely on reformatting and removing redundancy without
         adding new strategies or losing critical information.
@@ -1126,13 +1128,14 @@ Focus on creating a guide that is information-dense but highly readable for an A
             self._log_prompt_to_file(messages, "knowledge_condensation")
 
             response = self.client.chat.completions.create(
-                model=self.info_ext_model,
+                model=self.condensation_model,
                 messages=messages,
-                temperature=self.extractor_sampling.temperature,
-                top_p=getattr(self.extractor_sampling, "top_p", None),
-                top_k=getattr(self.extractor_sampling, "top_k", None),
-                min_p=getattr(self.extractor_sampling, "min_p", None),
-                max_tokens=self.analysis_sampling.max_tokens or 5000,
+                temperature=self.condensation_sampling.get('temperature', 0.3),
+                top_p=self.condensation_sampling.get('top_p'),
+                top_k=self.condensation_sampling.get('top_k'),
+                min_p=self.condensation_sampling.get('min_p'),
+                max_tokens=self.condensation_sampling.get('max_tokens', 5000),
+                name="StrategyGenerator",
             )
 
             condensed_content = response.content.strip()
@@ -1724,6 +1727,7 @@ If no significant new insights emerged, return the existing content unchanged.""
                 top_k=self.analysis_sampling.top_k,
                 min_p=self.analysis_sampling.min_p,
                 max_tokens=self.analysis_sampling.max_tokens or 2000,
+                name="StrategyGenerator",
             )
 
             new_cross_episode_content = response.content.strip()
