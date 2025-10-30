@@ -458,22 +458,13 @@ class ContextManager(BaseManager):
             if inventory_objects:
                 formatted_parts.append("\nINVENTORY DETAILS:")
                 for obj in inventory_objects:
-                    attrs = obj.get("attributes", {})
-                    attr_str = ", ".join([k for k, v in attrs.items() if v])
-                    formatted_parts.append(f"  - {obj['name']} (ID:{obj['id']}, {attr_str})")
+                    formatted_parts.append(f"  - {obj['name']}")
 
             visible_objects = context.get("visible_objects", [])
             if visible_objects:
                 formatted_parts.append("\nVISIBLE OBJECTS:")
                 for obj in visible_objects:
-                    attrs = obj.get("attributes", {})
-                    attr_str = ", ".join([k for k, v in attrs.items() if v])
-                    formatted_parts.append(f"  - {obj['name']} (ID:{obj['id']}, {attr_str})")
-
-            # Action vocabulary (just count, not full list to keep prompt concise)
-            vocab = context.get("action_vocabulary", [])
-            if vocab:
-                formatted_parts.append(f"\nVALID ACTIONS: {len(vocab)} verbs available")
+                    formatted_parts.append(f"  - {obj['name']}")
 
             # Location memory from simple memory system
             location_memory = context.get("location_memory")
