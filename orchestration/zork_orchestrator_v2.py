@@ -756,7 +756,7 @@ class ZorkOrchestratorV2:
                 rejection_threshold = self.rejection_manager.get_rejection_threshold()
 
                 # DEBUG: Log rejection loop entry
-                self.logger.info(
+                self.logger.debug(
                     f"[REJECTION LOOP WITH TRACING] Attempt {rejection_attempt + 1}/{max_rejections}: action='{action_to_take}', score={critic_result.score:.2f}, threshold={rejection_threshold}",
                     extra={
                         "event_type": "debug_rejection_loop_entry",
@@ -770,7 +770,7 @@ class ZorkOrchestratorV2:
                 )
 
                 if critic_result.score >= rejection_threshold:
-                    self.logger.info(
+                    self.logger.debug(
                         f"[REJECTION LOOP WITH TRACING] Action accepted: score {critic_result.score:.2f} >= threshold {rejection_threshold}",
                         extra={
                             "event_type": "debug_rejection_loop_accepted",
@@ -796,7 +796,7 @@ class ZorkOrchestratorV2:
                 }
 
                 # DEBUG: Log before override check
-                self.logger.info(
+                self.logger.debug(
                     f"[REJECTION LOOP WITH TRACING] Checking override: turns_since_movement={override_context['turns_since_movement']}",
                     extra={
                         "event_type": "debug_before_override_check",
@@ -816,7 +816,7 @@ class ZorkOrchestratorV2:
                 )
 
                 # DEBUG: Log override decision
-                self.logger.info(
+                self.logger.debug(
                     f"[REJECTION LOOP WITH TRACING] Override decision: should_override={should_override}, reason='{override_reason}'",
                     extra={
                         "event_type": "debug_override_decision",
@@ -871,7 +871,7 @@ class ZorkOrchestratorV2:
                 )
 
                 # DEBUG: Log entering retry path
-                self.logger.info(
+                self.logger.debug(
                     f"[REJECTION LOOP WITH TRACING] Entering retry path: asking agent for new action",
                     extra={
                         "event_type": "debug_entering_retry",
