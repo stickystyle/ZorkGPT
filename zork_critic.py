@@ -666,32 +666,56 @@ class ZorkCritic:
 
             # Validate "take" actions
             if verb in ['take', 'get', 'grab', 'pick']:
-                # Get visible objects in location
+                # Handle comma-separated multi-object commands (e.g., "take X, Y, Z")
+                targets = [t.strip() for t in target.split(',')]
+
+                # Get visible objects in location (including objects in open containers)
                 visible_objects = jericho_interface.get_visible_objects_in_location()
 
-                # Check if target object is visible
-                found = False
-                for obj in visible_objects:
-                    if target in obj.name.lower():
-                        # Object exists - check if it's takeable
+                # Expand to include objects inside open/transparent containers
+                # This is needed because Zork allows "take X" for objects in open containers
+                # We need to recursively check because containers can be inside containers
+                all_accessible_objects = list(visible_objects)
+                world_objects = jericho_interface.env.get_world_objects()
+
+                # Helper to recursively add children of transparent objects
+                def add_accessible_children(obj_list):
+                    """Recursively add children of transparent objects."""
+                    new_objects = []
+                    for obj in obj_list:
                         attrs = jericho_interface.get_object_attributes(obj)
-                        if attrs.get('takeable') or attrs.get('portable'):
+                        # If object is transparent, we can see (and take) its contents
+                        # In Zork, transparent=true means the container is open or see-through
+                        if attrs.get('transparent'):
+                            for child_obj in world_objects:
+                                if child_obj.parent == obj.num and child_obj not in all_accessible_objects:
+                                    new_objects.append(child_obj)
+                                    all_accessible_objects.append(child_obj)
+                    return new_objects
+
+                # Recursively add children until no new objects found
+                current_level = list(visible_objects)
+                while current_level:
+                    current_level = add_accessible_children(current_level)
+
+                # Validate each target object individually
+                for single_target in targets:
+                    found = False
+                    for obj in all_accessible_objects:
+                        if single_target in obj.name.lower():
+                            # Object exists and is visible/accessible
+                            # Note: We don't check 'takeable' attribute because Jericho's
+                            # attributes are unreliable (e.g., lunch has takeable=False but
+                            # can actually be taken). We only validate visibility here.
                             found = True
                             break
-                        else:
-                            # Object exists but not takeable
-                            return ValidationResult(
-                                valid=False,
-                                reason=f"Object '{target}' is not takeable",
-                                confidence=0.9
-                            )
 
-                if not found:
-                    return ValidationResult(
-                        valid=False,
-                        reason=f"Object '{target}' is not visible in current location",
-                        confidence=0.9
-                    )
+                    if not found:
+                        return ValidationResult(
+                            valid=False,
+                            reason=f"Object '{single_target}' is not visible in current location",
+                            confidence=0.9
+                        )
 
             # Validate "open/close" actions
             elif verb in ['open', 'close']:
