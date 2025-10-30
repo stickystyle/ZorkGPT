@@ -33,6 +33,7 @@ class ContextManager(BaseManager):
 
     def __init__(self, logger, config: GameConfiguration, game_state: GameState):
         super().__init__(logger, config, game_state, "context_manager")
+        self.simple_memory = None  # Injected by orchestrator
 
     def reset_episode(self) -> None:
         """Reset context manager state for a new episode."""
@@ -182,6 +183,16 @@ class ContextManager(BaseManager):
                 except Exception as e:
                     self.log_warning(f"Failed to add Jericho structured data to context: {e}")
                     # Continue without structured data - graceful degradation
+
+            # Add location memory from simple memory system
+            if self.simple_memory and location_id is not None:
+                location_memory = self.simple_memory.get_location_memory(location_id)
+                context["location_memory"] = location_memory
+                if location_memory:
+                    self.log_debug(
+                        f"Added location memory: {len(location_memory)} chars",
+                        details=f"Location ID: {location_id}"
+                    )
 
             self.log_debug(
                 f"Assembled agent context with {len(context['recent_actions'])} actions, "
@@ -449,6 +460,12 @@ class ContextManager(BaseManager):
             vocab = context.get("action_vocabulary", [])
             if vocab:
                 formatted_parts.append(f"\nVALID ACTIONS: {len(vocab)} verbs available")
+
+            # Location memory from simple memory system
+            location_memory = context.get("location_memory")
+            if location_memory:
+                formatted_parts.append("\nLOCATION MEMORY:")
+                formatted_parts.append(location_memory)
 
             return "\n".join(formatted_parts)
 

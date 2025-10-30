@@ -14,6 +14,7 @@ from managers import (
     EpisodeSynthesizer,
     RejectionManager,
 )
+from managers.simple_memory_manager import SimpleMemoryManager
 from zork_agent import ZorkAgent
 from zork_critic import ZorkCritic
 from hybrid_zork_extractor import HybridZorkExtractor
@@ -167,6 +168,14 @@ class ZorkOrchestratorV2:
             logger=self.logger, config=self.config, game_state=self.game_state
         )
 
+        # Simple memory manager (needs LLM client)
+        self.simple_memory = SimpleMemoryManager(
+            logger=self.logger,
+            config=self.config,
+            game_state=self.game_state,
+            llm_client=self.agent.client  # Share LLM client
+        )
+
         # State manager (needs potential S3 client)
         self.state_manager = StateManager(
             logger=self.logger,
@@ -203,11 +212,15 @@ class ZorkOrchestratorV2:
             llm_client=self.agent.client,
         )
 
+        # Inject simple_memory reference into context_manager
+        self.context_manager.simple_memory = self.simple_memory
+
         # Create ordered manager list for processing
         self.managers = [
             self.map_manager,
             self.context_manager,
             self.rejection_manager,
+            self.simple_memory,
             self.state_manager,
             self.objective_manager,
             self.knowledge_manager,
@@ -276,7 +289,7 @@ class ZorkOrchestratorV2:
             # Flush Langfuse traces if available (BEFORE closing Jericho to ensure delivery)
             if self.langfuse_client:
                 try:
-                    self.langfuse_client.flush(timeout_seconds=10)
+                    self.langfuse_client.flush()
                     self.logger.info(
                         "Langfuse traces flushed for episode",
                         extra={
@@ -646,6 +659,12 @@ class ZorkOrchestratorV2:
             },
         )
 
+        # Capture state before action for memory system
+        score_before, _ = self.jericho_interface.get_score()
+        location_before = self.jericho_interface.get_location_structured()
+        location_id_before = location_before.num if location_before else 0
+        inventory_before = self.jericho_interface.get_inventory_structured()
+
         # Execute action using Jericho
         next_game_state = self.jericho_interface.send_command(action_to_take)
 
@@ -687,6 +706,38 @@ class ZorkOrchestratorV2:
         # Extract information from response
         extracted_info = self.extractor.extract_info(next_game_state)
         self._process_extraction(extracted_info, action_to_take, next_game_state)
+
+        # Capture state after action for memory system
+        score_after, _ = self.jericho_interface.get_score()
+        location_after = self.jericho_interface.get_location_structured()
+        location_id_after = location_after.num if location_after else 0
+        inventory_after = self.jericho_interface.get_inventory_structured()
+
+        # Build Z-machine context for memory system
+        z_machine_context = {
+            'score_before': score_before,
+            'score_after': score_after,
+            'score_delta': score_after - score_before,
+            'location_before': location_id_before,
+            'location_after': location_id_after,
+            'location_changed': location_id_before != location_id_after,
+            'inventory_before': [obj.name for obj in inventory_before],
+            'inventory_after': [obj.name for obj in inventory_after],
+            'inventory_changed': set(o.name for o in inventory_before) != set(o.name for o in inventory_after),
+            'died': self.game_state.game_over_flag,
+            'response_length': len(clean_response),
+            'first_visit': location_id_after not in self.simple_memory.memory_cache
+        }
+
+        # Record action outcome for memory synthesis
+        if self.config.simple_memory_enabled:
+            self.simple_memory.record_action_outcome(
+                location_id=self.game_state.current_room_id,
+                location_name=self.game_state.current_room_name_for_map,
+                action=action_to_take,
+                response=clean_response,
+                z_machine_context=z_machine_context
+            )
 
         # Store extracted info for viewer (state export)
         extracted_dict = {}
