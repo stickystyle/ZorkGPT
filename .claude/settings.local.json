@@ -42,7 +42,14 @@
       "Bash(timeout 10 uv run:*)",
       "Bash(python3:*)",
       "Read(//tmp/**)",
-      "mcp__awslabs_code-doc-gen-mcp-server__prepare_repository"
+      "mcp__awslabs_code-doc-gen-mcp-server__prepare_repository",
+      "mcp__langfuse-docs__searchLangfuseDocs",
+      "Bash(git log:*)",
+      "Bash(sed:*)",
+      "Bash(uv pip list:*)",
+      "mcp__langfuse-docs__getLangfuseDocsPage",
+      "WebFetch(domain:python.reference.langfuse.com)",
+      "WebFetch(domain:api-docs.deepseek.com)"
     ],
     "deny": []
   },
