@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 from managers.base_manager import BaseManager
 from session.game_state import GameState
 from session.game_configuration import GameConfiguration
-from shared_utils import create_json_schema
+from shared_utils import create_json_schema, strip_markdown_json_fences
 from llm_client import LLMClientWrapper
 
 
@@ -1228,8 +1228,11 @@ Return JSON only."""
                 response_format=create_json_schema(MemorySynthesisResponse)
             )
 
+            # Strip markdown fences if present (some LLMs wrap JSON in ```json ... ```)
+            json_content = strip_markdown_json_fences(llm_response.content)
+
             # Parse response
-            synthesis = MemorySynthesisResponse.model_validate_json(llm_response.content)
+            synthesis = MemorySynthesisResponse.model_validate_json(json_content)
 
             # Check if should remember
             if not synthesis.should_remember:

@@ -10,8 +10,8 @@ from collections import Counter
 from llm_client import LLMClientWrapper
 from config import get_config, get_client_api_key
 
-# Import create_json_schema from shared utilities
-from shared_utils import create_json_schema
+# Import shared utilities
+from shared_utils import create_json_schema, strip_markdown_json_fences
 
 try:
     from langfuse.decorators import observe
@@ -887,27 +887,8 @@ Evaluate this action based on your criteria. Respond with ONLY a JSON object in 
 
             response_content = response.content
             try:
-                # Extract JSON from markdown code blocks if present
-                if "```json" in response_content:
-                    # Find the JSON content between ```json and ```
-                    start_marker = "```json"
-                    end_marker = "```"
-                    start_idx = response_content.find(start_marker) + len(start_marker)
-                    end_idx = response_content.find(end_marker, start_idx)
-                    if end_idx != -1:
-                        json_content = response_content[start_idx:end_idx].strip()
-                    else:
-                        json_content = response_content[start_idx:].strip()
-                elif "```" in response_content:
-                    # Handle generic code blocks
-                    start_idx = response_content.find("```") + 3
-                    end_idx = response_content.find("```", start_idx)
-                    if end_idx != -1:
-                        json_content = response_content[start_idx:end_idx].strip()
-                    else:
-                        json_content = response_content[start_idx:].strip()
-                else:
-                    json_content = response_content.strip()
+                # Strip markdown fences if present (some LLMs wrap JSON in ```json ... ```)
+                json_content = strip_markdown_json_fences(response_content)
 
                 # Clean up JSON content to handle common formatting issues
                 # Fix positive numbers with + prefix (e.g., +0.2 -> 0.2)
@@ -1112,18 +1093,8 @@ Respond with ONLY a JSON object in this exact format:
 
             response_content = response.content
             try:
-                # Clean and parse JSON response
-                if "```json" in response_content:
-                    start_marker = "```json"
-                    end_marker = "```"
-                    start_idx = response_content.find(start_marker) + len(start_marker)
-                    end_idx = response_content.find(end_marker, start_idx)
-                    if end_idx != -1:
-                        json_content = response_content[start_idx:end_idx].strip()
-                    else:
-                        json_content = response_content[start_idx:].strip()
-                else:
-                    json_content = response_content.strip()
+                # Strip markdown fences if present (some LLMs wrap JSON in ```json ... ```)
+                json_content = strip_markdown_json_fences(response_content)
 
                 parsed_data = json.loads(json_content)
                 return FailureDetectionResponse(**parsed_data)

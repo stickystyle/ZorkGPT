@@ -15,7 +15,7 @@ from managers.base_manager import BaseManager
 from session.game_state import GameState
 from session.game_configuration import GameConfiguration
 from zork_strategy_generator import AdaptiveKnowledgeManager
-from shared_utils import create_json_schema
+from shared_utils import create_json_schema, strip_markdown_json_fences
 
 
 class ObjectiveDiscoveryResponse(BaseModel):
@@ -314,8 +314,10 @@ Focus on objectives the agent has actually discovered through gameplay patterns 
 
                 # Parse JSON response
                 try:
+                    # Strip markdown fences if present (some LLMs wrap JSON in ```json ... ```)
+                    json_content = strip_markdown_json_fences(response_content)
                     response_data = ObjectiveDiscoveryResponse.model_validate_json(
-                        response_content
+                        json_content
                     )
                     updated_objectives = response_data.objectives
                     reasoning = response_data.reasoning
@@ -536,8 +538,10 @@ Return a JSON object with:
 
                 # Parse JSON response
                 try:
+                    # Strip markdown fences if present (some LLMs wrap JSON in ```json ... ```)
+                    json_content = strip_markdown_json_fences(response_content)
                     response_data = ObjectiveCompletionResponse.model_validate_json(
-                        response_content
+                        json_content
                     )
                     completed_objectives = response_data.completed_objectives
                     # Filter to only include objectives that exist in discovered_objectives
@@ -793,8 +797,10 @@ Return a JSON object with:
 
                 # Parse JSON response
                 try:
+                    # Strip markdown fences if present (some LLMs wrap JSON in ```json ... ```)
+                    json_content = strip_markdown_json_fences(response_content)
                     response_data = ObjectiveRefinementResponse.model_validate_json(
-                        response_content
+                        json_content
                     )
                     refined_objectives = response_data.refined_objectives
                     if refined_objectives and len(refined_objectives) <= len(

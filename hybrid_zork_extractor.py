@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from llm_client import LLMClientWrapper
 
 from game_interface.core.jericho_interface import JerichoInterface
-from shared_utils import create_json_schema
+from shared_utils import create_json_schema, strip_markdown_json_fences
 from config import get_config, get_client_api_key
 
 try:
@@ -476,19 +476,8 @@ Extract key information from the game text and return it as JSON with these fiel
     def _parse_llm_response(self, llm_response: str) -> dict:
         """Parse the LLM response and return a dict."""
         try:
-            # Extract JSON from markdown code blocks if present
-            json_content = llm_response.strip()
-
-            if "```json" in json_content:
-                start_idx = json_content.find("```json") + 7
-                end_idx = json_content.find("```", start_idx)
-                if end_idx != -1:
-                    json_content = json_content[start_idx:end_idx].strip()
-            elif "```" in json_content:
-                start_idx = json_content.find("```") + 3
-                end_idx = json_content.find("```", start_idx)
-                if end_idx != -1:
-                    json_content = json_content[start_idx:end_idx].strip()
+            # Strip markdown fences if present (some LLMs wrap JSON in ```json ... ```)
+            json_content = strip_markdown_json_fences(llm_response)
 
             parsed_data = json.loads(json_content)
             return {

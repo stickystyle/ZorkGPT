@@ -51,6 +51,42 @@ def estimate_tokens(content: Union[str, List[Any], Dict[Any, Any]]) -> int:
         return len(str(content)) // 4
 
 
+def strip_markdown_json_fences(content: str) -> str:
+    """
+    Strip markdown code fences from JSON content.
+
+    Some LLMs return JSON wrapped in markdown code fences like:
+    ```json
+    { "key": "value" }
+    ```
+
+    This function extracts the JSON content from within the fences.
+
+    Args:
+        content: String that may contain markdown-wrapped JSON
+
+    Returns:
+        Stripped JSON string, or original content if no fences found
+    """
+    if "```json" in content:
+        # Find the JSON content between ```json and ```
+        start_marker = "```json"
+        end_marker = "```"
+        start_idx = content.find(start_marker) + len(start_marker)
+        end_idx = content.find(end_marker, start_idx)
+        if end_idx != -1:
+            return content[start_idx:end_idx].strip()
+
+    # Also check for plain ``` fences without json language tag
+    if content.strip().startswith("```") and content.strip().endswith("```"):
+        lines = content.strip().split("\n")
+        # Remove first and last lines if they are fence markers
+        if lines[0].strip().startswith("```") and lines[-1].strip() == "```":
+            return "\n".join(lines[1:-1]).strip()
+
+    return content
+
+
 def estimate_context_tokens(
     memory_history: List[Any] = None,
     reasoning_history: List[Any] = None,
