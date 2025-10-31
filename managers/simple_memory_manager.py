@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any, Literal, Set
 
 from filelock import FileLock
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from managers.base_manager import BaseManager
 from session.game_state import GameState
@@ -61,12 +61,24 @@ class MemorySynthesisResponse(BaseModel):
     model_config = {"strict": True}
 
     should_remember: bool
-    category: str  # SUCCESS, FAILURE, DISCOVERY, DANGER, NOTE
-    memory_title: str
-    memory_text: str
-    status: MemoryStatusType = MemoryStatus.ACTIVE  # Default to ACTIVE
-    supersedes_memory_titles: Set[str] = set()  # Titles to mark as superseded
+    category: Optional[str] = None  # Only required if should_remember=true
+    memory_title: Optional[str] = None  # Only required if should_remember=true
+    memory_text: Optional[str] = None  # Only required if should_remember=true
+    status: MemoryStatusType = Field(default=MemoryStatus.ACTIVE)  # Default to ACTIVE
+    supersedes_memory_titles: Set[str] = Field(default_factory=set)  # Titles to mark as superseded
     reasoning: str = ""  # Optional reasoning for debugging
+
+    @model_validator(mode='after')
+    def validate_remember_fields(self) -> 'MemorySynthesisResponse':
+        """Ensure required fields are present when should_remember=true."""
+        if self.should_remember:
+            if not self.category:
+                raise ValueError("category is required when should_remember=true")
+            if not self.memory_title:
+                raise ValueError("memory_title is required when should_remember=true")
+            if not self.memory_text:
+                raise ValueError("memory_text is required when should_remember=true")
+        return self
 
 
 class SimpleMemoryManager(BaseManager):
@@ -1208,15 +1220,24 @@ SKIP (handled elsewhere or not actionable):
 ❌ DUPLICATES (semantically similar to existing memories)
 
 OUTPUT FORMAT:
-- should_remember: true/false (MUST be false if duplicate)
-- category: "SUCCESS"/"FAILURE"/"DISCOVERY"/"DANGER"/"NOTE" (uppercase required)
-- memory_title: 3-6 words, evergreen (no "reveals" vs "provides" variations)
-- memory_text: 1-2 sentences, actionable insight
-- status: "ACTIVE"/"TENTATIVE" (uppercase required, use TENTATIVE if uncertain about delayed effects)
-- supersedes_memory_titles: ["Title1", "Title2"] (list of memory titles this supersedes, empty list if none)
-- reasoning: Explain semantic comparison, contradiction detection, and status choice
+If should_remember=false (duplicate/navigation/not actionable):
+{{
+  "should_remember": false,
+  "reasoning": "explain why not remembering (semantic duplicate, navigation, etc.)"
+}}
 
-Return JSON only."""
+If should_remember=true (new actionable insight):
+{{
+  "should_remember": true,
+  "category": "SUCCESS"|"FAILURE"|"DISCOVERY"|"DANGER"|"NOTE",  // uppercase required
+  "memory_title": "3-6 words, evergreen",
+  "memory_text": "1-2 sentences, actionable insight",
+  "status": "ACTIVE"|"TENTATIVE",  // ACTIVE=certain, TENTATIVE=uncertain consequences
+  "supersedes_memory_titles": ["Title1", "Title2"],  // titles this supersedes, or []
+  "reasoning": "explain semantic comparison, contradiction detection, status choice"
+}}
+
+Return JSON only. No markdown fences."""
 
             # Call LLM with structured output
             llm_response = self.llm_client.chat.completions.create(

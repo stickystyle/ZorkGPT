@@ -169,6 +169,7 @@ class TestBaseSetup:
             episode_log_file="test_episode.log",
             json_log_file="test_episode.jsonl",
             state_export_file="test_state.json",
+            map_state_file="test_map_state.json",
             zork_game_workdir=str(tmp_path),  # Use pytest temp directory
             client_base_url="http://localhost:1234",
             client_api_key="test_api_key",
@@ -1945,6 +1946,8 @@ def mock_llm_client_synthesis():
         "category": "SUCCESS",
         "memory_title": "Acquired lamp",
         "memory_text": "Brass lantern provides light for dark areas.",
+        "status": "ACTIVE",
+        "supersedes_memory_titles": [],
         "reasoning": "Significant item acquisition"
     })
     client.chat.completions.create.return_value = mock_response
@@ -2111,7 +2114,12 @@ class TestSynthesizeMemoryMethod(TestBaseSetup):
             )
 
             # Should return MemorySynthesisResponse object
-            assert result is not None
+            if result is None:
+                # Print logger calls to debug
+                print("\n=== Logger calls ===")
+                for call in mock_logger.method_calls:
+                    print(f"{call}")
+            assert result is not None, f"Synthesis returned None. Logger calls: {mock_logger.method_calls}"
             assert result.should_remember is True
             assert result.category == "SUCCESS"
             assert result.memory_title == "Acquired lamp"
