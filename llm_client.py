@@ -449,7 +449,9 @@ class LLMClient:
         # Handle model-specific parameter restrictions
         is_o1_model = "o1-" in model.lower()
         is_o3_model = "o3-" in model.lower()
-        is_reasoning_model = is_o1_model or is_o3_model
+        is_qwq_model = "qwq" in model.lower()
+        is_deepseek_reasoner = "deepseek-reasoner" in model.lower() or "deepseek-r1" in model.lower()
+        is_reasoning_model = is_o1_model or is_o3_model or is_qwq_model or is_deepseek_reasoner
 
         # For o1/o3 models, set all message roles to "user" but preserve cache_control
         if is_reasoning_model:
@@ -691,10 +693,18 @@ class LLMClient:
             response_data = response.json()
 
             # Extract content from response
+            # Reasoning models (QwQ, DeepSeek R1, etc.) may return different formats
             if "choices" in response_data and len(response_data["choices"]) > 0:
+                # Standard chat completion format
                 content = response_data["choices"][0]["message"]["content"]
+            elif "content" in response_data:
+                # Some reasoning models return content directly
+                content = response_data["content"]
+            elif "message" in response_data and "content" in response_data["message"]:
+                # Alternative format
+                content = response_data["message"]["content"]
             else:
-                raise ValueError("No valid choices in response")
+                raise ValueError(f"No valid content in response. Response keys: {list(response_data.keys())}")
 
             # Extract usage information if available
             usage = response_data.get("usage")

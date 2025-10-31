@@ -14,7 +14,7 @@ import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Literal, Set
 
 from filelock import FileLock
 from pydantic import BaseModel, Field
@@ -26,6 +26,22 @@ from shared_utils import create_json_schema
 from llm_client import LLMClientWrapper
 
 
+# Type alias for valid status values
+MemoryStatusType = Literal["ACTIVE", "TENTATIVE", "SUPERSEDED"]
+
+class MemoryStatus:
+    """
+    Memory status constants.
+
+    ACTIVE: Confirmed reliable memory (default)
+    TENTATIVE: Appears true but may be invalidated by future evidence
+    SUPERSEDED: Proven wrong and replaced by newer memory
+    """
+    ACTIVE: MemoryStatusType = "ACTIVE"
+    TENTATIVE: MemoryStatusType = "TENTATIVE"
+    SUPERSEDED: MemoryStatusType = "SUPERSEDED"
+
+
 @dataclass
 class Memory:
     """Represents a single location memory entry."""
@@ -35,6 +51,9 @@ class Memory:
     turns: str                 # Turn range (e.g., "23-24" or "23")
     score_change: Optional[int]  # Score change (+5, +0, None if not specified)
     text: str                  # 1-2 sentence synthesized insight
+    status: MemoryStatusType = MemoryStatus.ACTIVE  # Memory status
+    superseded_by: Optional[str] = None  # Title of memory that superseded this
+    superseded_at_turn: Optional[int] = None  # Turn when superseded
 
 
 class MemorySynthesisResponse(BaseModel):
@@ -45,6 +64,8 @@ class MemorySynthesisResponse(BaseModel):
     category: str  # SUCCESS, FAILURE, DISCOVERY, DANGER, NOTE
     memory_title: str
     memory_text: str
+    status: MemoryStatusType = MemoryStatus.ACTIVE  # Default to ACTIVE
+    supersedes_memory_titles: Set[str] = set()  # Titles to mark as superseded
     reasoning: str = ""  # Optional reasoning for debugging
 
 
@@ -64,7 +85,8 @@ class SimpleMemoryManager(BaseManager):
 
     # Regex patterns for parsing Memories.md format
     LOCATION_HEADER_PATTERN = re.compile(r"^## Location (\d+): (.+)$")
-    MEMORY_ENTRY_PATTERN = re.compile(r"^\*\*\[(\w+)\] (.+?)\*\* \*\((.*?)\)\*$")
+    # Matches: **[CATEGORY] Title** or **[CATEGORY - STATUS] Title**
+    MEMORY_ENTRY_PATTERN = re.compile(r"^\*\*\[(\w+)(?: - (\w+))?\] (.+?)\*\* \*\((.*?)\)\*$")
 
     def __init__(self, logger, config: GameConfiguration, game_state: GameState, llm_client=None):
         super().__init__(logger, config, game_state, "simple_memory")
@@ -249,10 +271,24 @@ class SimpleMemoryManager(BaseManager):
                 if current_location_id is not None:
                     # Parse new memory header
                     category = memory_match.group(1)
-                    title = memory_match.group(2).strip()
-                    metadata = memory_match.group(3).strip()
 
-                    current_memory_header = (category, title, metadata)
+                    # Validate status value
+                    status_str = memory_match.group(2)
+                    if status_str and status_str not in [MemoryStatus.ACTIVE, MemoryStatus.TENTATIVE, MemoryStatus.SUPERSEDED]:
+                        self.log_warning(
+                            f"Invalid memory status '{status_str}', defaulting to ACTIVE",
+                            line=line,
+                            status=status_str
+                        )
+                        status = MemoryStatus.ACTIVE
+                    else:
+                        status = status_str or MemoryStatus.ACTIVE
+
+                    title = memory_match.group(3).strip()
+                    metadata = memory_match.group(4).strip()
+
+                    # Store status along with other header info
+                    current_memory_header = (category, status, title, metadata)
                     current_memory_text_lines = []
                 else:
                     # Skip memory entries when not in a valid location
@@ -297,6 +333,9 @@ class SimpleMemoryManager(BaseManager):
                 # Skip headers
                 if line.startswith("#"):
                     continue
+                # Skip supersession reference lines (strict validation)
+                if line.strip().startswith("[Superseded at") and 'by "' in line and line.strip().endswith('"]'):
+                    continue  # Don't include in memory text
 
                 current_memory_text_lines.append(line.strip())
 
@@ -319,10 +358,10 @@ class SimpleMemoryManager(BaseManager):
 
         Args:
             location_id: Integer location ID
-            memory_header: Tuple of (category, title, metadata)
+            memory_header: Tuple of (category, status, title, metadata)
             text_lines: List of text lines for memory content
         """
-        category, title, metadata = memory_header
+        category, status, title, metadata = memory_header  # Unpack 4 values now
 
         try:
             # Parse metadata: "Ep1, T23-24, +0" or "Ep1, T100"
@@ -331,14 +370,22 @@ class SimpleMemoryManager(BaseManager):
             # Join text lines into single string
             text = " ".join(text_lines)
 
-            # Create Memory object
+            # Remove strikethrough markers ONLY if status is SUPERSEDED
+            # and text is wrapped (not embedded)
+            if status == MemoryStatus.SUPERSEDED:
+                # Only strip if text starts AND ends with ~~ (wrapping, not embedded)
+                if text.startswith("~~") and text.endswith("~~"):
+                    text = text[2:-2]  # Remove wrapping strikethrough markers only
+
+            # Create Memory object with status
             memory = Memory(
                 category=category,
                 title=title,
                 episode=episode,
                 turns=turns,
                 score_change=score_change,
-                text=text
+                text=text,
+                status=status  # Add status field
             )
 
             # Add to cache
@@ -348,9 +395,10 @@ class SimpleMemoryManager(BaseManager):
             self.memory_cache[location_id].append(memory)
 
             self.log_debug(
-                f"Added memory: [{category}] {title} at location {location_id}",
+                f"Added memory: [{category} - {status}] {title} at location {location_id}",
                 location_id=location_id,
                 category=category,
+                status=status,
                 title=title
             )
 
@@ -686,10 +734,14 @@ class SimpleMemoryManager(BaseManager):
 
     def _format_memory_entry(self, memory: Memory) -> str:
         """
-        Format single memory entry.
+        Format single memory entry with status indicator.
 
         Format: **[CATEGORY] Title** *(EpX, TY, +/-Z)*
                 text
+
+        For TENTATIVE/SUPERSEDED: **[CATEGORY - STATUS] Title** *(metadata)*
+                                   [Superseded at TurnX by "Title"]
+                                   ~~text~~
 
         Args:
             memory: Memory object
@@ -707,13 +759,194 @@ class SimpleMemoryManager(BaseManager):
 
         metadata = ", ".join(metadata_parts)
 
-        # Format entry
-        lines = [
-            f"**[{memory.category}] {memory.title}** *({metadata})*",
-            memory.text
-        ]
+        # Format header with optional status
+        if memory.status == MemoryStatus.ACTIVE:
+            header = f"**[{memory.category}] {memory.title}** *({metadata})*"
+        else:
+            header = f"**[{memory.category} - {memory.status}] {memory.title}** *({metadata})*"
+
+        # Format text (strikethrough if superseded)
+        if memory.status == MemoryStatus.SUPERSEDED:
+            text = f"~~{memory.text}~~"
+        else:
+            text = memory.text
+
+        # Build lines
+        lines = [header]
+
+        # Add supersession reference if applicable
+        if memory.status == MemoryStatus.SUPERSEDED and memory.superseded_by:
+            lines.append(f"[Superseded at T{memory.superseded_at_turn} by \"{memory.superseded_by}\"]")
+
+        lines.append(text)
 
         return "\n".join(lines)
+
+    def _update_memory_status(
+        self,
+        location_id: int,
+        memory_title: str,
+        new_status: str,
+        superseded_by: str,
+        superseded_at_turn: int
+    ) -> bool:
+        """
+        Update the status of an existing memory in file and cache.
+
+        This method:
+        1. Reads entire Memories.md file
+        2. Finds memory by title at specific location
+        3. Updates status in header (**[CATEGORY - STATUS] Title**)
+        4. Adds supersession reference line
+        5. Wraps text in strikethrough if SUPERSEDED
+        6. Writes back to file atomically
+        7. Updates cache
+
+        Args:
+            location_id: Location where memory exists
+            memory_title: Title of memory to update (exact match or substring)
+            new_status: New status (typically MemoryStatus.SUPERSEDED)
+            superseded_by: Title of new memory that superseded this one
+            superseded_at_turn: Turn number when superseded
+
+        Returns:
+            True if successful, False if memory not found or update failed
+        """
+        memories_path = Path(self.config.zork_game_workdir) / "Memories.md"
+        lock_path = str(memories_path) + ".lock"
+
+        try:
+            # Acquire lock
+            with FileLock(lock_path, timeout=10):
+                # Backup before modification
+                self._create_backup(memories_path)
+
+                # Read entire file
+                if not memories_path.exists():
+                    self.log_warning(f"Cannot update memory: Memories.md not found")
+                    return False
+
+                content = memories_path.read_text(encoding="utf-8")
+                lines = content.split("\n")
+
+                # Find the memory entry and update it
+                updated_lines = []
+                in_target_location = False
+                in_target_memory = False
+                memory_found = False
+                i = 0
+
+                while i < len(lines):
+                    line = lines[i]
+
+                    # Check for location header
+                    location_match = self.LOCATION_HEADER_PATTERN.match(line)
+                    if location_match:
+                        loc_id = int(location_match.group(1))
+                        in_target_location = (loc_id == location_id)
+                        in_target_memory = False
+                        updated_lines.append(line)
+                        i += 1
+                        continue
+
+                    # Check for memory entry header (only in target location)
+                    if in_target_location:
+                        memory_match = self.MEMORY_ENTRY_PATTERN.match(line)
+                        if memory_match:
+                            category = memory_match.group(1)
+                            status = memory_match.group(2) or MemoryStatus.ACTIVE
+                            title = memory_match.group(3).strip()
+                            metadata = memory_match.group(4).strip()
+
+                            # Check if this is the memory to update (exact or substring match)
+                            if memory_title in title or title in memory_title:
+                                # Found the memory - update header
+                                memory_found = True
+                                in_target_memory = True
+
+                                # Format new header with status
+                                updated_header = f"**[{category} - {new_status}] {title}** *({metadata})*"
+                                updated_lines.append(updated_header)
+
+                                # Add supersession reference on next line
+                                supersession_ref = f'[Superseded at T{superseded_at_turn} by "{superseded_by}"]'
+                                updated_lines.append(supersession_ref)
+
+                                i += 1
+
+                                # Now collect and update the memory text lines
+                                while i < len(lines):
+                                    text_line = lines[i]
+
+                                    # Stop at next memory or section end
+                                    if (text_line.startswith("**[") or
+                                        text_line.strip() == "---" or
+                                        text_line.startswith("##")):
+                                        in_target_memory = False
+                                        break
+
+                                    # Skip existing supersession references
+                                    if text_line.strip().startswith("[Superseded at"):
+                                        i += 1
+                                        continue
+
+                                    # Wrap text in strikethrough if not already
+                                    if text_line.strip() and not text_line.strip().startswith("~~"):
+                                        text_line = f"~~{text_line}~~"  # Preserve original formatting
+
+                                    updated_lines.append(text_line)
+                                    i += 1
+
+                                continue
+                            else:
+                                # Not the target memory - keep as is
+                                in_target_memory = False
+                                updated_lines.append(line)
+                                i += 1
+                                continue
+
+                    # Default: keep line as-is
+                    updated_lines.append(line)
+                    i += 1
+
+                if not memory_found:
+                    self.log_warning(
+                        f"Memory '{memory_title}' not found at location {location_id}",
+                        location_id=location_id,
+                        memory_title=memory_title
+                    )
+                    return False
+
+                # Write updated content
+                memories_path.write_text("\n".join(updated_lines), encoding="utf-8")
+
+                # Update cache - find and update the memory object
+                if location_id in self.memory_cache:
+                    for memory in self.memory_cache[location_id]:
+                        if memory_title in memory.title or memory.title in memory_title:
+                            memory.status = new_status
+                            memory.superseded_by = superseded_by
+                            memory.superseded_at_turn = superseded_at_turn
+                            break
+
+                self.log_info(
+                    f"Updated memory status: '{memory_title}' → {new_status}",
+                    location_id=location_id,
+                    memory_title=memory_title,
+                    new_status=new_status,
+                    superseded_by=superseded_by
+                )
+
+                return True
+
+        except Exception as e:
+            self.log_error(
+                f"Failed to update memory status: {e}",
+                location_id=location_id,
+                memory_title=memory_title,
+                error=str(e)
+            )
+            return False
 
     def _update_visit_metadata(
         self,
@@ -891,6 +1124,54 @@ These are SEMANTICALLY DUPLICATE (DO NOT remember):
 Only remember if this provides NEW information not semantically captured above.
 ═══════════════════════════════════════════════════════════════
 
+CONTRADICTION CHECK:
+═══════════════════════════════════════════════════════════════
+Review existing memories above. Does this action outcome:
+
+1. CONTRADICT any existing memory? (proves it wrong)
+   Example: Memory says "troll accepts gifts peacefully" but troll attacks after accepting
+   → Mark that memory as SUPERSEDED, create new DANGER memory
+
+2. REVEAL DELAYED CONSEQUENCES? (success wasn't really success)
+   Example: "Door opens" seemed successful but leads to death trap
+   → Mark optimistic memory as SUPERSEDED, create WARNING memory
+
+3. CLARIFY a TENTATIVE memory? (confirms or denies uncertain outcome)
+   Example: TENTATIVE "troll might be friendly" → CONFIRMED as false by attack
+   → Mark tentative memory as SUPERSEDED
+
+If yes to any: list specific memory TITLES in supersedes_memory_titles field.
+If contradicting multiple memories: list ALL relevant titles.
+Use EXACT titles from existing memories above. If title is long, unique substring is sufficient.
+═══════════════════════════════════════════════════════════════
+
+MEMORY STATUS DECISION:
+═══════════════════════════════════════════════════════════════
+WORKFLOW: First check duplicates → Then check contradictions → Then determine status
+
+Choose status based on outcome certainty:
+
+**ACTIVE** (default) - Use when:
+✓ Outcome is immediate and certain
+✓ Consequence is fully understood
+✓ No delayed effects expected
+Examples:
+  • "Mailbox contains leaflet" (examined, saw leaflet, certain)
+  • "Window is locked" (tried to open, failed, certain)
+  • "Lamp provides light" (lit lamp, room illuminated, confirmed)
+
+**TENTATIVE** - Use when:
+⚠️  Immediate action succeeds BUT long-term consequence unclear
+⚠️  Entity accepts action BUT reaction not yet known
+⚠️  Effect seems positive BUT might have hidden downsides
+Examples:
+  • "Troll accepts lunch gift" (took it but might attack later) → TENTATIVE
+  • "Door unlocked successfully" (opened but don't know what's inside) → TENTATIVE
+  • "Drank mysterious potion" (consumed but effect not yet clear) → TENTATIVE
+
+**Rule of thumb:** If you think "this worked... for now", mark it TENTATIVE.
+═══════════════════════════════════════════════════════════════
+
 ACTION ANALYSIS:
 Action: {action}
 Response: {response}
@@ -928,10 +1209,12 @@ SKIP (handled elsewhere or not actionable):
 
 OUTPUT FORMAT:
 - should_remember: true/false (MUST be false if duplicate)
-- category: SUCCESS/FAILURE/DISCOVERY/DANGER/NOTE
+- category: "SUCCESS"/"FAILURE"/"DISCOVERY"/"DANGER"/"NOTE" (uppercase required)
 - memory_title: 3-6 words, evergreen (no "reveals" vs "provides" variations)
 - memory_text: 1-2 sentences, actionable insight
-- reasoning: Explain semantic comparison with existing memories
+- status: "ACTIVE"/"TENTATIVE" (uppercase required, use TENTATIVE if uncertain about delayed effects)
+- supersedes_memory_titles: ["Title1", "Title2"] (list of memory titles this supersedes, empty list if none)
+- reasoning: Explain semantic comparison, contradiction detection, and status choice
 
 Return JSON only."""
 
@@ -1013,6 +1296,31 @@ Return JSON only."""
             self.log_debug("LLM decided not to remember")
             return
 
+        # Process supersessions BEFORE adding new memory
+        if synthesis.supersedes_memory_titles:
+            self.log_info(
+                f"Superseding {len(synthesis.supersedes_memory_titles)} memories",
+                location_id=location_id,
+                titles=list(synthesis.supersedes_memory_titles)
+            )
+
+            for old_memory_title in synthesis.supersedes_memory_titles:
+                success = self._update_memory_status(
+                    location_id=location_id,
+                    memory_title=old_memory_title,
+                    new_status=MemoryStatus.SUPERSEDED,
+                    superseded_by=synthesis.memory_title,
+                    superseded_at_turn=self.game_state.turn_count
+                )
+
+                if not success:
+                    self.log_warning(
+                        f"Failed to supersede memory: '{old_memory_title}'",
+                        location_id=location_id,
+                        old_title=old_memory_title,
+                        new_title=synthesis.memory_title
+                    )
+
         # Extract episode number from game_state.episode_id
         # episode_id format: "ep_001" -> extract 1
         episode = 1  # Default
@@ -1060,11 +1368,16 @@ Return JSON only."""
         """
         Retrieve formatted memory text for a location.
 
+        Filters memories by status:
+        - ACTIVE: Shown normally
+        - TENTATIVE: Shown with warning marker
+        - SUPERSEDED: Hidden (proven wrong by later evidence)
+
         Args:
             location_id: Location ID to retrieve memories for
 
         Returns:
-            Formatted string with all memories for location
+            Formatted string with filtered memories
         """
         if location_id not in self.memory_cache:
             return ""
@@ -1073,9 +1386,25 @@ Return JSON only."""
         if not memories:
             return ""
 
-        # Format memories as text
+        # Separate memories by status
+        active_memories = [m for m in memories if m.status == MemoryStatus.ACTIVE]
+        tentative_memories = [m for m in memories if m.status == MemoryStatus.TENTATIVE]
+        # SUPERSEDED memories are not shown to agent (proven wrong)
+
+        # Format output
         lines = []
-        for mem in memories:
-            lines.append(f"[{mem.category}] {mem.title}: {mem.text}")
+
+        # Show ACTIVE memories normally
+        if active_memories:
+            for mem in active_memories:
+                lines.append(f"[{mem.category}] {mem.title}: {mem.text}")
+
+        # Show TENTATIVE memories with warning
+        if tentative_memories:
+            if active_memories:
+                lines.append("")  # Blank line separator
+            lines.append("⚠️  TENTATIVE MEMORIES (unconfirmed, may be invalidated):")
+            for mem in tentative_memories:
+                lines.append(f"  [{mem.category}] {mem.title}: {mem.text}")
 
         return "\n".join(lines)
