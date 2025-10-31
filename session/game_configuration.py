@@ -31,6 +31,7 @@ class GameConfiguration:
     episode_log_file: str
     json_log_file: str
     state_export_file: str
+    map_state_file: str
     zork_game_workdir: str
     game_file_path: str
 
@@ -171,6 +172,7 @@ class GameConfiguration:
             episode_log_file=require_key(files_config, "episode_log_file", "files"),
             json_log_file=require_key(files_config, "json_log_file", "files"),
             state_export_file=require_key(files_config, "state_export_file", "files"),
+            map_state_file=require_key(files_config, "map_state_file", "files"),
             zork_game_workdir=require_key(
                 gameplay_config, "zork_game_workdir", "gameplay"
             ),

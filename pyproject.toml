@@ -163,6 +163,7 @@ max_memories_shown = 10
 episode_log_file = "zork_episode_log.txt"
 json_log_file = "zork_episode_log.jsonl"
 state_export_file = "current_state.json"
+map_state_file = "map_state.json"
 game_file_path = "infrastructure/zork.z5"
 
 [tool.zorkgpt.aws]

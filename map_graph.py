@@ -1,4 +1,7 @@
-from typing import List, Dict, Set, Tuple
+from typing import List, Dict, Set, Tuple, Optional, Any
+import json
+import os
+from datetime import datetime, timezone
 
 DIRECTION_MAPPING = {
     "n": "north",
@@ -940,7 +943,326 @@ class MapGraph:
         else:
             return "UNCERTAIN"
 
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        Serialize MapGraph state to dictionary for JSON export.
 
+        Returns:
+            Dictionary containing all persistent map state including rooms,
+            connections, confidence scores, verifications, and metadata.
+
+        Note:
+            connection_conflicts are NOT persisted as they are episode-specific.
+        """
+        return {
+            "rooms": {
+                str(room_id): {
+                    "id": room.id,
+                    "name": room.name,
+                    "exits": sorted(list(room.exits))  # Convert set to sorted list for consistency
+                }
+                for room_id, room in self.rooms.items()
+            },
+            "room_names": {str(k): v for k, v in self.room_names.items()},
+            "connections": {
+                str(room_id): connections
+                for room_id, connections in self.connections.items()
+            },
+            "connection_confidence": {
+                f"{room_id}_{exit}": confidence
+                for (room_id, exit), confidence in self.connection_confidence.items()
+            },
+            "connection_verifications": {
+                f"{room_id}_{exit}": count
+                for (room_id, exit), count in self.connection_verifications.items()
+            },
+            "exit_failure_counts": {
+                f"{room_id}_{exit}": count
+                for (room_id, exit), count in self.exit_failure_counts.items()
+            },
+            "pruned_exits": {
+                str(room_id): sorted(list(exits))
+                for room_id, exits in self.pruned_exits.items()
+            },
+            "metadata": {
+                "version": "1.0",
+                "total_rooms": len(self.rooms),
+                "total_connections": sum(len(c) for c in self.connections.values()),
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any], logger=None) -> 'MapGraph':
+        """
+        Restore MapGraph from dictionary (deserialization).
+
+        Args:
+            data: Dictionary containing serialized MapGraph state
+            logger: Optional logger for diagnostics
+
+        Returns:
+            Reconstructed MapGraph instance
+
+        Raises:
+            KeyError: If required fields are missing from data
+            ValueError: If data structure is invalid
+        """
+        # Create new instance
+        instance = cls(logger=logger)
+
+        # Validate required fields
+        required_fields = ["rooms", "connections", "metadata"]
+        for field in required_fields:
+            if field not in data:
+                raise KeyError(f"Missing required field: {field}")
+
+        # Restore rooms
+        for room_id_str, room_data in data["rooms"].items():
+            room_id = int(room_id_str)
+            room = Room(room_id=room_data["id"], name=room_data["name"])
+
+            # Validate exits are all strings
+            exits = room_data.get("exits", [])
+            if not all(isinstance(e, str) for e in exits):
+                raise ValueError(
+                    f"Room {room_id} has non-string exits: {exits}"
+                )
+            room.exits = set(exits)
+            instance.rooms[room_id] = room
+
+        # Restore room_names
+        if "room_names" in data:
+            instance.room_names = {int(k): v for k, v in data["room_names"].items()}
+
+        # Restore connections with full validation
+        for room_id_str, connections in data["connections"].items():
+            room_id = int(room_id_str)
+
+            # Validate source room exists
+            if room_id not in instance.rooms:
+                raise ValueError(
+                    f"Connection source room {room_id} does not exist in rooms dict"
+                )
+
+            # Validate and restore each connection
+            validated_connections = {}
+            for exit_name, dest_room in connections.items():
+                # Type validation
+                if not isinstance(dest_room, int):
+                    raise ValueError(
+                        f"Invalid connection destination type: room {room_id}, "
+                        f"exit '{exit_name}' -> {type(dest_room).__name__} (expected int)"
+                    )
+
+                # Referential integrity validation
+                if dest_room not in instance.rooms:
+                    raise ValueError(
+                        f"Connection destination room {dest_room} does not exist "
+                        f"(from room {room_id} via '{exit_name}')"
+                    )
+
+                validated_connections[exit_name] = dest_room
+
+            instance.connections[room_id] = validated_connections
+
+        # Restore connection_confidence with validation
+        if "connection_confidence" in data:
+            for key, confidence in data["connection_confidence"].items():
+                parts = key.split("_", 1)
+                if len(parts) == 2:
+                    # Type and range validation
+                    if not isinstance(confidence, (int, float)):
+                        raise ValueError(
+                            f"Invalid confidence type: {key} -> {type(confidence).__name__} (expected float)"
+                        )
+                    if not 0.0 <= confidence <= 1.0:
+                        raise ValueError(
+                            f"Confidence out of range [0.0, 1.0]: {key} -> {confidence}"
+                        )
+
+                    room_id = int(parts[0])
+                    exit_name = parts[1]
+                    instance.connection_confidence[(room_id, exit_name)] = float(confidence)
+
+        # Restore connection_verifications with validation
+        if "connection_verifications" in data:
+            for key, count in data["connection_verifications"].items():
+                parts = key.split("_", 1)
+                if len(parts) == 2:
+                    # Type and range validation
+                    if not isinstance(count, int):
+                        raise ValueError(
+                            f"Invalid verification count type: {key} -> {type(count).__name__} (expected int)"
+                        )
+                    if count < 0:
+                        raise ValueError(
+                            f"Verification count cannot be negative: {key} -> {count}"
+                        )
+
+                    room_id = int(parts[0])
+                    exit_name = parts[1]
+                    instance.connection_verifications[(room_id, exit_name)] = count
+
+        # Restore exit_failure_counts with validation
+        if "exit_failure_counts" in data:
+            for key, count in data["exit_failure_counts"].items():
+                parts = key.split("_", 1)
+                if len(parts) == 2:
+                    # Type and range validation
+                    if not isinstance(count, int):
+                        raise ValueError(
+                            f"Invalid failure count type: {key} -> {type(count).__name__} (expected int)"
+                        )
+                    if count < 0:
+                        raise ValueError(
+                            f"Failure count cannot be negative: {key} -> {count}"
+                        )
+
+                    room_id = int(parts[0])
+                    exit_name = parts[1]
+                    instance.exit_failure_counts[(room_id, exit_name)] = count
+
+        # Restore pruned_exits
+        if "pruned_exits" in data:
+            for room_id_str, exits in data["pruned_exits"].items():
+                room_id = int(room_id_str)
+                instance.pruned_exits[room_id] = set(exits)
+
+        # Log restoration success
+        if logger:
+            version = data.get("metadata", {}).get("version", "unknown")
+            total_rooms = len(instance.rooms)
+            total_connections = sum(len(c) for c in instance.connections.values())
+            logger.info(
+                f"Map restored from data (version {version}): {total_rooms} rooms, {total_connections} connections",
+                extra={
+                    "event_type": "map_restoration",
+                    "version": version,
+                    "rooms": total_rooms,
+                    "connections": total_connections
+                }
+            )
+
+        return instance
+
+    def save_to_json(self, filepath: str) -> bool:
+        """
+        Save map state to JSON file.
+
+        Args:
+            filepath: Path to JSON file to create/overwrite
+
+        Returns:
+            True if save succeeded, False otherwise
+        """
+        try:
+            data = self.to_dict()
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2)
+
+            if self.logger:
+                self.logger.info(
+                    f"Map state saved to {filepath}",
+                    extra={
+                        "event_type": "map_save",
+                        "filepath": filepath,
+                        "rooms": len(self.rooms),
+                        "connections": sum(len(c) for c in self.connections.values())
+                    }
+                )
+            return True
+
+        except Exception as e:
+            if self.logger:
+                self.logger.error(
+                    f"Failed to save map state: {e}",
+                    extra={
+                        "event_type": "map_save_error",
+                        "filepath": filepath,
+                        "error": str(e)
+                    }
+                )
+            return False
+
+    @classmethod
+    def load_from_json(cls, filepath: str, logger=None) -> Optional['MapGraph']:
+        """
+        Load map state from JSON file.
+
+        Args:
+            filepath: Path to JSON file to load
+            logger: Optional logger for diagnostics
+
+        Returns:
+            MapGraph instance if load succeeded, None if file doesn't exist or is invalid
+        """
+        # Gracefully handle missing file (first episode scenario)
+        if not os.path.exists(filepath):
+            if logger:
+                logger.debug(
+                    f"Map state file not found: {filepath} (this is normal for first episode)",
+                    extra={"event_type": "map_load_skip", "filepath": filepath}
+                )
+            return None
+
+        # Load JSON file with separate error handling
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+        except json.JSONDecodeError as e:
+            if logger:
+                logger.error(
+                    f"Corrupted map state file (invalid JSON): {filepath}",
+                    extra={
+                        "event_type": "map_load_error",
+                        "filepath": filepath,
+                        "error": str(e),
+                        "error_type": "json_decode"
+                    }
+                )
+            return None
+        except (IOError, OSError) as e:
+            if logger:
+                logger.error(
+                    f"Failed to read map state file: {filepath}",
+                    extra={
+                        "event_type": "map_load_error",
+                        "filepath": filepath,
+                        "error": str(e),
+                        "error_type": "file_read"
+                    }
+                )
+            return None
+
+        # Deserialize with separate error handling
+        try:
+            instance = cls.from_dict(data, logger=logger)
+            return instance
+        except (KeyError, ValueError) as e:
+            if logger:
+                logger.error(
+                    f"Invalid map state structure: {filepath}",
+                    extra={
+                        "event_type": "map_load_error",
+                        "filepath": filepath,
+                        "error": str(e),
+                        "error_type": "invalid_structure"
+                    }
+                )
+            return None
+        except Exception as e:
+            if logger:
+                logger.error(
+                    f"Unexpected error deserializing map state: {e}",
+                    extra={
+                        "event_type": "map_load_error",
+                        "filepath": filepath,
+                        "error": str(e),
+                        "error_type": "unexpected"
+                    }
+                )
+            return None
 
 
 

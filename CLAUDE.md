@@ -259,6 +259,70 @@ map_graph.add_room(room_id, room_name)
 
 All phases complete and validated. See `refactor.md` for detailed implementation notes.
 
+### Cross-Episode Map Persistence
+
+The map automatically persists across episodes via `map_state.json`, enabling spatial knowledge accumulation similar to how `knowledgebase.md` accumulates strategic wisdom.
+
+**How It Works:**
+- Map state saved at episode end via `MapManager.save_map_state()` (called from orchestrator)
+- Map state loaded at MapManager initialization (if file exists)
+- First episode starts with empty map (file doesn't exist yet)
+- Subsequent episodes seed from previous spatial knowledge
+
+**What Gets Persisted:**
+- All rooms discovered (ID, name, exits)
+- All connections with confidence scores
+- Connection verification counts (tracks reliability)
+- Exit failure tracking and pruned exits
+- Map quality metadata (version, totals, timestamp)
+
+**JSON Structure Example:**
+```json
+{
+  "rooms": {
+    "15": {
+      "id": 15,
+      "name": "West of House",
+      "exits": ["north", "south", "west"]
+    }
+  },
+  "connections": {
+    "15": {"north": 180}
+  },
+  "connection_confidence": {
+    "15_north": 0.95
+  },
+  "connection_verifications": {
+    "15_north": 3
+  },
+  "exit_failure_counts": {
+    "15_west": 2
+  },
+  "pruned_exits": {
+    "15": ["east"]
+  },
+  "metadata": {
+    "version": "1.0",
+    "total_rooms": 42,
+    "total_connections": 67,
+    "timestamp": "2025-10-31T12:00:00Z"
+  }
+}
+```
+
+**Configuration:**
+- File path: `map_state_file` in `pyproject.toml` (default: `map_state.json`)
+- Automatically excluded from version control via `.gitignore`
+
+**When to Reset:**
+Delete `map_state.json` to start fresh spatial learning (useful for testing or after game mechanics changes).
+
+**Implementation Details:**
+- Serialization: `MapGraph.to_dict()` and `MapGraph.from_dict()`
+- File operations: `MapGraph.save_to_json()` and `MapGraph.load_from_json()`
+- Graceful handling of missing/corrupted files (returns None, starts fresh)
+- Comprehensive test coverage: `tests/test_map_persistence.py` (19 tests)
+
 ### Manager-Based Architecture
 
 The refactored system follows a **manager pattern** where specialized managers handle distinct responsibilities:

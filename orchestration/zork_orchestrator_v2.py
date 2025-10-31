@@ -286,6 +286,9 @@ class ZorkOrchestratorV2:
             # Export final coordinated state (including map data)
             self._export_coordinated_state()
 
+            # Save map state for cross-episode persistence
+            self.map_manager.save_map_state()
+
             # Flush Langfuse traces if available (BEFORE closing Jericho to ensure delivery)
             if self.langfuse_client:
                 try:

@@ -10,6 +10,7 @@ Handles all map-related responsibilities:
 """
 
 from typing import Dict, Any, Optional
+import os
 
 from managers.base_manager import BaseManager
 from session.game_state import GameState
@@ -32,8 +33,24 @@ class MapManager(BaseManager):
     def __init__(self, logger, config: GameConfiguration, game_state: GameState):
         super().__init__(logger, config, game_state, "map_manager")
 
-        # Initialize map components
-        self.game_map = MapGraph(logger=logger)
+        # Initialize map components - try to load from previous episodes
+        map_state_path = config.map_state_file
+        if os.path.exists(map_state_path):
+            loaded_map = MapGraph.load_from_json(map_state_path, logger=logger)
+            if loaded_map:
+                self.game_map = loaded_map
+                self.log_info(
+                    f"Loaded map state from {map_state_path}: "
+                    f"{len(loaded_map.rooms)} rooms, "
+                    f"{sum(len(c) for c in loaded_map.connections.values())} connections"
+                )
+            else:
+                self.game_map = MapGraph(logger=logger)
+                self.log_warning(f"Failed to load map from {map_state_path}, starting fresh")
+        else:
+            self.game_map = MapGraph(logger=logger)
+            self.log_debug(f"No existing map state found at {map_state_path}, starting fresh map")
+
         self.movement_analyzer = MovementAnalyzer()
 
     def reset_episode(self) -> None:
@@ -331,6 +348,36 @@ class MapManager(BaseManager):
                 "total_rooms": 0,
                 "total_connections": 0,
             }
+
+    def save_map_state(self) -> bool:
+        """
+        Save current map state to JSON file for cross-episode persistence.
+
+        Returns:
+            True if save succeeded, False otherwise
+        """
+        try:
+            filepath = self.config.map_state_file
+            success = self.game_map.save_to_json(filepath)
+            if success:
+                self.log_info(
+                    f"Map state saved to {filepath} for cross-episode persistence"
+                )
+                if self.logger:
+                    self.logger.info(
+                        "Map state persisted for next episode",
+                        extra={
+                            "event_type": "map_persistence",
+                            "filepath": filepath,
+                            "rooms": len(self.game_map.rooms),
+                            "connections": sum(len(c) for c in self.game_map.connections.values()),
+                            "episode_id": self.game_state.episode_id,
+                        }
+                    )
+            return success
+        except Exception as e:
+            self.log_error(f"Failed to save map state: {e}")
+            return False
 
     def get_status(self) -> Dict[str, Any]:
         """Get current map manager status."""
