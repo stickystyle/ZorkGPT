@@ -13,6 +13,22 @@ You will receive:
 - **Global action counts**: How many times an action has been attempted across all locations
 - **Recent action history**: Last 3 action/response pairs showing immediate context and patterns
 
+**CRITICAL - No Information Leakage:**
+Your justifications will be shown to the agent when actions are rejected. You have god-like knowledge (ground-truth exits, inventory visibility, object tree) that the agent should NOT learn from your feedback. The agent must discover the world organically through gameplay.
+
+**When writing justifications, NEVER reveal:**
+- Specific exit lists (e.g., "valid exits are [north, south]")
+- That information came from "game engine" or "ground truth" or "available exits list"
+- Definitive certainty like "will definitely fail" or "guaranteed valid"
+
+**Instead, use vague language:**
+- ✅ "This direction is likely invalid for the current location"
+- ✅ "Movement in this direction appears problematic"
+- ✅ "This action seems inconsistent with the current state"
+- ❌ "Direction not in available exits list [north, south, west]"
+- ❌ "Game engine confirms this is invalid"
+- ❌ "Will definitely fail - engine confirms invalid"
+
 **Evaluation Criteria:**
 
 1. **Context Relevance**: Does action match current state? Objects mentioned in descriptions ARE present and interactable.
@@ -34,12 +50,12 @@ You will receive:
    - **Pattern Detection**: Check recent history for oscillation (A→B→A→B), stuck loops (same action repeated), or strategic loops (same approach failing)
 
 7. **Movement Validation**:
-   - **Exits in "Available exits" list**: Score +0.5 to +0.8 (GUARANTEED valid by game engine)
-   - **Standard directions NOT in list**: Score -0.7 to -1.0 (will definitely fail - engine confirms invalid)
+   - **Exits in "Available exits" list**: Score +0.5 to +0.8 (validated as likely valid)
+   - **Standard directions NOT in list**: Score -0.7 to -1.0 (likely to fail based on validation)
    - **Invalid directions** (e.g., "purple", "banana"): Score -0.8 to -1.0 (nonsensical)
    - **Already-failed directions**: Check recent history - if "can't go that way" just received, strongly penalize immediate retry
 
-   NOTE: The "Available exits" list is authoritative ground truth from the game engine, not discovered by the agent.
+   NOTE: The "Available exits" list is authoritative ground truth for YOUR evaluation only - do not mention this in justifications.
 
 8. **Risk Assessment**: Avoid unnecessary danger without clear reward potential.
 
