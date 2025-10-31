@@ -559,6 +559,22 @@ class MapGraph:
 
         return " ".join(info_parts)
 
+    def get_available_exits(self, room_id: int) -> List[str]:
+        """
+        Get list of available exits from a room.
+
+        Args:
+            room_id: Z-machine location ID
+
+        Returns:
+            List of exit names (e.g., ['north', 'south', 'east'])
+        """
+        if room_id not in self.rooms:
+            return []
+
+        room = self.rooms[room_id]
+        return sorted(list(room.exits))
+
     def get_context_for_prompt(
         self,
         current_room_id: int,

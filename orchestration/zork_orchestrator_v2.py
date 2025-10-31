@@ -437,16 +437,12 @@ class ZorkOrchestratorV2:
             Tuple of (action_to_take, final_critic_score, final_critic_justification,
                      final_critic_confidence, was_overridden, rejected_actions_this_turn)
         """
-        # Get critic context
+        # Get critic context with ground-truth exits from Jericho (god-like view)
         critic_context = self.context_manager.get_critic_context(
             current_state=current_state,
             proposed_action=proposed_action,
             location=self.game_state.current_room_name_for_map,
-            available_exits=self.map_manager.game_map.get_available_exits(
-                self.game_state.current_room_name_for_map
-            )
-            if hasattr(self.map_manager.game_map, "get_available_exits")
-            else [],
+            available_exits=self.jericho_interface.get_valid_exits(),  # Ground truth for validation
             failed_actions=self.game_state.failed_actions_by_location.get(
                 self.game_state.current_room_name_for_map, []
             ),
@@ -462,6 +458,7 @@ class ZorkOrchestratorV2:
             failed_actions_by_location=self.game_state.failed_actions_by_location,
             previous_actions_and_responses=self.game_state.action_history[-3:],
             jericho_interface=self.jericho_interface,
+            inventory=self.game_state.current_inventory,
         )
 
         # Start new turn for rejection tracking
@@ -634,6 +631,7 @@ class ZorkOrchestratorV2:
                 failed_actions_by_location=self.game_state.failed_actions_by_location,
                 previous_actions_and_responses=self.game_state.action_history[-3:],
                 jericho_interface=self.jericho_interface,
+                inventory=self.game_state.current_inventory,
             )
 
             final_critic_score = critic_result.score
@@ -680,16 +678,12 @@ class ZorkOrchestratorV2:
             Tuple of (action_to_take, final_critic_score, final_critic_justification,
                      final_critic_confidence, was_overridden, rejected_actions_this_turn)
         """
-        # Get critic context
+        # Get critic context with ground-truth exits from Jericho (god-like view)
         critic_context = self.context_manager.get_critic_context(
             current_state=current_state,
             proposed_action=proposed_action,
             location=self.game_state.current_room_name_for_map,
-            available_exits=self.map_manager.game_map.get_available_exits(
-                self.game_state.current_room_name_for_map
-            )
-            if hasattr(self.map_manager.game_map, "get_available_exits")
-            else [],
+            available_exits=self.jericho_interface.get_valid_exits(),  # Ground truth for validation
             failed_actions=self.game_state.failed_actions_by_location.get(
                 self.game_state.current_room_name_for_map, []
             ),
@@ -729,6 +723,7 @@ class ZorkOrchestratorV2:
                 failed_actions_by_location=self.game_state.failed_actions_by_location,
                 previous_actions_and_responses=self.game_state.action_history[-3:],
                 jericho_interface=self.jericho_interface,
+                inventory=self.game_state.current_inventory,
             )
 
             # Track initial attempt
@@ -920,6 +915,7 @@ class ZorkOrchestratorV2:
                     failed_actions_by_location=self.game_state.failed_actions_by_location,
                     previous_actions_and_responses=self.game_state.action_history[-3:],
                     jericho_interface=self.jericho_interface,
+                    inventory=self.game_state.current_inventory,
                 )
 
                 # Track re-evaluation

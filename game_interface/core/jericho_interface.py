@@ -639,6 +639,48 @@ class JerichoInterface:
             'diagnose', 'version',
         ]
 
+    def get_valid_exits(self) -> List[str]:
+        """
+        Get list of valid movement directions from current location using Jericho.
+
+        This provides GROUND TRUTH from the Z-machine for validation purposes.
+        Uses get_valid_actions() and filters for directional movements.
+
+        IMPORTANT: This is for critic validation ONLY. The agent should discover
+        exits organically through gameplay by reading room descriptions.
+
+        Returns:
+            List of valid movement directions (e.g., ['north', 'south', 'east'])
+
+        Example:
+            >>> exits = game.get_valid_exits()
+            >>> print(f"Valid exits: {exits}")
+            Valid exits: ['north', 'south', 'west']
+        """
+        if not self.env:
+            return []
+
+        try:
+            # Get all valid actions from Jericho's action space
+            valid_actions = self.env.get_valid_actions()
+
+            # Standard movement directions in Zork
+            directions = {
+                'north', 'south', 'east', 'west',
+                'northeast', 'northwest', 'southeast', 'southwest',
+                'up', 'down', 'in', 'out', 'enter', 'exit'
+            }
+
+            # Filter for movement commands
+            valid_exits = [action for action in valid_actions if action.lower() in directions]
+
+            return sorted(list(set(valid_exits)))
+
+        except Exception as e:
+            if self.logger:
+                self.logger.warning(f"Failed to get valid exits from Jericho: {e}")
+            return []
+
     def close(self) -> None:
         """Cleanup and close the environment."""
         if self.env is not None:

@@ -762,6 +762,7 @@ class ZorkCritic:
         current_location_name: Optional[str] = None,
         failed_actions_by_location: Optional[Dict[str, set]] = None,
         jericho_interface=None,  # NEW: Optional JerichoInterface for validation
+        inventory: Optional[List[str]] = None,  # Current inventory for action validation
     ) -> CriticResponse:
         """
         Get an evaluation from the Critic LM.
@@ -775,6 +776,7 @@ class ZorkCritic:
             current_location_name: Name of the current location
             failed_actions_by_location: Dict mapping location names to sets of failed actions
             jericho_interface: Optional JerichoInterface for object tree validation
+            inventory: Current inventory items for evaluating item-based actions
 
         Returns:
             CriticResponse with score and justification
@@ -851,8 +853,15 @@ class ZorkCritic:
                 f"\nAvailable exits from current location: {', '.join(available_exits)}"
             )
 
+        # Add inventory context if available
+        inventory_context = ""
+        if inventory:
+            inventory_context = (
+                f"\nCurrent inventory: {', '.join(inventory)}"
+            )
+
         user_prompt = f"""Current Game State:
-{game_state_text}{spatial_context}
+{game_state_text}{spatial_context}{inventory_context}
 
 Proposed Agent Action:
 {proposed_action}{repetition_context}{recent_context}
@@ -939,6 +948,7 @@ Evaluate this action based on your criteria. Respond with ONLY a JSON object in 
         current_location_name: Optional[str] = None,
         failed_actions_by_location: Optional[Dict[str, set]] = None,
         max_attempts: int = 3,
+        inventory: Optional[List[str]] = None,
     ) -> CriticResponse:
         """
         Get a robust critic evaluation with confidence scoring and consensus mechanism.
@@ -952,6 +962,7 @@ Evaluate this action based on your criteria. Respond with ONLY a JSON object in 
             current_location_name: Name of the current location
             failed_actions_by_location: Dict mapping location names to sets of failed actions
             max_attempts: Maximum number of evaluation attempts for consensus
+            inventory: Current inventory items for evaluating item-based actions
 
         Returns:
             CriticResponse with score, justification, and confidence
@@ -967,6 +978,7 @@ Evaluate this action based on your criteria. Respond with ONLY a JSON object in 
                 previous_actions_and_responses,
                 current_location_name,
                 failed_actions_by_location,
+                inventory=inventory,
             )
             evaluations.append(evaluation)
 
