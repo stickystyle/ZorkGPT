@@ -39,7 +39,6 @@ def game_config():
         memory_model="test-memory",
         condensation_model="test-condensation",
         knowledge_update_interval=100,
-        map_update_interval=50,
         objective_update_interval=20,
         enable_objective_refinement=True,
         objective_refinement_interval=200,

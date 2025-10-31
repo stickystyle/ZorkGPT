@@ -37,7 +37,6 @@ class TestPhase6StateLoopDetection:
             condensation_model="test-condensation-model",
             # Update intervals
             knowledge_update_interval=100,
-            map_update_interval=50,
             objective_update_interval=20,
             # Objective refinement
             enable_objective_refinement=True,

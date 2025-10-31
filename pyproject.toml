@@ -137,7 +137,6 @@ enable_prompt_logging = false
 # Orchestrator Configuration
 max_turns_per_episode = 5000
 knowledge_update_interval = 100
-map_update_interval = 10
 objective_update_interval = 25
 enable_state_export = true
 max_context_tokens = 40000

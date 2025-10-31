@@ -149,7 +149,6 @@ class OrchestratorConfig(BaseModel):
 
     max_turns_per_episode: int = 200
     knowledge_update_interval: int = 100  # Every 100 turns
-    map_update_interval: int = 25  # Every 25 turns, more frequent than full knowledge
     objective_update_interval: int = 20  # Every 20 turns for objective discovery
     enable_state_export: bool = True
     # Context management settings - adjusted for 40K token models

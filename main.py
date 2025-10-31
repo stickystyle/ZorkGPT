@@ -23,7 +23,6 @@ def run_episode(episode_id=None, max_turns=None):
     print(
         f"  - Knowledge update interval: {orchestrator.config.knowledge_update_interval} turns"
     )
-    print(f"  - Map update interval: {orchestrator.config.map_update_interval} turns")
     print(f"  - State export: {orchestrator.config.enable_state_export}")
     print(f"  - Turn delay: {orchestrator.config.turn_delay_seconds} seconds")
     print(f"  - S3 bucket: {orchestrator.config.s3_bucket or 'Not configured'}")

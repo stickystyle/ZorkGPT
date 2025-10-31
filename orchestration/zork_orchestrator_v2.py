@@ -1312,7 +1312,7 @@ class ZorkOrchestratorV2:
 
     def _check_periodic_updates(self) -> None:
         """Check and run periodic updates for managers."""
-        # Map consolidation (runs every turn)
+        # Map manager periodic check (currently no-op; map updates happen in real-time)
         self.map_manager.process_turn()
 
         # Objective updates

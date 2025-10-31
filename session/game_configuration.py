@@ -47,7 +47,6 @@ class GameConfiguration:
 
     # Update intervals
     knowledge_update_interval: int
-    map_update_interval: int
     objective_update_interval: int
 
     # Objective refinement
@@ -195,9 +194,6 @@ class GameConfiguration:
             # Update intervals
             knowledge_update_interval=require_key(
                 orchestrator_config, "knowledge_update_interval", "orchestrator"
-            ),
-            map_update_interval=require_key(
-                orchestrator_config, "map_update_interval", "orchestrator"
             ),
             objective_update_interval=require_key(
                 orchestrator_config, "objective_update_interval", "orchestrator"

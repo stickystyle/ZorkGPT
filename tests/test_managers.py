@@ -56,7 +56,6 @@ class TestBaseManagerSetup:
             condensation_model="test-condensation-model",
             # Update intervals
             knowledge_update_interval=100,
-            map_update_interval=50,
             objective_update_interval=20,
             # Objective refinement
             enable_objective_refinement=True,
@@ -314,7 +313,6 @@ class TestMapManager(TestBaseManagerSetup):
         assert map_manager.component_name == "map_manager"
         assert map_manager.game_map is not None
         assert map_manager.movement_analyzer is not None
-        assert map_manager.last_map_update_turn == 0
 
     def test_add_initial_room(self, map_manager, game_state):
         """Test adding initial room to map."""
@@ -361,18 +359,6 @@ class TestMapManager(TestBaseManagerSetup):
         assert location in game_state.failed_actions_by_location
         assert action in game_state.failed_actions_by_location[location]
 
-    def test_should_process_turn(self, map_manager, game_state):
-        """Test map update timing logic."""
-        # Should not process if interval not reached
-        game_state.turn_count = 25
-        map_manager.last_map_update_turn = 10
-        assert not map_manager.should_process_turn()
-
-        # Should process if interval reached
-        game_state.turn_count = 60
-        map_manager.last_map_update_turn = 0
-        assert map_manager.should_process_turn()
-
     def test_get_current_room_context(self, map_manager, game_state):
         """Test current room context retrieval."""
         game_state.current_room_name_for_map = "Current Room"
@@ -394,7 +380,6 @@ class TestMapManager(TestBaseManagerSetup):
         status = map_manager.get_status()
 
         assert status["current_room"] == "Test Room"
-        assert status["last_map_update_turn"] == 0
         assert status["component"] == "map_manager"
 
 

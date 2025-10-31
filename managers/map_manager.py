@@ -36,30 +36,15 @@ class MapManager(BaseManager):
         self.game_map = MapGraph(logger=logger)
         self.movement_analyzer = MovementAnalyzer()
 
-        # Map update tracking
-        self.last_map_update_turn = 0
-
     def reset_episode(self) -> None:
         """Reset map manager state for a new episode."""
         # Note: We typically don't reset the map itself as it persists across episodes
-        # Only reset episode-specific tracking
-        self.last_map_update_turn = 0
         self.log_debug("Map manager reset for new episode")
 
     def process_turn(self) -> None:
         """Process map management for the current turn."""
-        # Check for periodic map updates
-        if self.should_process_turn():
-            self.check_map_update()
-
-    def should_process_turn(self) -> bool:
-        """Check if map needs processing this turn."""
-        # Check if it's time for a map update
-        turns_since_update = self.game_state.turn_count - self.last_map_update_turn
-        return (
-            self.game_state.turn_count > 0
-            and turns_since_update >= self.config.map_update_interval
-        )
+        # No periodic processing needed - map is updated in real-time via update_from_movement()
+        pass
 
     def add_initial_room(self, room_id: int, room_name: str) -> None:
         """Add the initial room to the map.
@@ -284,37 +269,6 @@ class MapManager(BaseManager):
         except Exception as e:
             self.log_error(f"Failed to track failed action: {e}")
 
-
-    def check_map_update(self) -> None:
-        """Check if map update is needed and perform periodic map maintenance."""
-        try:
-            self.log_progress(
-                f"Running periodic map update at turn {self.game_state.turn_count}",
-                stage="map_update",
-                details=f"Map update at turn {self.game_state.turn_count}",
-            )
-
-            # Get current map quality metrics
-            quality_metrics = self.get_quality_metrics()
-
-            # Log map status
-            self.logger.info(
-                "Periodic map update",
-                extra={
-                    "event_type": "map_periodic_update",
-                    "episode_id": self.game_state.episode_id,
-                    "turn": self.game_state.turn_count,
-                    "room_count": len(self.game_map.rooms),
-                    "connection_count": len(self.game_map.connections),
-                    **quality_metrics,
-                },
-            )
-
-            self.last_map_update_turn = self.game_state.turn_count
-
-        except Exception as e:
-            self.log_error(f"Failed during periodic map update: {e}")
-
     def get_quality_metrics(self) -> Dict[str, Any]:
         """Get comprehensive map quality metrics."""
         try:
@@ -386,10 +340,6 @@ class MapManager(BaseManager):
         status.update(
             {
                 "current_room": self.game_state.current_room_name_for_map,
-                "last_map_update_turn": self.last_map_update_turn,
-                "turns_since_last_update": self.game_state.turn_count
-                - self.last_map_update_turn,
-                "map_update_interval": self.config.map_update_interval,
                 **quality_metrics,
             }
         )
