@@ -73,6 +73,8 @@ class TestBaseManagerSetup:
             simple_memory_enabled=True,
             simple_memory_file="Memories.md",
             simple_memory_max_shown=10,
+            # Map state persistence
+            map_state_file="test_map_state.json",
             # Sampling parameters
             agent_sampling={},
             critic_sampling={},
@@ -608,6 +610,34 @@ class TestContextManager(TestBaseManagerSetup):
         assert "```mermaid" in formatted
         assert "graph TD" in formatted
         assert "A --> B" in formatted
+
+    def test_formatted_context_includes_game_response(self, context_manager, game_state):
+        """Test that game_state_text parameter adds GAME RESPONSE label."""
+        context = {
+            "current_location": "West of House",
+            "inventory": ["sword"],
+            "recent_actions": [],
+            "recent_memories": [],
+        }
+
+        # Without game_state_text
+        formatted_without = context_manager.get_formatted_agent_prompt_context(context)
+        assert "GAME RESPONSE:" not in formatted_without
+
+        # With game_state_text
+        formatted_with = context_manager.get_formatted_agent_prompt_context(
+            context,
+            game_state_text="You are in a dark room."
+        )
+        assert "GAME RESPONSE: You are in a dark room." in formatted_with
+        assert formatted_with.startswith("GAME RESPONSE:")
+
+        # With empty string (should not show label)
+        formatted_empty = context_manager.get_formatted_agent_prompt_context(
+            context,
+            game_state_text=""
+        )
+        assert "GAME RESPONSE:" not in formatted_empty
 
     def test_detect_loops_in_recent_actions(self, context_manager, game_state):
         """Test loop detection in actions."""

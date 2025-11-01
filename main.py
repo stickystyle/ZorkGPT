@@ -17,19 +17,19 @@ def run_episode(episode_id=None, max_turns=None):
         episode_id=episode_id, max_turns_per_episode=max_turns
     )
 
-    print("🚀 Starting long episode with ZorkOrchestrator v2...")
-    print("📋 Configuration:")
-    print(f"  - Max turns: {orchestrator.config.max_turns_per_episode}")
+    print("🚀 Starting long episode with ZorkOrchestrator v2...", flush=True)
+    print("📋 Configuration:", flush=True)
+    print(f"  - Max turns: {orchestrator.config.max_turns_per_episode}", flush=True)
     print(
-        f"  - Knowledge update interval: {orchestrator.config.knowledge_update_interval} turns"
+        f"  - Knowledge update interval: {orchestrator.config.knowledge_update_interval} turns", flush=True
     )
-    print(f"  - State export: {orchestrator.config.enable_state_export}")
-    print(f"  - Turn delay: {orchestrator.config.turn_delay_seconds} seconds")
-    print(f"  - S3 bucket: {orchestrator.config.s3_bucket or 'Not configured'}")
+    print(f"  - State export: {orchestrator.config.enable_state_export}", flush=True)
+    print(f"  - Turn delay: {orchestrator.config.turn_delay_seconds} seconds", flush=True)
+    print(f"  - S3 bucket: {orchestrator.config.s3_bucket or 'Not configured'}", flush=True)
     print(
-        f"  - S3 client: {'✅ Available' if orchestrator.state_manager.s3_client else '❌ Not available'}"
+        f"  - S3 client: {'✅ Available' if orchestrator.state_manager.s3_client else '❌ Not available'}", flush=True
     )
-    print()
+    print(flush=True)
 
     try:
         # Play the episode - orchestrator manages Jericho interface internally
@@ -108,19 +108,19 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    print("=" * 60)
+    print("=" * 60, flush=True)
 
     # Show mode information
     if args.continuous:
-        print("🔄 CONTINUOUS MODE: Will run new episodes indefinitely")
+        print("🔄 CONTINUOUS MODE: Will run new episodes indefinitely", flush=True)
     elif args.episodes > 1:
-        print(f"🎮 MULTIPLE EPISODES MODE: Will run {args.episodes} episodes")
+        print(f"🎮 MULTIPLE EPISODES MODE: Will run {args.episodes} episodes", flush=True)
     else:
-        print("🎯 SINGLE EPISODE MODE: Starting new episode")
+        print("🎯 SINGLE EPISODE MODE: Starting new episode", flush=True)
 
     if args.max_turns:
-        print(f"📏 Max turns per episode: {args.max_turns}")
-    print()
+        print(f"📏 Max turns per episode: {args.max_turns}", flush=True)
+    print(flush=True)
 
     if args.continuous:
         # Continuous mode

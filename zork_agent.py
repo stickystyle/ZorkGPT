@@ -256,7 +256,10 @@ The following strategic guide has been compiled from analyzing previous episodes
         # Combine game state with relevant memories if available
         user_content = game_state_text
         if relevant_memories:
-            user_content = f"{user_content}\n\n{relevant_memories}"
+            if user_content:
+                user_content = f"{user_content}\n\n{relevant_memories}"
+            else:
+                user_content = relevant_memories
 
         messages.append({"role": "user", "content": user_content})
 
@@ -383,7 +386,10 @@ The following strategic guide has been compiled from analyzing previous episodes
         # Combine game state with relevant memories if available
         user_content = game_state_text
         if relevant_memories:
-            user_content = f"{user_content}\n\n{relevant_memories}"
+            if user_content:
+                user_content = f"{user_content}\n\n{relevant_memories}"
+            else:
+                user_content = relevant_memories
 
         messages.append({"role": "user", "content": user_content})
 

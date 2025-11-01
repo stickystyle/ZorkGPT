@@ -9,6 +9,8 @@ dependencies = [
     "requests>=2.31.0",
     "python-dotenv>=1.0.0",
     "jericho>=3.3.0",
+    # needed for Jericho get_valid_actions() call
+    "en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
     "langfuse>=3.8.1,<4.0",
     "filelock>=3.20.0",
 ]
@@ -169,6 +171,3 @@ game_file_path = "infrastructure/zork.z5"
 [tool.zorkgpt.aws]
 # AWS Configuration (optional)
 s3_key_prefix = "zorkgpt/"
-
-[tool.uv.workspace]
-members = ["jericho"]

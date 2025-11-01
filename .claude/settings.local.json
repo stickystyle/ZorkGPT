@@ -49,7 +49,11 @@
       "Bash(uv pip list:*)",
       "mcp__langfuse-docs__getLangfuseDocsPage",
       "WebFetch(domain:python.reference.langfuse.com)",
-      "WebFetch(domain:api-docs.deepseek.com)"
+      "WebFetch(domain:api-docs.deepseek.com)",
+      "mcp__awslabs_aws-diagram-mcp-server__get_diagram_examples",
+      "mcp__awslabs_aws-diagram-mcp-server__list_icons",
+      "Bash(gh pr view:*)",
+      "Bash(uv pip show:*)"
     ],
     "deny": []
   },

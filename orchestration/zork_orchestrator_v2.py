@@ -248,7 +248,9 @@ class ZorkOrchestratorV2:
                 self.rejection_manager.restore_state(self.game_state.rejection_state)
 
             # Start Jericho interface
+            self.logger.debug("DEBUG: About to call jericho_interface.start()")
             initial_game_state = self.jericho_interface.start()
+            self.logger.debug("DEBUG: jericho_interface.start() completed")
 
             self.logger.info(
                 "Jericho interface started successfully",
@@ -1008,14 +1010,15 @@ class ZorkOrchestratorV2:
             jericho_interface=self.jericho_interface,  # NEW: Pass Jericho interface for structured data
         )
 
-        # Format context for agent
+        # Format context for agent (including game response)
         formatted_context = self.context_manager.get_formatted_agent_prompt_context(
-            agent_context
+            agent_context,
+            game_state_text=current_state
         )
 
-        # Get agent action
+        # Get agent action (game_state_text no longer needed separately since it's in formatted_context)
         agent_result = self.agent.get_action_with_reasoning(
-            game_state_text=current_state,
+            game_state_text="",  # Empty since game response is now in formatted_context
             previous_actions_and_responses=agent_context.get("recent_actions", []),
             action_counts=agent_context.get("action_counts"),
             relevant_memories=formatted_context,

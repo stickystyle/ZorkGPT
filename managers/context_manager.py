@@ -409,18 +409,29 @@ class ContextManager(BaseManager):
         except Exception as e:
             self.log_error(f"Failed to update location context: {e}")
 
-    def get_formatted_agent_prompt_context(self, context: Dict[str, Any]) -> str:
+    def get_formatted_agent_prompt_context(self, context: Dict[str, Any], game_state_text: str = None) -> str:
         """Format agent context into a readable prompt format."""
         try:
             formatted_parts = []
+
+            # Game response from previous action (if provided)
+            if game_state_text:
+                formatted_parts.append(f"GAME RESPONSE: {game_state_text.strip()}")
+                formatted_parts.append("")  # Add blank line for readability
 
             # Current situation
             formatted_parts.append(
                 f"CURRENT LOCATION: {context.get('current_location', 'Unknown')}"
             )
-            formatted_parts.append(
-                f"INVENTORY: {', '.join(context.get('inventory', [])) or 'empty'}"
-            )
+
+            # Show simple inventory if we don't have structured Jericho data
+            # (when Jericho data is available, INVENTORY DETAILS section is used instead)
+            inventory_objects = context.get("inventory_objects", [])
+            if not inventory_objects:
+                formatted_parts.append(
+                    f"INVENTORY: {', '.join(context.get('inventory', [])) or 'empty'}"
+                )
+
             formatted_parts.append(f"SCORE: {self.game_state.previous_zork_score}")
 
             if context.get("in_combat"):
@@ -453,8 +464,7 @@ class ContextManager(BaseManager):
                 for obj in objectives[:5]:  # Limit to top 5
                     formatted_parts.append(f"  - {obj}")
 
-            # Structured object data (if available)
-            inventory_objects = context.get("inventory_objects", [])
+            # Structured object data (if available - already retrieved above)
             if inventory_objects:
                 formatted_parts.append("\nINVENTORY DETAILS:")
                 for obj in inventory_objects:
