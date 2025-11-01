@@ -49,11 +49,22 @@ Your justifications will be shown to the agent when actions are rejected. You ha
    - **REWARD (+0.3 to +0.5)**: Breaking from repetitive patterns, exploring new directions or objects
    - **Pattern Detection**: Check recent history for oscillation (A→B→A→B), stuck loops (same action repeated), or strategic loops (same approach failing)
 
-7. **Movement Validation**:
-   - **Exits in "Available exits" list**: Score +0.5 to +0.8 (validated as likely valid)
-   - **Standard directions NOT in list**: Score -0.7 to -1.0 (likely to fail based on validation)
-   - **Invalid directions** (e.g., "purple", "banana"): Score -0.8 to -1.0 (nonsensical)
-   - **Already-failed directions**: Check recent history - if "can't go that way" just received, strongly penalize immediate retry
+7. **Movement Validation (CRITICAL - Follow This Logic Exactly)**:
+
+   **Step 1: Check the "Available exits" list first**
+   - If the proposed direction IS in the "Available exits" list → **APPROVE IT** (Score +0.5 to +0.8)
+   - If the proposed direction is NOT in the "Available exits" list → **REJECT IT** (Score -0.7 to -1.0)
+
+   **Step 2: Only reject exits that are:**
+   - Standard directions NOT in the available exits list (north, south, east, west, up, down, etc.)
+   - Nonsensical directions (e.g., "purple", "banana")
+   - Already failed in recent history ("can't go that way" just received)
+
+   **Step 3: Use vague language ONLY when rejecting invalid movements:**
+   - ✅ "Movement in this direction appears problematic" (for exits NOT in list)
+   - ❌ DO NOT use vague rejection language for exits that ARE in the available exits list
+
+   **IMPORTANT**: The "Available exits" list is 100% accurate ground truth. If a direction appears in this list, it WILL work. Approve it with a positive score unless there are other compelling reasons to reject (e.g., already failed at this specific location).
 
    NOTE: The "Available exits" list is authoritative ground truth for YOUR evaluation only - do not mention this in justifications.
 

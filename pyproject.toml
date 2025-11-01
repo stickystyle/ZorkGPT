@@ -36,7 +36,8 @@ agent_model = "deepseek/deepseek-r1-0528"
 #info_ext_model = "gemma-3-12b-it-qat"
 info_ext_model = "google/gemma-3-12b-it"
 #critic_model = "gemma-3-12b-it-qat"
-critic_model = "google/gemma-3-12b-it"
+#critic_model = "google/gemma-3-12b-it"  # Too small - fails to follow movement validation logic
+critic_model = "google/gemma-3-27b-it"   # Correctly validates movements against available exits
 analysis_model = "meta-llama/llama-4-scout"
 memory_model = "qwen/qwq-32b"
 condensation_model = "qwen/qwq-32b"
@@ -76,7 +77,7 @@ min_p = 0.0
 
 [tool.zorkgpt.critic_sampling]
 # Critic LLM Sampling Parameters
-temperature = 0.2
+temperature = 0.1  # Low temperature for consistent validation logic
 max_tokens = 100
 # top_p = null     # Optional - leave commented for default
 # top_k = null     # Optional - leave commented for default

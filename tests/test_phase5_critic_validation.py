@@ -62,9 +62,15 @@ class TestValidationMethod:
         # Verify - should pass validation
         assert result.valid is True
 
-    def test_rejects_take_action_when_object_not_takeable(self, critic, mock_jericho):
-        """Test that validation rejects 'take mailbox' when mailbox is not takeable."""
-        # Setup: mailbox is visible but not takeable
+    def test_take_action_only_validates_visibility(self, critic, mock_jericho):
+        """Test that 'take' validation only checks visibility, not takeable attribute.
+
+        The takeable attribute in Jericho is unreliable (e.g., lunch has takeable=False
+        but can actually be taken), so validation only checks if the object is visible.
+        The game engine will provide the authoritative response about whether the object
+        can be taken.
+        """
+        # Setup: mailbox is visible but has takeable=False
         mock_mailbox = Mock()
         mock_mailbox.name = "small mailbox"
         mock_jericho.get_visible_objects_in_location.return_value = [mock_mailbox]
@@ -77,10 +83,8 @@ class TestValidationMethod:
         # Execute
         result = critic._validate_against_object_tree("take mailbox", mock_jericho)
 
-        # Verify
-        assert result.valid is False
-        assert result.confidence == 0.9
-        assert "Object 'mailbox' is not takeable" in result.reason
+        # Verify - should pass because object is visible, regardless of takeable attribute
+        assert result.valid is True
 
     def test_rejects_open_action_when_object_not_present(self, critic, mock_jericho):
         """Test that validation rejects 'open door' when door is not present."""
@@ -113,16 +117,41 @@ class TestValidationMethod:
         # Verify - should pass validation
         assert result.valid is True
 
+    def test_allows_open_action_for_containers(self, critic, mock_jericho):
+        """Test that validation allows opening containers even without openable bit.
+
+        The mailbox in Zork is a container without the openable bit set,
+        but can still be opened. This test verifies that containers are
+        treated as openable regardless of the openable attribute.
+        """
+        # Setup: mailbox is a container but openable=False (matches real Zork behavior)
+        mock_mailbox = Mock()
+        mock_mailbox.name = "small mailbox"
+        mock_jericho.get_visible_objects_in_location.return_value = [mock_mailbox]
+        mock_jericho.get_object_attributes.return_value = {
+            'takeable': False,
+            'container': True,  # Container bit set
+            'openable': False,  # Openable bit NOT set (like real mailbox)
+            'transparent': True
+        }
+
+        # Execute
+        result = critic._validate_against_object_tree("open mailbox", mock_jericho)
+
+        # Verify - should pass validation because it's a container
+        assert result.valid is True
+
     def test_rejects_open_action_when_object_not_openable(self, critic, mock_jericho):
         """Test that validation rejects 'open lamp' when lamp is not openable."""
-        # Setup: lamp is visible but not openable
+        # Setup: lamp is visible but not openable and not a container
         mock_lamp = Mock()
         mock_lamp.name = "brass lamp"
         mock_jericho.get_visible_objects_in_location.return_value = [mock_lamp]
         mock_jericho.get_object_attributes.return_value = {
             'takeable': True,
             'portable': True,
-            'openable': False
+            'openable': False,
+            'container': False  # Not a container, so should be rejected
         }
 
         # Execute
@@ -210,16 +239,17 @@ class TestValidationMethod:
 
     def test_close_action_validation(self, critic, mock_jericho):
         """Test that 'close' action is validated like 'open'."""
-        # Setup: mailbox visible but not openable
-        mock_mailbox = Mock()
-        mock_mailbox.name = "mailbox"
-        mock_jericho.get_visible_objects_in_location.return_value = [mock_mailbox]
+        # Setup: lamp visible but not openable and not a container
+        mock_lamp = Mock()
+        mock_lamp.name = "lamp"
+        mock_jericho.get_visible_objects_in_location.return_value = [mock_lamp]
         mock_jericho.get_object_attributes.return_value = {
-            'openable': False
+            'openable': False,
+            'container': False
         }
 
         # Execute
-        result = critic._validate_against_object_tree("close mailbox", mock_jericho)
+        result = critic._validate_against_object_tree("close lamp", mock_jericho)
 
         # Verify
         assert result.valid is False

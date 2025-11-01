@@ -725,7 +725,9 @@ class ZorkCritic:
                 for obj in visible_objects:
                     if target in obj.name.lower():
                         attrs = jericho_interface.get_object_attributes(obj)
-                        if attrs.get('openable'):
+                        # Allow if explicitly openable OR if it's a container
+                        # (containers in Zork may not have the openable bit but are still openable)
+                        if attrs.get('openable') or attrs.get('container'):
                             found = True
                             break
                         else:
