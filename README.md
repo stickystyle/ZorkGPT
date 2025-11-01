@@ -258,104 +258,218 @@ graph TB
     class ZorkGame external
 ```
 
-## Turn-by-Turn Flow with Adaptive Learning
+## Turn-by-Turn Flow with Manager-Based Architecture
 
 ```mermaid
 sequenceDiagram
     participant UserMain as User/Main
-    participant Orchestrator as Central Coordinator
+    participant Orch as ZorkOrchestratorV2
+    participant EpisodeSynth as EpisodeSynthesizer
+    participant Jericho as JerichoInterface
+    participant HybridExt as HybridExtractor
+    participant ContextMgr as ContextManager
+    participant MemoryMgr as SimpleMemoryManager
     participant Agent as Agent LM
-    participant Extractor as Extractor LM
     participant Critic as Critic LM
-    participant AdaptiveKM as Adaptive Knowledge Manager
-    participant ZorkGameProcess as Zork Game (via Interface)
+    participant RejectionMgr as RejectionManager
+    participant MapMgr as MapManager
+    participant StateMgr as StateManager
+    participant ObjectiveMgr as ObjectiveManager
+    participant KnowledgeMgr as KnowledgeManager
 
-    UserMain->>Orchestrator: Start Gameplay Session
-    activate Orchestrator
-    
-    Orchestrator->>Orchestrator: Initialize session state (memory, map, knowledge)
-    
-    Orchestrator->>ZorkGameProcess: Start Game
-    activate ZorkGameProcess
-    ZorkGameProcess-->>Orchestrator: Initial Game Text
-    deactivate ZorkGameProcess
+    UserMain->>Orch: Start Episode
+    activate Orch
 
-    Orchestrator->>Extractor: Process Game Text
-    activate Extractor
-    Extractor-->>Orchestrator: Structured Information
-    deactivate Extractor
+    Orch->>EpisodeSynth: initialize_episode()
+    activate EpisodeSynth
+    EpisodeSynth->>EpisodeSynth: Reset GameState, set episode_id
+    EpisodeSynth-->>Orch: Episode initialized
+    deactivate EpisodeSynth
 
-    Orchestrator->>Orchestrator: Update Session Memory & Map
+    Orch->>Jericho: Start game
+    activate Jericho
+    Jericho-->>Orch: Initial game text
+    deactivate Jericho
 
-    loop Extended Gameplay (e.g., up to 5000 turns)
-        Orchestrator->>Orchestrator: Increment turn counter
-        
-        Orchestrator->>Agent: Prepare context (current state, relevant memories, map info, knowledge)
-        
-        Orchestrator->>Agent: Get Action
+    Orch->>HybridExt: extract_info(game_text)
+    activate HybridExt
+    HybridExt->>Jericho: get_location_structured()
+    Jericho-->>HybridExt: ZObject(num=ID, name)
+    HybridExt->>Jericho: get_inventory_structured()
+    Jericho-->>HybridExt: [ZObjects]
+    HybridExt->>Jericho: get_visible_objects_in_location()
+    Jericho-->>HybridExt: [ZObjects from object tree]
+    HybridExt->>Jericho: get_score()
+    Jericho-->>HybridExt: (score, moves)
+    HybridExt->>HybridExt: LLM extract exits/combat/messages
+    HybridExt-->>Orch: ExtractorResponse (structured data)
+    deactivate HybridExt
+
+    Orch->>MapMgr: add_initial_room(room_id, room_name)
+    activate MapMgr
+    MapMgr-->>Orch: Initial room added
+    deactivate MapMgr
+
+    loop Extended Gameplay (Episode)
+        Orch->>RejectionMgr: start_new_turn()
+
+        Orch->>ContextMgr: get_agent_context()
+        activate ContextMgr
+        ContextMgr->>MapMgr: get_context_for_prompt()
+        MapMgr-->>ContextMgr: Map context
+        ContextMgr->>MemoryMgr: get_location_memory()
+        MemoryMgr-->>ContextMgr: Location memory
+        ContextMgr->>Jericho: get_inventory_structured(), get_visible_objects_in_location()
+        Jericho-->>ContextMgr: Structured objects + attributes
+        ContextMgr-->>Orch: Formatted agent context
+        deactivate ContextMgr
+
+        Orch->>Agent: get_action_with_reasoning(context)
         activate Agent
-        Agent-->>Orchestrator: Proposed Action & Reasoning
+        Agent-->>Orch: Proposed action + reasoning
         deactivate Agent
 
-        Orchestrator->>Critic: Evaluate Action
-        activate Critic
-        Critic-->>Orchestrator: Evaluation (score, justification)
-        deactivate Critic
+        loop Critic Evaluation (max 3 attempts)
+            Orch->>ContextMgr: get_critic_context()
+            activate ContextMgr
+            ContextMgr->>Jericho: get_valid_exits()
+            Jericho-->>ContextMgr: Ground-truth exits
+            ContextMgr-->>Orch: Critic context
+            deactivate ContextMgr
 
-        alt Action Rejected by Critic (and no override)
-            loop Retry (max attempts)
-                Orchestrator->>Agent: Get Alternative Action (with rejection feedback)
-                activate Agent
-                Agent-->>Orchestrator: New Proposed Action
-                deactivate Agent
-                Orchestrator->>Critic: Evaluate New Action
-                activate Critic
-                Critic-->>Orchestrator: New Evaluation
-                deactivate Critic
+            Orch->>Critic: evaluate_action(action, context, jericho_interface)
+            activate Critic
+            Critic->>Critic: Fast object tree validation (<1ms)
+            alt Object Tree Validation Failed
+                Critic-->>Orch: score=0.0, high confidence rejection
+            else Object Tree Validation Passed
+                Critic->>Critic: LLM evaluation (~800ms)
+                Critic-->>Orch: LLM score + justification
+            end
+            deactivate Critic
+
+            alt Action Rejected (score < threshold)
+                Orch->>RejectionMgr: should_override_rejection()
+                activate RejectionMgr
+                RejectionMgr-->>Orch: Override decision
+                deactivate RejectionMgr
+
+                alt No Override - Request New Action
+                    Orch->>Agent: get_action_with_reasoning(rejection feedback)
+                    Agent-->>Orch: Alternative action
+                else Override - Accept Action
+                    Note over Orch: Break evaluation loop
+                end
+            else Action Accepted
+                Note over Orch: Break evaluation loop
             end
         end
 
-        Orchestrator->>Orchestrator: Log chosen action and reasoning
-        Orchestrator->>ZorkGameProcess: Send Chosen Action
-        activate ZorkGameProcess
-        ZorkGameProcess-->>Orchestrator: New Game Text
-        deactivate ZorkGameProcess
+        Orch->>Jericho: send_command(chosen_action)
+        activate Jericho
+        Jericho-->>Orch: New game text
+        deactivate Jericho
 
-        Orchestrator->>Extractor: Process New Game Text
-        activate Extractor
-        Extractor-->>Orchestrator: Updated Structured Information
-        deactivate Extractor
+        Orch->>HybridExt: extract_info(game_text)
+        activate HybridExt
+        HybridExt->>Jericho: Z-machine direct access (location, inventory, objects, score)
+        Jericho-->>HybridExt: Structured data
+        HybridExt->>HybridExt: LLM parse (exits, combat, messages)
+        HybridExt-->>Orch: ExtractorResponse
+        deactivate HybridExt
 
-        Orchestrator->>Orchestrator: Update Session Memory & Map
-        Orchestrator->>Orchestrator: Perform Movement Analysis
+        Orch->>StateMgr: track_state_hash()
+        activate StateMgr
+        StateMgr->>Jericho: get_state_hash()
+        Jericho-->>StateMgr: Z-machine state hash
+        StateMgr-->>Orch: Loop detection result
+        deactivate StateMgr
 
-        alt Periodic Knowledge Update (e.g., every 100 turns)
-            Orchestrator->>AdaptiveKM: Update Knowledge Base
-            activate AdaptiveKM
-            AdaptiveKM->>AdaptiveKM: Analyze recent turn data
-            AdaptiveKM->>AdaptiveKM: Assess quality & determine strategy
-            AdaptiveKM->>AdaptiveKM: Merge new insights
-            AdaptiveKM-->>Orchestrator: Knowledge Update Status
-            deactivate AdaptiveKM
-            
-            opt Knowledge Base Updated
-                Orchestrator->>Agent: Notify of Knowledge Update (Agent reloads/integrates)
-            end
+        Orch->>MapMgr: update_from_movement(old_id, new_id, action, exits)
+        activate MapMgr
+        MapMgr->>MapMgr: Compare location IDs (perfect movement detection)
+        MapMgr->>MapMgr: Update connections, track failures
+        MapMgr-->>Orch: Map updated
+        deactivate MapMgr
+
+        Orch->>MemoryMgr: record_action_outcome()
+        activate MemoryMgr
+        MemoryMgr->>MemoryMgr: Check synthesis triggers (score/location/death)
+        opt Trigger Met
+            MemoryMgr->>MemoryMgr: LLM synthesize memory
+            MemoryMgr->>MemoryMgr: Update Memories.md with file locking
+        end
+        MemoryMgr-->>Orch: Memory recorded
+        deactivate MemoryMgr
+
+        Orch->>ContextMgr: add_action/memory/reasoning()
+        Orch->>KnowledgeMgr: detect_object_events()
+
+        Orch->>ObjectiveMgr: check_objective_completion()
+        activate ObjectiveMgr
+        ObjectiveMgr-->>Orch: Completion status
+        deactivate ObjectiveMgr
+
+        alt Every 20 turns (Objective Updates)
+            Orch->>ObjectiveMgr: check_and_update_objectives()
+            activate ObjectiveMgr
+            ObjectiveMgr->>ObjectiveMgr: LLM discover new objectives
+            ObjectiveMgr->>ObjectiveMgr: Check staleness, refinement
+            ObjectiveMgr-->>Orch: Updated objectives
+            deactivate ObjectiveMgr
         end
 
-        alt Periodic Map-focused Update (e.g., every 25 turns)
-             Orchestrator->>AdaptiveKM: Update Knowledge (focus on map/spatial)
+        alt Every 50 turns (Knowledge Updates)
+            Orch->>KnowledgeMgr: check_periodic_update()
+            activate KnowledgeMgr
+            KnowledgeMgr->>KnowledgeMgr: Analyze full episode history
+            KnowledgeMgr->>KnowledgeMgr: Update knowledgebase.md sections
+            KnowledgeMgr->>Agent: Reload knowledge base
+            KnowledgeMgr-->>Orch: Knowledge updated
+            deactivate KnowledgeMgr
         end
-        
-        Orchestrator->>Orchestrator: Optionally export current state for monitoring
 
-        alt Game Over OR Max Turns Reached
-            Orchestrator->>Orchestrator: End Gameplay Loop
+        Orch->>StateMgr: export_current_state()
+        activate StateMgr
+        StateMgr->>StateMgr: Check context overflow (>80% tokens)
+        opt Context Overflow
+            StateMgr->>StateMgr: LLM summarize history, prune memories
+        end
+        StateMgr->>StateMgr: Write state JSON (local + S3)
+        StateMgr-->>Orch: State exported
+        deactivate StateMgr
+
+        Orch->>RejectionMgr: update_movement_tracking()
+
+        alt Death or Max Turns
+            Note over Orch: End gameplay loop
         end
     end
-    
-    Orchestrator->>AdaptiveKM: Perform final knowledge consolidation (if applicable)
-    
-    Orchestrator-->>UserMain: Session End (e.g., final score)
-    deactivate Orchestrator
+
+    Orch->>EpisodeSynth: finalize_episode()
+    activate EpisodeSynth
+    EpisodeSynth->>KnowledgeMgr: perform_final_update()
+    activate KnowledgeMgr
+    KnowledgeMgr-->>EpisodeSynth: Final update complete
+    deactivate KnowledgeMgr
+
+    opt Death or High Score/Turns
+        EpisodeSynth->>KnowledgeMgr: perform_inter_episode_synthesis()
+        activate KnowledgeMgr
+        KnowledgeMgr->>KnowledgeMgr: Synthesize CROSS-EPISODE INSIGHTS
+        KnowledgeMgr-->>EpisodeSynth: Inter-episode wisdom updated
+        deactivate KnowledgeMgr
+    end
+
+    EpisodeSynth-->>Orch: Episode finalized
+    deactivate EpisodeSynth
+
+    Orch->>MapMgr: save_map_state()
+    activate MapMgr
+    MapMgr->>MapMgr: Persist to map_state.json
+    MapMgr-->>Orch: Map persisted
+    deactivate MapMgr
+
+    Orch-->>UserMain: Episode complete (score, summary)
+    deactivate Orch
 ```
