@@ -38,7 +38,7 @@ info_ext_model = "google/gemma-3-12b-it"
 #critic_model = "gemma-3-12b-it-qat"
 #critic_model = "google/gemma-3-12b-it"  # Too small - fails to follow movement validation logic
 critic_model = "google/gemma-3-27b-it"   # Correctly validates movements against available exits
-analysis_model = "meta-llama/llama-4-scout"
+analysis_model = "deepseek/deepseek-r1-0528"  # Superior reasoning depth and actionable pattern extraction vs llama-4-scout
 memory_model = "qwen/qwq-32b"
 condensation_model = "qwen/qwq-32b"
 
