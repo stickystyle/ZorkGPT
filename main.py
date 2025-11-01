@@ -3,6 +3,7 @@
 from orchestration import ZorkOrchestratorV2
 import time
 import argparse
+import signal
 from datetime import datetime
 
 
@@ -31,10 +32,98 @@ def run_episode(episode_id=None, max_turns=None):
     )
     print(flush=True)
 
+    interrupted_by_user = False
+    final_score = None
+
     try:
         # Play the episode - orchestrator manages Jericho interface internally
         final_score = orchestrator.play_episode()
+    except KeyboardInterrupt:
+        interrupted_by_user = True
+        print("\n\n🛑 Interrupted by user (Ctrl-C)")
+        print("What would you like to do?")
+        print("  [1] Graceful shutdown (save current progress and finalize episode)")
+        print("  [2] Exit immediately (lose progress since last save)")
 
+        choice = None
+        while choice not in ["1", "2"]:
+            try:
+                choice = input("Enter choice (1 or 2): ").strip()
+                if choice not in ["1", "2"]:
+                    print("Invalid choice. Please enter 1 or 2.")
+            except (KeyboardInterrupt, EOFError):
+                choice = "2"  # Default to immediate exit if interrupted again
+                break
+
+        if choice == "1":
+            print("\n📦 Performing graceful shutdown...")
+            print("  - Finalizing episode...")
+            print("  ⚠ Please wait, do not interrupt again...")
+
+            # Disable interrupts during cleanup to prevent partial saves
+            original_handler = signal.signal(signal.SIGINT, signal.SIG_IGN)
+
+            # Trigger the same cleanup as normal episode end
+            try:
+                # Get current score (if Jericho is still running)
+                if orchestrator.jericho_interface and orchestrator.jericho_interface.env:
+                    final_score, _ = orchestrator.jericho_interface.get_score()
+                else:
+                    final_score = orchestrator.game_state.previous_zork_score
+                    print("  ⚠ Jericho not running, using last known score")
+
+                # Finalize episode (knowledge synthesis, etc.)
+                orchestrator.episode_synthesizer.finalize_episode(
+                    final_score=final_score,
+                    critic_confidence_history=orchestrator.critic_confidence_history,
+                )
+                print("  ✓ Episode finalized")
+
+                # Export final state
+                orchestrator._export_coordinated_state()
+                print("  ✓ State exported")
+
+                # Save map state
+                orchestrator.map_manager.save_map_state()
+                print("  ✓ Map state saved")
+
+                # Flush Langfuse traces if available
+                if orchestrator.langfuse_client:
+                    try:
+                        orchestrator.langfuse_client.flush()
+                        print("  ✓ Langfuse traces flushed")
+                    except Exception as e:
+                        print(f"  ⚠ Warning: Failed to flush Langfuse traces: {e}")
+
+                # Close Jericho interface
+                orchestrator.jericho_interface.close()
+                print("  ✓ Jericho interface closed")
+
+                print("\n✅ Graceful shutdown complete!")
+                print(f"  - Final score: {final_score}")
+                print(f"  - Turns played: {orchestrator.game_state.turn_count}")
+                print(f"  - Episode ID: {orchestrator.game_state.episode_id}")
+
+            except Exception as e:
+                print(f"\n❌ Error during graceful shutdown: {e}")
+                import traceback
+                traceback.print_exc()
+                print("\nSome data may not have been saved properly.")
+            finally:
+                # Restore original interrupt handler
+                signal.signal(signal.SIGINT, original_handler)
+        else:
+            print("\n⚡ Exiting immediately without saving...")
+
+        return  # Exit after handling interrupt
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return
+
+    # Normal episode completion (only runs if not interrupted)
+    if not interrupted_by_user and final_score is not None:
         print("\n🎯 Episode Complete!")
         print(f"  - Final score: {final_score}")
         print(f"  - Turns played: {orchestrator.game_state.turn_count}")
@@ -84,12 +173,6 @@ def run_episode(episode_id=None, max_turns=None):
         except FileNotFoundError:
             print("\n📚 No knowledge base file found")
 
-    except Exception as e:
-        print(f"❌ Error: {e}")
-        import traceback
-
-        traceback.print_exc()
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run ZorkGPT episodes")
@@ -124,30 +207,40 @@ if __name__ == "__main__":
 
     if args.continuous:
         # Continuous mode
-        while True:
-            try:
-                run_episode(max_turns=args.max_turns)
-            except Exception as e:
-                print(f"❌ Error: {e}")
-                import traceback
+        try:
+            while True:
+                try:
+                    run_episode(max_turns=args.max_turns)
+                except Exception as e:
+                    print(f"❌ Error: {e}")
+                    import traceback
 
-                traceback.print_exc()
-                print("🔄 Retrying in 5 seconds...")
-                time.sleep(5)
+                    traceback.print_exc()
+                    print("🔄 Retrying in 5 seconds...")
+                    time.sleep(5)
+        except KeyboardInterrupt:
+            print("\n\n🛑 Continuous mode interrupted by user (Ctrl-C)")
+            print("Exiting continuous mode...")
     elif args.episodes > 1:
         # Multiple episodes mode
-        for i in range(args.episodes):
-            try:
-                print(f"\n🎮 Starting episode {i + 1} of {args.episodes}")
-                run_episode(max_turns=args.max_turns)
-            except Exception as e:
-                print(f"❌ Error in episode {i + 1}: {e}")
-                import traceback
+        i = -1  # Initialize in case interrupt happens before loop starts
+        try:
+            for i in range(args.episodes):
+                try:
+                    print(f"\n🎮 Starting episode {i + 1} of {args.episodes}")
+                    run_episode(max_turns=args.max_turns)
+                except Exception as e:
+                    print(f"❌ Error in episode {i + 1}: {e}")
+                    import traceback
 
-                traceback.print_exc()
-                if i < args.episodes - 1:
-                    print("🔄 Starting next episode in 5 seconds...")
-                    time.sleep(5)
+                    traceback.print_exc()
+                    if i < args.episodes - 1:
+                        print("🔄 Starting next episode in 5 seconds...")
+                        time.sleep(5)
+        except KeyboardInterrupt:
+            completed_count = i + 1 if i >= 0 else 0
+            print(f"\n\n🛑 Multiple episodes mode interrupted by user (Ctrl-C)")
+            print(f"Completed {completed_count} of {args.episodes} episodes before interruption")
     else:
         # Single episode mode
         try:

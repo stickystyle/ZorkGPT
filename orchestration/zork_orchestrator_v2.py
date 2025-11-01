@@ -328,6 +328,19 @@ class ZorkOrchestratorV2:
                 },
             )
             return self.game_state.previous_zork_score
+        finally:
+            # Ensure Jericho interface is always closed, even on exceptions
+            if hasattr(self, 'jericho_interface') and self.jericho_interface:
+                try:
+                    self.jericho_interface.close()
+                except Exception as cleanup_error:
+                    self.logger.warning(
+                        f"Error during Jericho cleanup: {cleanup_error}",
+                        extra={
+                            "event_type": "jericho_cleanup_error",
+                            "error": str(cleanup_error),
+                        }
+                    )
 
     def _run_game_loop(self, initial_state: str) -> int:
         """Run the main game loop."""
