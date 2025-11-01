@@ -1,6 +1,7 @@
 
 import time
 import logging
+from contextlib import nullcontext
 from typing import Dict, Any, List, Tuple, Optional
 
 from session.game_state import GameState
@@ -433,12 +434,16 @@ class ZorkOrchestratorV2:
         agent_context: Dict,
         formatted_context: str,
     ) -> Tuple[str, float, str, float, bool, Optional[str], List[Dict]]:
-        """Execute critic evaluation and rejection loop without Langfuse tracing.
+        """Execute critic evaluation and rejection loop with optional Langfuse tracing.
 
         Returns:
             Tuple of (action_to_take, final_critic_score, final_critic_justification,
                      final_critic_confidence, was_overridden, override_reason, rejected_actions_this_turn)
         """
+        # Determine if we're tracing
+        should_trace = self.langfuse_client is not None
+        log_level = logging.DEBUG if should_trace else logging.INFO
+
         # Get critic context with ground-truth exits from Jericho (god-like view)
         critic_context = self.context_manager.get_critic_context(
             current_state=current_state,
@@ -450,274 +455,31 @@ class ZorkOrchestratorV2:
             ),
         )
 
-        # Initial critic evaluation
-        critic_result = self.critic.evaluate_action(
-            game_state_text=current_state,
-            proposed_action=proposed_action,
-            available_exits=critic_context.get("available_exits", []),
-            action_counts=self.game_state.action_counts,
-            current_location_name=self.game_state.current_room_name_for_map,
-            failed_actions_by_location=self.game_state.failed_actions_by_location,
-            previous_actions_and_responses=self.game_state.action_history[-3:],
-            jericho_interface=self.jericho_interface,
-            inventory=self.game_state.current_inventory,
-        )
-
-        # Start new turn for rejection tracking
-        self.rejection_manager.start_new_turn()
-
-        # Initialize tracking variables
-        max_rejections = 3
-        rejected_actions_this_turn = []
-        action_to_take = proposed_action
-        final_critic_score = critic_result.score
-        final_critic_justification = critic_result.justification
-        final_critic_confidence = critic_result.confidence
-        was_overridden = False
-        final_override_reason = None  # Track override reason for viewer
-
-        # Rejection loop
-        for rejection_attempt in range(max_rejections):
+        # Setup tracing context if available
+        if should_trace:
             rejection_threshold = self.rejection_manager.get_rejection_threshold()
-
-            # DEBUG: Log rejection loop entry
-            self.logger.info(
-                f"[REJECTION LOOP] Attempt {rejection_attempt + 1}/{max_rejections}: action='{action_to_take}', score={critic_result.score:.2f}, threshold={rejection_threshold}",
-                extra={
-                    "event_type": "debug_rejection_loop_entry",
-                    "episode_id": self.game_state.episode_id,
-                    "turn": self.game_state.turn_count,
-                    "rejection_attempt": rejection_attempt + 1,
-                    "action": action_to_take,
-                    "critic_score": critic_result.score,
-                    "rejection_threshold": rejection_threshold,
-                },
-            )
-
-            if critic_result.score >= rejection_threshold:
-                self.logger.info(
-                    f"[REJECTION LOOP] Action accepted: score {critic_result.score:.2f} >= threshold {rejection_threshold}",
-                    extra={
-                        "event_type": "debug_rejection_loop_accepted",
-                        "episode_id": self.game_state.episode_id,
-                        "turn": self.game_state.turn_count,
-                    },
-                )
-                break  # Action is acceptable
-
-            # Check if we should override the rejection
-            override_context = {
-                "recent_locations": [
-                    getattr(entry, "current_location_name", "")
-                    for entry in self.game_state.memory_log_history[-10:]
-                    if hasattr(entry, "current_location_name")
-                ],
-                "recent_actions": [
-                    action for action, _ in self.game_state.action_history[-8:]
-                ],
-                "previous_actions_and_responses": self.game_state.action_history[-8:],
-                "turns_since_movement": self.rejection_manager.state.turns_since_movement,
-                "critic_confidence": critic_result.confidence,
+            span_input = {
+                "proposed_action": proposed_action,
+                "current_location": self.game_state.current_room_name_for_map,
+                "available_exits": critic_context.get("available_exits", []),
+                "rejection_threshold": rejection_threshold,
             }
-
-            # DEBUG: Log before override check
-            self.logger.info(
-                f"[REJECTION LOOP] Checking override: turns_since_movement={override_context['turns_since_movement']}",
-                extra={
-                    "event_type": "debug_before_override_check",
-                    "episode_id": self.game_state.episode_id,
-                    "turn": self.game_state.turn_count,
-                    "override_context": override_context,
-                },
+            span_metadata = {
+                "turn_number": self.game_state.turn_count,
+                "location_id": self.game_state.current_room_id,
+                "location_name": self.game_state.current_room_name_for_map,
+            }
+            tracing_context = self.langfuse_client.start_as_current_span(
+                name="critic-evaluation-loop",
+                input=span_input,
+                metadata=span_metadata,
             )
-
-            should_override, override_reason = (
-                self.rejection_manager.should_override_rejection(
-                    action=action_to_take,
-                    current_location=self.game_state.current_room_name_for_map,
-                    failed_actions_by_location=self.game_state.failed_actions_by_location,
-                    context=override_context,
-                )
-            )
-
-            # DEBUG: Log override decision
-            self.logger.info(
-                f"[REJECTION LOOP] Override decision: should_override={should_override}, reason='{override_reason}'",
-                extra={
-                    "event_type": "debug_override_decision",
-                    "episode_id": self.game_state.episode_id,
-                    "turn": self.game_state.turn_count,
-                    "should_override": should_override,
-                    "override_reason": override_reason,
-                },
-            )
-
-            if should_override:
-                was_overridden = True
-                final_override_reason = override_reason  # Store for viewer export
-                self.logger.info(
-                    f"Overriding critic rejection: {override_reason}",
-                    extra={
-                        "event_type": "critic_override",
-                        "episode_id": self.game_state.episode_id,
-                        "reason": override_reason,
-                        "turn": self.game_state.turn_count,
-                        "original_action": action_to_take,
-                        "original_score": critic_result.score,
-                        "original_reasoning": critic_result.justification,
-                    },
-                )
-                break
-
-            # Action was rejected and not overridden
-            rejected_actions_this_turn.append(
-                {
-                    "action": action_to_take,
-                    "score": critic_result.score,
-                    "justification": critic_result.justification,
-                }
-            )
-
-            self.rejection_manager.add_rejected_action(
-                action_to_take, critic_result.score, critic_result.justification
-            )
-
-            # Log rejection
-            self.logger.info(
-                f"Critic rejected action: {action_to_take} (score: {critic_result.score:.2f})",
-                extra={
-                    "event_type": "action_rejected",
-                    "episode_id": self.game_state.episode_id,
-                    "turn": self.game_state.turn_count,
-                    "action": action_to_take,
-                    "score": critic_result.score,
-                    "justification": critic_result.justification,
-                    "rejection_attempt": rejection_attempt + 1,
-                },
-            )
-
-            # DEBUG: Log entering retry path
-            self.logger.info(
-                f"[REJECTION LOOP] Entering retry path: asking agent for new action",
-                extra={
-                    "event_type": "debug_entering_retry",
-                    "episode_id": self.game_state.episode_id,
-                    "turn": self.game_state.turn_count,
-                    "rejection_attempt": rejection_attempt + 1,
-                    "rejected_action": action_to_take,
-                },
-            )
-
-            # Get new action from agent with rejection context
-            rejected_actions_context = ", ".join(
-                self.rejection_manager.rejected_actions_this_turn
-            )
-            rejection_feedback = f"\n\n[Previous action(s) '{rejected_actions_context}' were rejected by critic: {critic_result.justification}]"
-
-            # Get new action with rejection context
-            agent_result = self.agent.get_action_with_reasoning(
-                game_state_text=current_state + rejection_feedback,
-                previous_actions_and_responses=agent_context.get("recent_actions", []),
-                action_counts=agent_context.get("action_counts"),
-                relevant_memories=formatted_context,
-            )
-
-            action_to_take = agent_result["action"]
-            agent_reasoning = agent_result.get("reasoning", "")
-
-            # Re-evaluate new action
-            critic_result = self.critic.evaluate_action(
-                game_state_text=current_state,
-                proposed_action=action_to_take,
-                available_exits=critic_context.get("available_exits", []),
-                action_counts=self.game_state.action_counts,
-                current_location_name=self.game_state.current_room_name_for_map,
-                failed_actions_by_location=self.game_state.failed_actions_by_location,
-                previous_actions_and_responses=self.game_state.action_history[-3:],
-                jericho_interface=self.jericho_interface,
-                inventory=self.game_state.current_inventory,
-            )
-
-            final_critic_score = critic_result.score
-            final_critic_justification = critic_result.justification
-            final_critic_confidence = critic_result.confidence
-
-        # Check if we exhausted all rejection attempts
-        if (
-            rejection_attempt == max_rejections - 1
-            and critic_result.score < rejection_threshold
-            and not was_overridden
-        ):
-            self.logger.warning(
-                f"Exhausted rejection attempts, proceeding with low-scoring action: {action_to_take} (score: {critic_result.score:.2f})",
-                extra={
-                    "event_type": "rejection_attempts_exhausted",
-                    "episode_id": self.game_state.episode_id,
-                    "turn": self.game_state.turn_count,
-                    "final_action": action_to_take,
-                    "final_score": critic_result.score,
-                    "threshold": rejection_threshold,
-                },
-            )
-
-        return (
-            action_to_take,
-            final_critic_score,
-            final_critic_justification,
-            final_critic_confidence,
-            was_overridden,
-            final_override_reason,
-            rejected_actions_this_turn,
-        )
-
-    def _execute_critic_evaluation_loop_with_tracing(
-        self,
-        current_state: str,
-        proposed_action: str,
-        agent_context: Dict,
-        formatted_context: str,
-    ) -> Tuple[str, float, str, float, bool, Optional[str], List[Dict]]:
-        """Execute critic evaluation and rejection loop with Langfuse parent span tracing.
-
-        Returns:
-            Tuple of (action_to_take, final_critic_score, final_critic_justification,
-                     final_critic_confidence, was_overridden, override_reason, rejected_actions_this_turn)
-        """
-        # Get critic context with ground-truth exits from Jericho (god-like view)
-        critic_context = self.context_manager.get_critic_context(
-            current_state=current_state,
-            proposed_action=proposed_action,
-            location=self.game_state.current_room_name_for_map,
-            available_exits=self.jericho_interface.get_valid_exits(),  # Ground truth for validation
-            failed_actions=self.game_state.failed_actions_by_location.get(
-                self.game_state.current_room_name_for_map, []
-            ),
-        )
-
-        # Prepare input metadata for parent span
-        rejection_threshold = self.rejection_manager.get_rejection_threshold()
-        span_input = {
-            "proposed_action": proposed_action,
-            "current_location": self.game_state.current_room_name_for_map,
-            "available_exits": critic_context.get("available_exits", []),
-            "rejection_threshold": rejection_threshold,
-        }
-
-        span_metadata = {
-            "turn_number": self.game_state.turn_count,
-            "location_id": self.game_state.current_room_id,
-            "location_name": self.game_state.current_room_name_for_map,
-        }
-
-        # Wrap entire critic evaluation process in parent span
-        with self.langfuse_client.start_as_current_span(
-            name="critic-evaluation-loop",
-            input=span_input,
-            metadata=span_metadata,
-        ) as critic_span:
-            # Initialize attempt tracking
             attempt_details = []
+        else:
+            tracing_context = nullcontext()
+            attempt_details = None
 
+        with tracing_context as critic_span:
             # Initial critic evaluation
             critic_result = self.critic.evaluate_action(
                 game_state_text=current_state,
@@ -731,15 +493,16 @@ class ZorkOrchestratorV2:
                 inventory=self.game_state.current_inventory,
             )
 
-            # Track initial attempt
-            attempt_details.append({
-                "attempt_number": 1,
-                "action": proposed_action,
-                "score": critic_result.score,
-                "justification": critic_result.justification,
-                "confidence": critic_result.confidence,
-                "object_tree_validation_used": "[Object Tree Validation]" in critic_result.justification,
-            })
+            # Track initial attempt (if tracing)
+            if attempt_details is not None:
+                attempt_details.append({
+                    "attempt_number": 1,
+                    "action": proposed_action,
+                    "score": critic_result.score,
+                    "justification": critic_result.justification,
+                    "confidence": critic_result.confidence,
+                    "object_tree_validation_used": "[Object Tree Validation]" in critic_result.justification,
+                })
 
             # Start new turn for rejection tracking
             self.rejection_manager.start_new_turn()
@@ -752,15 +515,17 @@ class ZorkOrchestratorV2:
             final_critic_justification = critic_result.justification
             final_critic_confidence = critic_result.confidence
             was_overridden = False
-            final_override_reason = None  # Track override reason for viewer
+            final_override_reason = None
 
             # Rejection loop
             for rejection_attempt in range(max_rejections):
                 rejection_threshold = self.rejection_manager.get_rejection_threshold()
 
                 # DEBUG: Log rejection loop entry
-                self.logger.debug(
-                    f"[REJECTION LOOP WITH TRACING] Attempt {rejection_attempt + 1}/{max_rejections}: action='{action_to_take}', score={critic_result.score:.2f}, threshold={rejection_threshold}",
+                self.logger.log(
+                    log_level,
+                    f"[REJECTION LOOP] Attempt {rejection_attempt + 1}/{max_rejections}: "
+                    f"action='{action_to_take}', score={critic_result.score:.2f}, threshold={rejection_threshold}",
                     extra={
                         "event_type": "debug_rejection_loop_entry",
                         "episode_id": self.game_state.episode_id,
@@ -773,8 +538,9 @@ class ZorkOrchestratorV2:
                 )
 
                 if critic_result.score >= rejection_threshold:
-                    self.logger.debug(
-                        f"[REJECTION LOOP WITH TRACING] Action accepted: score {critic_result.score:.2f} >= threshold {rejection_threshold}",
+                    self.logger.log(
+                        log_level,
+                        f"[REJECTION LOOP] Action accepted: score {critic_result.score:.2f} >= threshold {rejection_threshold}",
                         extra={
                             "event_type": "debug_rejection_loop_accepted",
                             "episode_id": self.game_state.episode_id,
@@ -799,8 +565,9 @@ class ZorkOrchestratorV2:
                 }
 
                 # DEBUG: Log before override check
-                self.logger.debug(
-                    f"[REJECTION LOOP WITH TRACING] Checking override: turns_since_movement={override_context['turns_since_movement']}",
+                self.logger.log(
+                    log_level,
+                    f"[REJECTION LOOP] Checking override: turns_since_movement={override_context['turns_since_movement']}",
                     extra={
                         "event_type": "debug_before_override_check",
                         "episode_id": self.game_state.episode_id,
@@ -819,8 +586,9 @@ class ZorkOrchestratorV2:
                 )
 
                 # DEBUG: Log override decision
-                self.logger.debug(
-                    f"[REJECTION LOOP WITH TRACING] Override decision: should_override={should_override}, reason='{override_reason}'",
+                self.logger.log(
+                    log_level,
+                    f"[REJECTION LOOP] Override decision: should_override={should_override}, reason='{override_reason}'",
                     extra={
                         "event_type": "debug_override_decision",
                         "episode_id": self.game_state.episode_id,
@@ -832,7 +600,7 @@ class ZorkOrchestratorV2:
 
                 if should_override:
                     was_overridden = True
-                    final_override_reason = override_reason  # Store for viewer export
+                    final_override_reason = override_reason
                     self.logger.info(
                         f"Overriding critic rejection: {override_reason}",
                         extra={
@@ -875,8 +643,9 @@ class ZorkOrchestratorV2:
                 )
 
                 # DEBUG: Log entering retry path
-                self.logger.debug(
-                    f"[REJECTION LOOP WITH TRACING] Entering retry path: asking agent for new action",
+                self.logger.log(
+                    log_level,
+                    f"[REJECTION LOOP] Entering retry path: asking agent for new action",
                     extra={
                         "event_type": "debug_entering_retry",
                         "episode_id": self.game_state.episode_id,
@@ -890,9 +659,12 @@ class ZorkOrchestratorV2:
                 rejected_actions_context = ", ".join(
                     self.rejection_manager.rejected_actions_this_turn
                 )
-                rejection_feedback = f"\n\n[Previous action(s) '{rejected_actions_context}' were rejected by critic: {critic_result.justification}]"
+                rejection_feedback = (
+                    f"\n\n[Previous action(s) '{rejected_actions_context}' were rejected by critic: "
+                    f"{critic_result.justification}]"
+                )
 
-                # Get new action with rejection context (this will create a nested agent span)
+                # Get new action with rejection context
                 agent_result = self.agent.get_action_with_reasoning(
                     game_state_text=current_state + rejection_feedback,
                     previous_actions_and_responses=agent_context.get("recent_actions", []),
@@ -903,15 +675,16 @@ class ZorkOrchestratorV2:
                 action_to_take = agent_result["action"]
                 agent_reasoning = agent_result.get("reasoning", "")
 
-                # Track agent retry
-                attempt_details.append({
-                    "attempt_number": rejection_attempt + 2,
-                    "type": "agent_retry",
-                    "new_action_generated": action_to_take,
-                    "reasoning": agent_reasoning,
-                })
+                # Track agent retry (if tracing)
+                if attempt_details is not None:
+                    attempt_details.append({
+                        "attempt_number": rejection_attempt + 2,
+                        "type": "agent_retry",
+                        "new_action_generated": action_to_take,
+                        "reasoning": agent_reasoning,
+                    })
 
-                # Re-evaluate new action (this will create a nested critic span)
+                # Re-evaluate new action
                 critic_result = self.critic.evaluate_action(
                     game_state_text=current_state,
                     proposed_action=action_to_take,
@@ -924,16 +697,17 @@ class ZorkOrchestratorV2:
                     inventory=self.game_state.current_inventory,
                 )
 
-                # Track re-evaluation
-                attempt_details.append({
-                    "attempt_number": rejection_attempt + 2,
-                    "type": "critic_reevaluation",
-                    "action": action_to_take,
-                    "score": critic_result.score,
-                    "justification": critic_result.justification,
-                    "confidence": critic_result.confidence,
-                    "object_tree_validation_used": "[Object Tree Validation]" in critic_result.justification,
-                })
+                # Track re-evaluation (if tracing)
+                if attempt_details is not None:
+                    attempt_details.append({
+                        "attempt_number": rejection_attempt + 2,
+                        "type": "critic_reevaluation",
+                        "action": action_to_take,
+                        "score": critic_result.score,
+                        "justification": critic_result.justification,
+                        "confidence": critic_result.confidence,
+                        "object_tree_validation_used": "[Object Tree Validation]" in critic_result.justification,
+                    })
 
                 final_critic_score = critic_result.score
                 final_critic_justification = critic_result.justification
@@ -948,7 +722,8 @@ class ZorkOrchestratorV2:
 
             if exhausted_attempts:
                 self.logger.warning(
-                    f"Exhausted rejection attempts, proceeding with low-scoring action: {action_to_take} (score: {critic_result.score:.2f})",
+                    f"Exhausted rejection attempts, proceeding with low-scoring action: "
+                    f"{action_to_take} (score: {critic_result.score:.2f})",
                     extra={
                         "event_type": "rejection_attempts_exhausted",
                         "episode_id": self.game_state.episode_id,
@@ -959,34 +734,35 @@ class ZorkOrchestratorV2:
                     },
                 )
 
-            # Determine final outcome
-            if was_overridden:
-                outcome = "overridden"
-            elif critic_result.score >= rejection_threshold:
-                outcome = "accepted"
-            elif exhausted_attempts:
-                outcome = "exhausted_attempts"
-            else:
-                outcome = "rejected"
+            # Update span with comprehensive output (if tracing)
+            if should_trace:
+                # Determine final outcome
+                if was_overridden:
+                    outcome = "overridden"
+                elif critic_result.score >= rejection_threshold:
+                    outcome = "accepted"
+                elif exhausted_attempts:
+                    outcome = "exhausted_attempts"
+                else:
+                    outcome = "rejected"
 
-            # Update span with comprehensive output
-            critic_span.update(
-                output={
-                    "final_action": action_to_take,
-                    "final_score": final_critic_score,
-                    "final_confidence": final_critic_confidence,
-                    "outcome": outcome,
-                    "was_overridden": was_overridden,
-                    "override_reason": override_reason if was_overridden else None,
-                    "total_attempts": len(attempt_details),
-                    "rejected_actions": rejected_actions_this_turn,
-                },
-                metadata={
-                    "attempt_details": attempt_details,
-                    "exhausted_attempts": exhausted_attempts,
-                    "rejection_threshold": rejection_threshold,
-                },
-            )
+                critic_span.update(
+                    output={
+                        "final_action": action_to_take,
+                        "final_score": final_critic_score,
+                        "final_confidence": final_critic_confidence,
+                        "outcome": outcome,
+                        "was_overridden": was_overridden,
+                        "override_reason": final_override_reason if was_overridden else None,
+                        "total_attempts": len(attempt_details),
+                        "rejected_actions": rejected_actions_this_turn,
+                    },
+                    metadata={
+                        "attempt_details": attempt_details,
+                        "exhausted_attempts": exhausted_attempts,
+                        "rejection_threshold": rejection_threshold,
+                    },
+                )
 
             return (
                 action_to_take,
@@ -1035,25 +811,15 @@ class ZorkOrchestratorV2:
         # Add reasoning to context
         self.context_manager.add_reasoning(agent_reasoning, proposed_action)
 
-        # Wrap critic evaluation and rejection loop in parent span for Langfuse
-        if self.langfuse_client:
-            action_to_take, final_critic_score, final_critic_justification, final_critic_confidence, was_overridden, override_reason, rejected_actions_this_turn = (
-                self._execute_critic_evaluation_loop_with_tracing(
-                    current_state=current_state,
-                    proposed_action=proposed_action,
-                    agent_context=agent_context,
-                    formatted_context=formatted_context,
-                )
+        # Execute critic evaluation with optional tracing
+        action_to_take, final_critic_score, final_critic_justification, final_critic_confidence, was_overridden, override_reason, rejected_actions_this_turn = (
+            self._execute_critic_evaluation_loop(
+                current_state=current_state,
+                proposed_action=proposed_action,
+                agent_context=agent_context,
+                formatted_context=formatted_context,
             )
-        else:
-            action_to_take, final_critic_score, final_critic_justification, final_critic_confidence, was_overridden, override_reason, rejected_actions_this_turn = (
-                self._execute_critic_evaluation_loop(
-                    current_state=current_state,
-                    proposed_action=proposed_action,
-                    agent_context=agent_context,
-                    formatted_context=formatted_context,
-                )
-            )
+        )
 
         # Store rejected actions for this turn
         if rejected_actions_this_turn:
