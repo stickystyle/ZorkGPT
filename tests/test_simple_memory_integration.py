@@ -55,7 +55,6 @@ def mock_config(tmp_path):
     config = Mock(spec=GameConfiguration)
     config.zork_game_workdir = str(tmp_path)
     config.info_ext_model = "gpt-4"
-    config.simple_memory_enabled = True
     config.simple_memory_file = "Memories.md"
     config.simple_memory_max_shown = 10
     config.max_turns_per_episode = 1000
@@ -302,7 +301,6 @@ class TestConfigurationHandling:
         config = Mock()
         config.zork_game_workdir = str(tmp_path)
         config.info_ext_model = "custom-model"
-        config.simple_memory_enabled = True
         config.simple_memory_file = "CustomMemories.md"
         config.simple_memory_max_shown = 20
 

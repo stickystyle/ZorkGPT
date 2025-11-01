@@ -942,14 +942,13 @@ class ZorkOrchestratorV2:
         }
 
         # Record action outcome for memory synthesis
-        if self.config.simple_memory_enabled:
-            self.simple_memory.record_action_outcome(
-                location_id=self.game_state.current_room_id,
-                location_name=self.game_state.current_room_name_for_map,
-                action=action_to_take,
-                response=clean_response,
-                z_machine_context=z_machine_context
-            )
+        self.simple_memory.record_action_outcome(
+            location_id=self.game_state.current_room_id,
+            location_name=self.game_state.current_room_name_for_map,
+            action=action_to_take,
+            response=clean_response,
+            z_machine_context=z_machine_context
+        )
 
         # Store extracted info for viewer (state export)
         extracted_dict = {}

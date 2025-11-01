@@ -49,9 +49,9 @@ def game_config():
         enable_state_export=True,
         s3_bucket="test-bucket",
         s3_key_prefix="test/",
-        simple_memory_enabled=True,
         simple_memory_file="Memories.md",
         simple_memory_max_shown=10,
+        map_state_file="test_map_state.json",
         # Sampling parameters
         agent_sampling={},
         critic_sampling={},

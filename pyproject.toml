@@ -157,7 +157,6 @@ persistent_wisdom_file = "persistent_wisdom.md"
 
 [tool.zorkgpt.simple_memory]
 # Simple Memory System Configuration
-enabled = true
 memory_file = "Memories.md"
 max_memories_shown = 10
 

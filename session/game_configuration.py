@@ -68,7 +68,6 @@ class GameConfiguration:
     critic_rejection_threshold: float
 
     # Simple memory settings
-    simple_memory_enabled: bool
     simple_memory_file: str
     simple_memory_max_shown: int
 
@@ -232,9 +231,6 @@ class GameConfiguration:
                 gameplay_config, "critic_rejection_threshold", "gameplay"
             ),
             # Simple memory settings
-            simple_memory_enabled=require_key(
-                simple_memory_config, "enabled", "simple_memory"
-            ),
             simple_memory_file=require_key(
                 simple_memory_config, "memory_file", "simple_memory"
             ),
