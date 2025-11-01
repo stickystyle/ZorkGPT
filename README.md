@@ -132,93 +132,130 @@ The design of the logging system is specifically tailored to support the turn-ba
 
 ```mermaid
 graph TB
-    subgraph "ZorkGPT Adaptive Architecture"
-        subgraph "Core Coordination"
-            Orchestrator[ZorkOrchestrator<br/>Extended Session Management<br/>Component Coordination<br/>Adaptive Learning Orchestration]
+    subgraph "ZorkGPT Manager-Based Architecture"
+        subgraph "Central Coordination"
+            Orchestrator[ZorkOrchestratorV2<br/>Episode Lifecycle Management<br/>Turn-by-Turn Coordination<br/>Manager Orchestration]
         end
-        
+
+        subgraph "Core Session Management"
+            GameState[GameState<br/>Centralized Shared State<br/>Episode & Turn Tracking<br/>Action & Memory History]
+            GameConfig[GameConfiguration<br/>TOML + Env Config<br/>Model Settings<br/>Update Intervals]
+        end
+
+        subgraph "Specialized Managers"
+            ObjectiveMgr[ObjectiveManager<br/>Objective Discovery<br/>Completion Tracking<br/>Staleness Management]
+            KnowledgeMgr[KnowledgeManager<br/>Periodic Updates<br/>Episode Synthesis<br/>Inter-Episode Wisdom]
+            MapMgr[MapManager<br/>Integer-Based Mapping<br/>Connection Tracking<br/>Map Persistence]
+            StateMgr[StateManager<br/>State Export & S3<br/>Context Overflow<br/>Loop Detection]
+            ContextMgr[ContextManager<br/>Agent Context Assembly<br/>Critic Context Prep<br/>Memory Filtering]
+            EpisodeSynth[EpisodeSynthesizer<br/>Episode Lifecycle<br/>Final Synthesis<br/>Episode Summaries]
+            RejectionMgr[RejectionManager<br/>Trust Calibration<br/>Override Decisions<br/>Rejection Tracking]
+            MemoryMgr[SimpleMemoryManager<br/>Location Memories<br/>Memory Synthesis<br/>Deduplication]
+        end
+
         subgraph "LLM-Powered Components"
-            Agent[Agent LM<br/>Action Generation<br/>Context Integration<br/>Memory Retrieval]
-            HybridExtractor[Extractor LM<br/>Structured + LLM Parsing<br/>Location Persistence<br/>State Structuring]
-            Critic[Critic LM<br/>Action Evaluation<br/>Trust Management<br/>Rejection System]
-            AdaptiveKM[Adaptive Knowledge Manager<br/>Continuous Learning<br/>Quality Assessment<br/>Intelligent Merging]
+            Agent[Agent<br/>Action Generation<br/>Knowledge Integration<br/>Loop Detection]
+            Extractor[HybridExtractor<br/>Z-machine + LLM Parsing<br/>Object Tree Access<br/>State Structuring]
+            Critic[Critic<br/>Object Tree Validation<br/>LLM Evaluation<br/>Trust Tracking]
+            StrategyGen[StrategyGenerator<br/>Turn-Window Analysis<br/>Knowledge Synthesis<br/>Cross-Episode Learning]
         end
-        
+
         subgraph "Supporting Systems"
-            GameAPI[Game Interface<br/>Game Process Management<br/>Command Execution<br/>Response Processing]
-            MapGraph[Spatial Intelligence System<br/>Confidence-Tracked Mapping<br/>Connection Verification<br/>Quality Metrics]
-            Movement[Movement Analyzer<br/>Pattern Analysis<br/>Navigation Optimization<br/>Spatial Intelligence]
-            Logger[Logging System<br/>Multi-format Logging<br/>Turn-Window Analysis<br/>Performance Tracking]
-            StructuredParser[Structured Parser Helper<br/>Header Parsing<br/>Score/Moves Extraction<br/>Clean Text Separation]
+            JerichoIF[JerichoInterface<br/>Direct Z-machine Access<br/>Object Tree Queries<br/>Save/Restore]
+            MapGraph[MapGraph<br/>Integer-Based Rooms<br/>Confidence Scoring<br/>Exit Pruning]
+            MovementAnalyzer[MovementAnalyzer<br/>ID-Based Detection<br/>Perfect Accuracy]
+            Logger[Logger<br/>Triple-Output System<br/>Structured Events<br/>Episode Logs]
+            LLMClient[LLMClient<br/>Advanced Sampling<br/>Retry + Circuit Breaker<br/>Langfuse Integration]
         end
-        
-        subgraph "Session Data Structures"
-            MemoryLog[Session Memory<br/>Turn-by-turn observations<br/>Historical context]
-            ActionHistory[Action History<br/>Previous actions & responses<br/>Action patterns<br/>Repetition tracking]
-            GameMap[Internal Game Map<br/>Graph-based representation<br/>Confidence-tracked connections<br/>Verification metrics]
-            ActionReasoning[Action Reasoning Log<br/>Agent reasoning & critic scores<br/>Override tracking<br/>State export data]
+
+        subgraph "Persistent Data"
+            KnowledgeBase[knowledgebase.md<br/>Strategic Insights<br/>Cross-Episode Wisdom<br/>World Map]
+            MapState[map_state.json<br/>Room Graph<br/>Connection Confidence<br/>Pruned Exits]
+            MemoryFile[Memories.md<br/>Location Memories<br/>Status Tracking<br/>Supersession]
+            EpisodeLogs[Episode JSON Logs<br/>Turn-by-Turn Data<br/>Analysis Substrate]
         end
-        
-        subgraph "Adaptive Knowledge System (Data)"
-            KnowledgeBase[Dynamic Knowledge Base<br/>Continuously Updated Strategies<br/>Real-time Insights<br/>Quality-Assessed Knowledge]
-            TurnAnalysis[Turn Window Analysis<br/>Quality Assessment<br/>Strategy Determination<br/>Intelligent Merging]
-        end
-        
-        subgraph "External Interface"
-            ZorkGame[Zork Game Process<br/>Interactive Fiction Engine<br/>Extended Gameplay Sessions]
+
+        subgraph "External"
+            ZorkGame[Zork I Z-machine<br/>via Jericho Library<br/>Direct Memory Access]
         end
     end
-    
+
+    %% Orchestrator connections
+    Orchestrator --> GameState
+    Orchestrator --> GameConfig
     Orchestrator --> Agent
-    Orchestrator --> HybridExtractor
+    Orchestrator --> Extractor
     Orchestrator --> Critic
-    Orchestrator --> AdaptiveKM
+    Orchestrator --> JerichoIF
     Orchestrator --> Logger
-    
-    Agent --> MemoryLog
-    Agent --> ActionHistory
-    Agent --> GameMap
+
+    %% Manager dependencies
+    Orchestrator --> ObjectiveMgr
+    Orchestrator --> KnowledgeMgr
+    Orchestrator --> MapMgr
+    Orchestrator --> StateMgr
+    Orchestrator --> ContextMgr
+    Orchestrator --> EpisodeSynth
+    Orchestrator --> RejectionMgr
+    Orchestrator --> MemoryMgr
+
+    %% Manager interactions
+    KnowledgeMgr --> Agent
+    KnowledgeMgr --> MapMgr
+    KnowledgeMgr --> StrategyGen
+    ObjectiveMgr --> KnowledgeMgr
+    EpisodeSynth --> KnowledgeMgr
+    EpisodeSynth --> StateMgr
+    ContextMgr --> MapMgr
+    ContextMgr --> MemoryMgr
+
+    %% LLM component dependencies
+    Agent --> LLMClient
     Agent --> KnowledgeBase
-    HybridExtractor --> MemoryLog
-    Critic --> ActionReasoning
-    
-    Orchestrator --> Movement
-    Orchestrator --> MapGraph
-    GameAPI --> ZorkGame
-    Orchestrator --> GameAPI
-    HybridExtractor --> StructuredParser
-    
-    %% Data flows within session
-    MemoryLog --> Agent
-    ActionHistory --> Agent
-    GameMap --> Agent
-    KnowledgeBase --> Agent
-    Logger --> ActionReasoning
-    
-    ZorkGame -.->|Game State| GameAPI
-    GameAPI -.->|Commands| ZorkGame
-    
-    AdaptiveKM -.->|Continuous Updates| KnowledgeBase
-    Logger -.->|Turn Window Data| TurnAnalysis
-    TurnAnalysis -.->|Quality Assessment| AdaptiveKM
-    Movement -.->|Spatial Insights| MapGraph
-    ActionReasoning -.->|Session Data| AdaptiveKM
-    
-    classDef llmComponent fill:#e1f5fe,stroke:#01579b,stroke-width:2px
-    classDef supportSystem fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
-    classDef dataStructure fill:#e8f5e8,stroke:#1b5e20,stroke-width:2px
+    Extractor --> LLMClient
+    Extractor --> JerichoIF
+    Critic --> LLMClient
+    Critic --> JerichoIF
+    StrategyGen --> LLMClient
+    StrategyGen --> EpisodeLogs
+
+    %% Supporting system connections
+    MapMgr --> MapGraph
+    MapMgr --> MovementAnalyzer
+    StateMgr --> LLMClient
+    MemoryMgr --> LLMClient
+    JerichoIF --> ZorkGame
+
+    %% Data persistence
+    MapMgr -.->|Load/Save| MapState
+    KnowledgeMgr -.->|Read/Write| KnowledgeBase
+    MemoryMgr -.->|Read/Write| MemoryFile
+    Logger -.->|Write| EpisodeLogs
+
+    %% GameState access (all managers read/write)
+    GameState -.->|Shared State| ObjectiveMgr
+    GameState -.->|Shared State| KnowledgeMgr
+    GameState -.->|Shared State| MapMgr
+    GameState -.->|Shared State| StateMgr
+    GameState -.->|Shared State| ContextMgr
+    GameState -.->|Shared State| RejectionMgr
+    GameState -.->|Shared State| MemoryMgr
+
     classDef coordinator fill:#fff3e0,stroke:#e65100,stroke-width:3px
+    classDef session fill:#ffecb3,stroke:#f57f17,stroke-width:2px
+    classDef manager fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    classDef llm fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    classDef support fill:#e8f5e8,stroke:#1b5e20,stroke-width:2px
+    classDef data fill:#fff9c4,stroke:#f57f17,stroke-width:2px
     classDef external fill:#fce4ec,stroke:#880e4f,stroke-width:2px
-    classDef knowledge fill:#f1f8e9,stroke:#33691e,stroke-width:2px
-    classDef adaptive fill:#e3f2fd,stroke:#0277bd,stroke-width:2px
-    
-    class Agent,HybridExtractor,Critic llmComponent
-    class GameAPI,MapGraph,Movement,Logger,StructuredParser supportSystem
-    class MemoryLog,ActionHistory,GameMap,ActionReasoning dataStructure
+
     class Orchestrator coordinator
+    class GameState,GameConfig session
+    class ObjectiveMgr,KnowledgeMgr,MapMgr,StateMgr,ContextMgr,EpisodeSynth,RejectionMgr,MemoryMgr manager
+    class Agent,Extractor,Critic,StrategyGen llm
+    class JerichoIF,MapGraph,MovementAnalyzer,Logger,LLMClient support
+    class KnowledgeBase,MapState,MemoryFile,EpisodeLogs data
     class ZorkGame external
-    class KnowledgeBase knowledge
-    class AdaptiveKM,TurnAnalysis adaptive
 ```
 
 ## Turn-by-Turn Flow with Adaptive Learning
