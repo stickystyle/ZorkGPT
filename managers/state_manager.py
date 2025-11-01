@@ -306,7 +306,7 @@ Keep the summary under 500 words and focus on actionable information for continu
             try:
                 messages = [{"role": "user", "content": prompt}]
                 response = self.llm_client.chat.completions.create(
-                    model=self.config.llm.analysis_model,
+                    model=self.config.analysis_model,
                     messages=messages,
                     temperature=0.3,
                     max_tokens=1000,
