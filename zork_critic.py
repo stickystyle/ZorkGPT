@@ -669,13 +669,17 @@ class ZorkCritic:
                 # Handle comma-separated multi-object commands (e.g., "take X, Y, Z")
                 targets = [t.strip() for t in target.split(',')]
 
-                # Get visible objects in location (including objects in open containers)
+                # Get visible objects in location
                 visible_objects = jericho_interface.get_visible_objects_in_location()
+
+                # Also get objects in inventory (for "take X from sack" when sack is held)
+                inventory_objects = jericho_interface.get_inventory_structured()
 
                 # Expand to include objects inside open/transparent containers
                 # This is needed because Zork allows "take X" for objects in open containers
                 # We need to recursively check because containers can be inside containers
-                all_accessible_objects = list(visible_objects)
+                # Start with both room objects AND inventory objects
+                all_accessible_objects = list(visible_objects) + list(inventory_objects)
                 world_objects = jericho_interface.env.get_world_objects()
 
                 # Helper to recursively add children of transparent objects
@@ -694,7 +698,8 @@ class ZorkCritic:
                     return new_objects
 
                 # Recursively add children until no new objects found
-                current_level = list(visible_objects)
+                # Start with both room objects and inventory objects
+                current_level = list(visible_objects) + list(inventory_objects)
                 while current_level:
                     current_level = add_accessible_children(current_level)
 
@@ -713,7 +718,7 @@ class ZorkCritic:
                     if not found:
                         return ValidationResult(
                             valid=False,
-                            reason=f"Object '{single_target}' is not visible in current location",
+                            reason=f"Object '{single_target}' is not visible or accessible",
                             confidence=0.9
                         )
 

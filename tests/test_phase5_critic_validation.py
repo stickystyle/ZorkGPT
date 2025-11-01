@@ -33,8 +33,9 @@ class TestValidationMethod:
 
     def test_rejects_take_action_when_object_not_visible(self, critic, mock_jericho):
         """Test that validation rejects 'take lamp' when lamp is not in room."""
-        # Setup: lamp not in visible objects
+        # Setup: lamp not in visible objects or inventory
         mock_jericho.get_visible_objects_in_location.return_value = []
+        mock_jericho.get_inventory_structured.return_value = []
 
         # Execute
         result = critic._validate_against_object_tree("take lamp", mock_jericho)
@@ -219,8 +220,9 @@ class TestValidationMethod:
 
     def test_validation_with_alternate_verbs(self, critic, mock_jericho):
         """Test validation works with alternate verb forms (get, grab, pick)."""
-        # Setup: lamp not visible
+        # Setup: lamp not visible in room or inventory
         mock_jericho.get_visible_objects_in_location.return_value = []
+        mock_jericho.get_inventory_structured.return_value = []
 
         # Test "get"
         result = critic._validate_against_object_tree("get lamp", mock_jericho)
@@ -254,6 +256,82 @@ class TestValidationMethod:
         # Verify
         assert result.valid is False
         assert "cannot be opened/closed" in result.reason
+
+    def test_take_from_inventory_container(self, critic, mock_jericho):
+        """Test that 'take X from Y' works when Y is in inventory and open.
+
+        This is a regression test for the bug where "take garlic from sack"
+        failed when the sack was in inventory (not in the room). The validation
+        should check both room objects AND inventory objects for transparent
+        containers.
+        """
+        # Setup: sack is in inventory (not in room), garlic is inside sack
+        mock_sack = Mock()
+        mock_sack.name = "brown sack"
+        mock_sack.num = 224  # Object ID for sack
+
+        mock_garlic = Mock()
+        mock_garlic.name = "clove of garlic"
+        mock_garlic.num = 189  # Object ID for garlic
+        mock_garlic.parent = 224  # Garlic's parent is the sack
+
+        # Room is empty, but sack is in inventory
+        mock_jericho.get_visible_objects_in_location.return_value = []
+        mock_jericho.get_inventory_structured.return_value = [mock_sack]
+
+        # World objects include both sack and garlic
+        mock_jericho.env.get_world_objects.return_value = [mock_sack, mock_garlic]
+
+        # Sack is transparent (open), so we can take from it
+        def get_attrs(obj):
+            if obj.num == 224:  # sack
+                return {'transparent': True, 'container': True}
+            return {}
+
+        mock_jericho.get_object_attributes.side_effect = get_attrs
+
+        # Execute: "take garlic from sack" -> strips to "take garlic"
+        result = critic._validate_against_object_tree("take garlic from sack", mock_jericho)
+
+        # Verify - should PASS because garlic is accessible via inventory container
+        assert result.valid is True
+
+    def test_take_from_closed_inventory_container(self, critic, mock_jericho):
+        """Test that 'take X from Y' fails when Y is closed in inventory.
+
+        If a container in inventory is not transparent (closed), we cannot
+        take items from it without opening it first.
+        """
+        # Setup: sack is in inventory but CLOSED (transparent=False)
+        mock_sack = Mock()
+        mock_sack.name = "brown sack"
+        mock_sack.num = 224
+
+        mock_garlic = Mock()
+        mock_garlic.name = "clove of garlic"
+        mock_garlic.num = 189
+        mock_garlic.parent = 224
+
+        # Room is empty, sack is in inventory
+        mock_jericho.get_visible_objects_in_location.return_value = []
+        mock_jericho.get_inventory_structured.return_value = [mock_sack]
+
+        mock_jericho.env.get_world_objects.return_value = [mock_sack, mock_garlic]
+
+        # Sack is NOT transparent (closed)
+        def get_attrs(obj):
+            if obj.num == 224:  # sack
+                return {'transparent': False, 'container': True}
+            return {}
+
+        mock_jericho.get_object_attributes.side_effect = get_attrs
+
+        # Execute
+        result = critic._validate_against_object_tree("take garlic from sack", mock_jericho)
+
+        # Verify - should FAIL because sack is closed
+        assert result.valid is False
+        assert "not visible or accessible" in result.reason
 
     def test_validation_result_dataclass(self):
         """Test the ValidationResult dataclass."""
