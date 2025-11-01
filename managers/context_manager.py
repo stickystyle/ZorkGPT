@@ -486,6 +486,7 @@ class ContextManager(BaseManager):
             current_map = context.get("current_map")
             if current_map:
                 formatted_parts.append("\nCURRENT WORLD MAP:")
+                formatted_parts.append("(Note: This shows only locations you have discovered so far. There may be other rooms and exits yet undiscovered.)")
                 formatted_parts.append("```mermaid")
                 formatted_parts.append(current_map)
                 formatted_parts.append("```")
