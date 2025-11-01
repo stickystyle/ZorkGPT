@@ -589,6 +589,9 @@ Keep the summary under 500 words and focus on actionable information for continu
                     log_entry["was_overridden"] = critic_data.get(
                         "was_overridden", False
                     )
+                    log_entry["override_reason"] = critic_data.get(
+                        "override_reason", None
+                    )
                     log_entry["rejected_actions"] = critic_data.get(
                         "rejected_actions", []
                     )

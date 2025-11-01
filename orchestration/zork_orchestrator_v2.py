@@ -432,12 +432,12 @@ class ZorkOrchestratorV2:
         proposed_action: str,
         agent_context: Dict,
         formatted_context: str,
-    ) -> Tuple[str, float, str, float, bool, List[Dict]]:
+    ) -> Tuple[str, float, str, float, bool, Optional[str], List[Dict]]:
         """Execute critic evaluation and rejection loop without Langfuse tracing.
 
         Returns:
             Tuple of (action_to_take, final_critic_score, final_critic_justification,
-                     final_critic_confidence, was_overridden, rejected_actions_this_turn)
+                     final_critic_confidence, was_overridden, override_reason, rejected_actions_this_turn)
         """
         # Get critic context with ground-truth exits from Jericho (god-like view)
         critic_context = self.context_manager.get_critic_context(
@@ -474,6 +474,7 @@ class ZorkOrchestratorV2:
         final_critic_justification = critic_result.justification
         final_critic_confidence = critic_result.confidence
         was_overridden = False
+        final_override_reason = None  # Track override reason for viewer
 
         # Rejection loop
         for rejection_attempt in range(max_rejections):
@@ -553,6 +554,7 @@ class ZorkOrchestratorV2:
 
             if should_override:
                 was_overridden = True
+                final_override_reason = override_reason  # Store for viewer export
                 self.logger.info(
                     f"Overriding critic rejection: {override_reason}",
                     extra={
@@ -664,6 +666,7 @@ class ZorkOrchestratorV2:
             final_critic_justification,
             final_critic_confidence,
             was_overridden,
+            final_override_reason,
             rejected_actions_this_turn,
         )
 
@@ -673,12 +676,12 @@ class ZorkOrchestratorV2:
         proposed_action: str,
         agent_context: Dict,
         formatted_context: str,
-    ) -> Tuple[str, float, str, float, bool, List[Dict]]:
+    ) -> Tuple[str, float, str, float, bool, Optional[str], List[Dict]]:
         """Execute critic evaluation and rejection loop with Langfuse parent span tracing.
 
         Returns:
             Tuple of (action_to_take, final_critic_score, final_critic_justification,
-                     final_critic_confidence, was_overridden, rejected_actions_this_turn)
+                     final_critic_confidence, was_overridden, override_reason, rejected_actions_this_turn)
         """
         # Get critic context with ground-truth exits from Jericho (god-like view)
         critic_context = self.context_manager.get_critic_context(
@@ -749,7 +752,7 @@ class ZorkOrchestratorV2:
             final_critic_justification = critic_result.justification
             final_critic_confidence = critic_result.confidence
             was_overridden = False
-            override_reason = None
+            final_override_reason = None  # Track override reason for viewer
 
             # Rejection loop
             for rejection_attempt in range(max_rejections):
@@ -829,6 +832,7 @@ class ZorkOrchestratorV2:
 
                 if should_override:
                     was_overridden = True
+                    final_override_reason = override_reason  # Store for viewer export
                     self.logger.info(
                         f"Overriding critic rejection: {override_reason}",
                         extra={
@@ -990,6 +994,7 @@ class ZorkOrchestratorV2:
                 final_critic_justification,
                 final_critic_confidence,
                 was_overridden,
+                final_override_reason,
                 rejected_actions_this_turn,
             )
 
@@ -1032,7 +1037,7 @@ class ZorkOrchestratorV2:
 
         # Wrap critic evaluation and rejection loop in parent span for Langfuse
         if self.langfuse_client:
-            action_to_take, final_critic_score, final_critic_justification, final_critic_confidence, was_overridden, rejected_actions_this_turn = (
+            action_to_take, final_critic_score, final_critic_justification, final_critic_confidence, was_overridden, override_reason, rejected_actions_this_turn = (
                 self._execute_critic_evaluation_loop_with_tracing(
                     current_state=current_state,
                     proposed_action=proposed_action,
@@ -1041,7 +1046,7 @@ class ZorkOrchestratorV2:
                 )
             )
         else:
-            action_to_take, final_critic_score, final_critic_justification, final_critic_confidence, was_overridden, rejected_actions_this_turn = (
+            action_to_take, final_critic_score, final_critic_justification, final_critic_confidence, was_overridden, override_reason, rejected_actions_this_turn = (
                 self._execute_critic_evaluation_loop(
                     current_state=current_state,
                     proposed_action=proposed_action,
@@ -1064,6 +1069,7 @@ class ZorkOrchestratorV2:
             "critic_score": final_critic_score,
             "critic_justification": final_critic_justification,
             "was_overridden": was_overridden,
+            "override_reason": override_reason,  # Include override reason for viewer
             "rejected_actions": rejected_actions_this_turn,
         }
         self.game_state.critic_evaluation_history.append(critic_eval_data)
