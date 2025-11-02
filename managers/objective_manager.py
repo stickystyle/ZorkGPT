@@ -15,7 +15,7 @@ from managers.base_manager import BaseManager
 from session.game_state import GameState
 from session.game_configuration import GameConfiguration
 from zork_strategy_generator import AdaptiveKnowledgeManager
-from shared_utils import create_json_schema, strip_markdown_json_fences
+from shared_utils import create_json_schema, strip_markdown_json_fences, extract_json_from_text
 
 
 class ObjectiveDiscoveryResponse(BaseModel):
@@ -250,11 +250,26 @@ Provide insights in these categories focused on strategic patterns and game worl
 
 Focus on actionable insights that help the agent become better at recognizing opportunities, avoiding dangers, and understanding the game world. Be specific about locations, items, commands, and game mechanics discovered through actual gameplay experience.
 
-Return a JSON object with:
-- "objectives": An array of discovered objectives (limit to 10-12 most important)
-- "reasoning": Brief explanation of why these objectives were identified
+Focus on objectives the agent has actually discovered through gameplay patterns or its own novel reasoning, not general Zork knowledge.
 
-Focus on objectives the agent has actually discovered through gameplay patterns or its own novel reasoning, not general Zork knowledge."""
+**CRITICAL - OUTPUT FORMAT:**
+YOU MUST respond with ONLY a valid JSON object. Do not include any text before or after the JSON. Do not include thinking tags or reasoning outside the JSON structure.
+
+Required JSON format:
+{{
+  "objectives": ["objective 1", "objective 2", ...],
+  "reasoning": "brief explanation"
+}}
+
+Example valid response:
+{{
+  "objectives": [
+    "Find a light source to explore dark areas safely",
+    "Acquire the brass lantern from the Living Room",
+    "Search for valuable treasures to increase score"
+  ],
+  "reasoning": "Agent has discovered the importance of light from game feedback and is actively seeking the lantern."
+}}"""
 
             # Get LLM response using adaptive knowledge manager's client
             if not self.adaptive_knowledge_manager:
@@ -314,20 +329,31 @@ Focus on objectives the agent has actually discovered through gameplay patterns 
 
                 # Parse JSON response
                 try:
-                    # Strip markdown fences if present (some LLMs wrap JSON in ```json ... ```)
-                    json_content = strip_markdown_json_fences(response_content)
-                    response_data = ObjectiveDiscoveryResponse.model_validate_json(
-                        json_content
-                    )
-                    updated_objectives = response_data.objectives
-                    reasoning = response_data.reasoning
+                    # Check for empty response
+                    if not response_content or not response_content.strip():
+                        self.log_warning(
+                            "LLM returned empty response for objective discovery",
+                            details=f"Model: {model_to_use}, response was empty or whitespace-only"
+                        )
+                        updated_objectives = []
+                    else:
+                        # Extract JSON (handles markdown fences, reasoning tags, and embedded JSON)
+                        json_content = extract_json_from_text(response_content)
+                        response_data = ObjectiveDiscoveryResponse.model_validate_json(
+                            json_content
+                        )
+                        updated_objectives = response_data.objectives
+                        reasoning = response_data.reasoning
 
-                    self.log_debug(
-                        f"Parsed {len(updated_objectives)} objectives from JSON response",
-                        details=f"Reasoning: {reasoning[:100]}...",
-                    )
+                        self.log_debug(
+                            f"Parsed {len(updated_objectives)} objectives from JSON response",
+                            details=f"Reasoning: {reasoning[:100]}...",
+                        )
                 except Exception as e:
-                    self.log_error(f"Failed to parse JSON response: {e}")
+                    self.log_error(
+                        f"Failed to parse JSON response: {e}",
+                        details=f"Response content (first 500 chars): {response_content[:500]}"
+                    )
                     updated_objectives = []
 
                 if updated_objectives:
@@ -517,9 +543,20 @@ CURRENT LOCATION: {self.game_state.current_room_name_for_map}
 
 Which objectives (if any) have been completed based on this action and the completion signals?
 
-Return a JSON object with:
-- "completed_objectives": Array of objectives that were completed (use exact text from the list above)
-- "reasoning": Brief explanation of why these objectives are considered complete"""
+**CRITICAL - OUTPUT FORMAT:**
+YOU MUST respond with ONLY a valid JSON object. Do not include any text before or after the JSON. Do not include thinking tags or reasoning outside the JSON structure.
+
+Required JSON format:
+{{
+  "completed_objectives": ["exact objective text 1", "exact objective text 2", ...],
+  "reasoning": "brief explanation"
+}}
+
+Example valid response:
+{{
+  "completed_objectives": ["Acquire the brass lantern from the Living Room"],
+  "reasoning": "Successfully took the lantern, completing this specific acquisition objective."
+}}"""
 
         if self.adaptive_knowledge_manager and self.adaptive_knowledge_manager.client:
             try:
@@ -538,8 +575,16 @@ Return a JSON object with:
 
                 # Parse JSON response
                 try:
-                    # Strip markdown fences if present (some LLMs wrap JSON in ```json ... ```)
-                    json_content = strip_markdown_json_fences(response_content)
+                    # Check for empty response
+                    if not response_content or not response_content.strip():
+                        self.log_warning(
+                            "LLM returned empty response for objective completion evaluation",
+                            details=f"Model: {self.adaptive_knowledge_manager.analysis_model}, response was empty"
+                        )
+                        return
+
+                    # Extract JSON (handles markdown fences, reasoning tags, and embedded JSON)
+                    json_content = extract_json_from_text(response_content)
                     response_data = ObjectiveCompletionResponse.model_validate_json(
                         json_content
                     )
@@ -555,7 +600,10 @@ Return a JSON object with:
                             completed_objectives, action_taken, completion_signals
                         )
                 except Exception as e:
-                    self.log_error(f"Failed to parse completion JSON: {e}")
+                    self.log_error(
+                        f"Failed to parse completion JSON: {e}",
+                        details=f"Response content (first 500 chars): {response_content[:500] if response_content else 'None'}"
+                    )
 
             except Exception as e:
                 self.log_error(f"Failed to evaluate objective completion: {e}")
@@ -776,9 +824,24 @@ Select the {self.config.refined_objectives_target_count} most important objectiv
 3. Most specific and actionable
 4. Not redundant with each other
 
-Return a JSON object with:
-- "refined_objectives": Array of the {self.config.refined_objectives_target_count} most important objectives
-- "reasoning": Brief explanation of selection criteria"""
+**CRITICAL - OUTPUT FORMAT:**
+YOU MUST respond with ONLY a valid JSON object. Do not include any text before or after the JSON. Do not include thinking tags or reasoning outside the JSON structure.
+
+Required JSON format:
+{{{{
+  "refined_objectives": ["objective 1", "objective 2", ...],
+  "reasoning": "brief explanation"
+}}}}
+
+Example valid response:
+{{{{
+  "refined_objectives": [
+    "Find and light the brass lantern to explore dark areas",
+    "Locate and collect valuable treasures for points",
+    "Solve the troll puzzle to access new areas"
+  ],
+  "reasoning": "Selected objectives that are most achievable with current inventory and most likely to increase score."
+}}}}"""
 
         if self.adaptive_knowledge_manager and self.adaptive_knowledge_manager.client:
             try:
@@ -797,8 +860,16 @@ Return a JSON object with:
 
                 # Parse JSON response
                 try:
-                    # Strip markdown fences if present (some LLMs wrap JSON in ```json ... ```)
-                    json_content = strip_markdown_json_fences(response_content)
+                    # Check for empty response
+                    if not response_content or not response_content.strip():
+                        self.log_warning(
+                            "LLM returned empty response for objective refinement",
+                            details=f"Model: {self.adaptive_knowledge_manager.analysis_model}, response was empty"
+                        )
+                        return
+
+                    # Extract JSON (handles markdown fences, reasoning tags, and embedded JSON)
+                    json_content = extract_json_from_text(response_content)
                     response_data = ObjectiveRefinementResponse.model_validate_json(
                         json_content
                     )
@@ -818,7 +889,10 @@ Return a JSON object with:
                             details=f"Refined from {old_count} to {len(self.game_state.discovered_objectives)} objectives",
                         )
                 except Exception as e:
-                    self.log_error(f"Failed to parse refinement JSON: {e}")
+                    self.log_error(
+                        f"Failed to parse refinement JSON: {e}",
+                        details=f"Response content (first 500 chars): {response_content[:500] if response_content else 'None'}"
+                    )
 
             except Exception as e:
                 self.log_error(f"Failed to refine objectives: {e}")

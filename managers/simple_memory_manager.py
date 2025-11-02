@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field, model_validator
 from managers.base_manager import BaseManager
 from session.game_state import GameState
 from session.game_configuration import GameConfiguration
-from shared_utils import create_json_schema, strip_markdown_json_fences
+from shared_utils import create_json_schema, strip_markdown_json_fences, extract_json_from_text
 from llm_client import LLMClientWrapper
 
 
@@ -1219,7 +1219,9 @@ SKIP (handled elsewhere or not actionable):
 ❌ Movement commands (north/south/etc.)
 ❌ DUPLICATES (semantically similar to existing memories)
 
-OUTPUT FORMAT:
+**CRITICAL - OUTPUT FORMAT:**
+YOU MUST respond with ONLY a valid JSON object. Do not include any text before or after the JSON. Do not include thinking tags, reasoning outside the JSON structure, or markdown fences.
+
 If should_remember=false (duplicate/navigation/not actionable):
 {{
   "should_remember": false,
@@ -1229,15 +1231,30 @@ If should_remember=false (duplicate/navigation/not actionable):
 If should_remember=true (new actionable insight):
 {{
   "should_remember": true,
-  "category": "SUCCESS"|"FAILURE"|"DISCOVERY"|"DANGER"|"NOTE",  // uppercase required
+  "category": "SUCCESS"|"FAILURE"|"DISCOVERY"|"DANGER"|"NOTE",
   "memory_title": "3-6 words, evergreen",
   "memory_text": "1-2 sentences, actionable insight",
-  "status": "ACTIVE"|"TENTATIVE",  // ACTIVE=certain, TENTATIVE=uncertain consequences
-  "supersedes_memory_titles": ["Title1", "Title2"],  // titles this supersedes, or []
+  "status": "ACTIVE"|"TENTATIVE",
+  "supersedes_memory_titles": ["Title1", "Title2"],
   "reasoning": "explain semantic comparison, contradiction detection, status choice"
 }}
 
-Return JSON only. No markdown fences."""
+Example valid response for NOT remembering:
+{{
+  "should_remember": false,
+  "reasoning": "Semantic duplicate - existing memory 'Mailbox contains leaflet' already captures this insight"
+}}
+
+Example valid response for remembering:
+{{
+  "should_remember": true,
+  "category": "DANGER",
+  "memory_title": "Troll attacks after accepting gift",
+  "memory_text": "Troll accepts lunch gift but then becomes hostile and attacks. Gift strategy ineffective.",
+  "status": "ACTIVE",
+  "supersedes_memory_titles": ["Troll accepts lunch gift"],
+  "reasoning": "Contradicts previous tentative memory - troll is not pacified by gifts"
+}}"""
 
             # Call LLM with structured output
             llm_response = self.llm_client.chat.completions.create(
@@ -1249,8 +1266,17 @@ Return JSON only. No markdown fences."""
                 response_format=create_json_schema(MemorySynthesisResponse)
             )
 
-            # Strip markdown fences if present (some LLMs wrap JSON in ```json ... ```)
-            json_content = strip_markdown_json_fences(llm_response.content)
+            # Check for empty response
+            if not llm_response.content or not llm_response.content.strip():
+                self.log_warning(
+                    "LLM returned empty response for memory synthesis",
+                    location_id=location_id,
+                    details="Response was empty or whitespace-only"
+                )
+                return None
+
+            # Extract JSON (handles markdown fences, reasoning tags, and embedded JSON)
+            json_content = extract_json_from_text(llm_response.content)
 
             # Parse response
             synthesis = MemorySynthesisResponse.model_validate_json(json_content)
@@ -1278,7 +1304,8 @@ Return JSON only. No markdown fences."""
             self.log_error(
                 f"Failed to synthesize memory: {e}",
                 location_id=location_id,
-                error=str(e)
+                error=str(e),
+                response_preview=llm_response.content[:500] if llm_response and llm_response.content else "No response content"
             )
             return None
 

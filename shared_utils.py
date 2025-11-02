@@ -87,6 +87,59 @@ def strip_markdown_json_fences(content: str) -> str:
     return content
 
 
+def extract_json_from_text(content: str) -> str:
+    """
+    Extract JSON from text that may contain reasoning or other content.
+
+    Reasoning models like DeepSeek R1 may return JSON embedded in thinking tags
+    or surrounded by explanatory text. This function tries to find and extract
+    the JSON object from anywhere in the text.
+
+    Args:
+        content: String that may contain JSON embedded in other text
+
+    Returns:
+        Extracted JSON string, or original content if no JSON found
+    """
+    import re
+    import json
+
+    # First try the standard markdown fence extraction
+    stripped = strip_markdown_json_fences(content)
+    if stripped != content:
+        return stripped
+
+    # Try to find JSON objects by looking for balanced braces
+    # Start from first { and find matching }
+    start_idx = content.find('{')
+    if start_idx == -1:
+        return content
+
+    # Find the matching closing brace
+    brace_count = 0
+    end_idx = -1
+    for i in range(start_idx, len(content)):
+        if content[i] == '{':
+            brace_count += 1
+        elif content[i] == '}':
+            brace_count -= 1
+            if brace_count == 0:
+                end_idx = i + 1
+                break
+
+    if end_idx != -1:
+        potential_json = content[start_idx:end_idx]
+        # Validate it's actually JSON
+        try:
+            json.loads(potential_json)
+            return potential_json
+        except json.JSONDecodeError:
+            pass
+
+    # If all else fails, return original content
+    return content
+
+
 def estimate_context_tokens(
     memory_history: List[Any] = None,
     reasoning_history: List[Any] = None,
