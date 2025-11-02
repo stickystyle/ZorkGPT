@@ -5,6 +5,7 @@ import time
 import argparse
 import signal
 from datetime import datetime
+from pathlib import Path
 
 
 def run_episode(episode_id=None, max_turns=None):
@@ -160,7 +161,8 @@ def run_episode(episode_id=None, max_turns=None):
 
         # Show the final knowledge base
         try:
-            with open("knowledgebase.md", "r") as f:
+            knowledge_path = Path(orchestrator.config.zork_game_workdir) / orchestrator.config.knowledge_file
+            with open(knowledge_path, "r") as f:
                 knowledge_content = f.read()
                 print(
                     f"\n📚 Final knowledge base ({len(knowledge_content)} characters):"

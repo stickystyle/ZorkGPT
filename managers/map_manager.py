@@ -11,6 +11,7 @@ Handles all map-related responsibilities:
 
 from typing import Dict, Any, Optional
 import os
+from pathlib import Path
 
 from managers.base_manager import BaseManager
 from session.game_state import GameState
@@ -34,7 +35,7 @@ class MapManager(BaseManager):
         super().__init__(logger, config, game_state, "map_manager")
 
         # Initialize map components - try to load from previous episodes
-        map_state_path = config.map_state_file
+        map_state_path = Path(config.zork_game_workdir) / config.map_state_file
         if os.path.exists(map_state_path):
             loaded_map = MapGraph.load_from_json(map_state_path, logger=logger)
             if loaded_map:
@@ -357,7 +358,7 @@ class MapManager(BaseManager):
             True if save succeeded, False otherwise
         """
         try:
-            filepath = self.config.map_state_file
+            filepath = str(Path(self.config.zork_game_workdir) / self.config.map_state_file)
             success = self.game_map.save_to_json(filepath)
             if success:
                 self.log_info(

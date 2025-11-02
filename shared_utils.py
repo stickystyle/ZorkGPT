@@ -5,8 +5,9 @@ This module contains common utility functions used across multiple components
 to avoid code duplication.
 """
 
-from typing import Dict, Any, Type, Union, List
+from typing import Dict, Any, Type, Union, List, Optional
 from pydantic import BaseModel
+from pathlib import Path
 
 
 def create_json_schema(model: Type[BaseModel]) -> Dict[str, Any]:
@@ -143,7 +144,7 @@ def extract_json_from_text(content: str) -> str:
 def estimate_context_tokens(
     memory_history: List[Any] = None,
     reasoning_history: List[Any] = None,
-    knowledge_base_path: str = "knowledgebase.md",
+    knowledge_base_path: Optional[str] = None,
     additional_content: str = "",
 ) -> int:
     """
@@ -155,7 +156,7 @@ def estimate_context_tokens(
     Args:
         memory_history: List of memory log entries
         reasoning_history: List of action reasoning entries
-        knowledge_base_path: Path to knowledge base file
+        knowledge_base_path: Path to knowledge base file (defaults to game_files/knowledgebase.md from config)
         additional_content: Any additional string content to include
 
     Returns:
@@ -174,6 +175,12 @@ def estimate_context_tokens(
             total_tokens += estimate_tokens(reasoning)
 
     # Count knowledge base
+    if knowledge_base_path is None:
+        # Construct path from config if not provided
+        from config import get_config
+        config = get_config()
+        knowledge_base_path = str(Path(config.gameplay.zork_game_workdir) / config.files.knowledge_file)
+
     try:
         with open(knowledge_base_path, "r", encoding="utf-8") as f:
             total_tokens += estimate_tokens(f.read())

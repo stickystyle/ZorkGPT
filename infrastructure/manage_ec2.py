@@ -231,10 +231,11 @@ def download_analysis_files(public_ip: str) -> None:
 
     # Files to download from the ZorkGPT working directory
     files_to_download = [
-        "current_state.json",
-        "knowledgebase.md",
+        "game_files/current_state.json",
+        "game_files/knowledgebase.md",
+        "game_files/map_state.json",
         # "persistent_wisdom.md",  # Removed: now integrated into knowledgebase.md
-        "zork_episode_log.jsonl",
+        "game_files/zork_episode_log.jsonl",
     ]
 
     success_count = 0

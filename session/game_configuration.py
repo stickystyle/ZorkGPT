@@ -32,6 +32,7 @@ class GameConfiguration:
     json_log_file: str
     state_export_file: str
     map_state_file: str
+    knowledge_file: str
     zork_game_workdir: str
     game_file_path: str
 
@@ -107,6 +108,11 @@ class GameConfiguration:
         if self.s3_bucket is None:
             self.s3_bucket = os.environ.get("ZORK_S3_BUCKET")
 
+        # Ensure game working directory exists
+        workdir = Path(self.zork_game_workdir)
+        if not workdir.exists():
+            workdir.mkdir(parents=True, exist_ok=True)
+
     @classmethod
     def from_toml(cls, config_file: Optional[Path] = None) -> "GameConfiguration":
         """
@@ -172,6 +178,7 @@ class GameConfiguration:
             json_log_file=require_key(files_config, "json_log_file", "files"),
             state_export_file=require_key(files_config, "state_export_file", "files"),
             map_state_file=require_key(files_config, "map_state_file", "files"),
+            knowledge_file=require_key(files_config, "knowledge_file", "files"),
             zork_game_workdir=require_key(
                 gameplay_config, "zork_game_workdir", "gameplay"
             ),

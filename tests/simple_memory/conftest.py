@@ -192,6 +192,7 @@ def game_config(tmp_path):
         s3_key_prefix="test/",
         simple_memory_file="Memories.md",
         simple_memory_max_shown=10,
+        knowledge_file="test_knowledgebase.md",
         # Sampling parameters
         agent_sampling={},
         critic_sampling={},

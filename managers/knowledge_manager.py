@@ -9,8 +9,10 @@ Handles all knowledge management responsibilities:
 - Inter-episode wisdom synthesis and strategy updates
 """
 
+import os
 import re
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import List, Dict, Any
 
 from managers.base_manager import BaseManager
@@ -46,8 +48,9 @@ class KnowledgeManager(BaseManager):
         self.map_manager = game_map  # Rename for clarity - this is actually MapManager
 
         # Initialize AdaptiveKnowledgeManager
+        knowledge_file_path = str(Path(config.zork_game_workdir) / config.knowledge_file)
         self.adaptive_knowledge_manager = AdaptiveKnowledgeManager(
-            log_file=json_log_file, output_file="knowledgebase.md", logger=logger
+            log_file=json_log_file, output_file=knowledge_file_path, logger=logger
         )
 
         # Knowledge update tracking
@@ -492,7 +495,7 @@ class KnowledgeManager(BaseManager):
     def get_knowledge_base_summary(self) -> str:
         """Get knowledge base content without the map section."""
         try:
-            with open("knowledgebase.md", "r") as f:
+            with open(self.adaptive_knowledge_manager.output_file, "r") as f:
                 content = f.read()
 
             # Remove mermaid map sections using regex
@@ -520,9 +523,7 @@ class KnowledgeManager(BaseManager):
         """Get knowledge base data for state export (matching old orchestrator format)."""
         try:
             # Read knowledge base file (like old orchestrator did)
-            import os
-
-            with open("knowledgebase.md", "r") as f:
+            with open(self.adaptive_knowledge_manager.output_file, "r") as f:
                 content = f.read()
 
             # Remove the mermaid diagram section more precisely
@@ -535,8 +536,8 @@ class KnowledgeManager(BaseManager):
 
             return {
                 "content": knowledge_only.strip(),
-                "last_updated": os.path.getmtime("knowledgebase.md")
-                if os.path.exists("knowledgebase.md")
+                "last_updated": os.path.getmtime(self.adaptive_knowledge_manager.output_file)
+                if os.path.exists(self.adaptive_knowledge_manager.output_file)
                 else None,
                 "object_events": self.object_events[-50:],  # Include recent 50 events
                 "total_object_events": len(self.object_events),
@@ -546,12 +547,16 @@ class KnowledgeManager(BaseManager):
             return {
                 "content": "# Zork Game World Knowledge Base\n\nNo knowledge base content available yet.",
                 "last_updated": None,
+                "object_events": self.object_events[-50:],  # Include recent 50 events
+                "total_object_events": len(self.object_events),
             }
         except Exception as e:
             self.log_error(f"Failed to get knowledge export data: {e}")
             return {
                 "content": "# Zork Game World Knowledge Base\n\nError loading knowledge base content.",
                 "last_updated": None,
+                "object_events": self.object_events[-50:],  # Include recent 50 events
+                "total_object_events": len(self.object_events),
             }
 
     def get_status(self) -> Dict[str, Any]:

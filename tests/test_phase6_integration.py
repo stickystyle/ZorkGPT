@@ -63,6 +63,7 @@ class TestPhase6Integration:
                 simple_memory_file="Memories.md",
                 simple_memory_max_shown=10,
                 map_state_file="test_map_state.json",
+                knowledge_file="test_knowledgebase.md",
                 # Sampling parameters
                 agent_sampling={},
                 critic_sampling={},

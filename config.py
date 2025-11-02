@@ -163,6 +163,8 @@ class FilesConfig(BaseModel):
     episode_log_file: str = "zork_episode_log.txt"
     json_log_file: str = "zork_episode_log.jsonl"
     state_export_file: str = "current_state.json"
+    map_state_file: str = "map_state.json"
+    knowledge_file: str = "knowledgebase.md"
 
 
 class AWSConfig(BaseModel):

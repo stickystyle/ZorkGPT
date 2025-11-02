@@ -6,6 +6,7 @@ import re
 from typing import Optional, List, Tuple, Dict
 from collections import Counter
 import os
+from pathlib import Path
 from map_graph import MapGraph
 from hybrid_zork_extractor import ExtractorResponse
 from llm_client import LLMClientWrapper
@@ -104,7 +105,8 @@ class ZorkAgent:
 
     def _enhance_prompt_with_knowledge(self, base_prompt: str) -> str:
         """Enhance the agent prompt with accumulated knowledge."""
-        knowledge_file = "knowledgebase.md"
+        config = get_config()
+        knowledge_file = Path(config.gameplay.zork_game_workdir) / config.files.knowledge_file
 
         if not os.path.exists(knowledge_file):
             return base_prompt

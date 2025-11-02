@@ -74,6 +74,7 @@ class TestBaseManagerSetup:
             simple_memory_max_shown=10,
             # Map state persistence
             map_state_file="test_map_state.json",
+            knowledge_file="test_knowledgebase.md",
             # Sampling parameters
             agent_sampling={},
             critic_sampling={},
