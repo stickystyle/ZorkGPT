@@ -155,8 +155,6 @@ class OrchestratorConfig(BaseModel):
     refined_objectives_target_count: int = 10
     # Inter-episode synthesis configuration
     enable_inter_episode_synthesis: bool = True
-    # Legacy setting kept for migration purposes only - cross-episode insights now in knowledgebase.md CROSS-EPISODE INSIGHTS section
-    persistent_wisdom_file: str = "persistent_wisdom.md"
 
 
 class FilesConfig(BaseModel):

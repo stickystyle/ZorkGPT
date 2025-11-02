@@ -147,8 +147,6 @@ refined_objectives_target_count = 8
 
 # Inter-episode synthesis configuration
 enable_inter_episode_synthesis = true
-# Legacy: kept for migration purposes only - cross-episode insights now in knowledgebase.md
-persistent_wisdom_file = "persistent_wisdom.md"
 
 [tool.zorkgpt.simple_memory]
 # Simple Memory System Configuration
