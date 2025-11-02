@@ -87,7 +87,7 @@ Successfully integrated Langfuse observability into ZorkGPT with comprehensive L
 - `zork_agent.py` - `@observe(name="agent-generate-action")`
 - `zork_critic.py` - `@observe(name="critic-evaluate-action")`
 - `hybrid_zork_extractor.py` - `@observe(name="extractor-extract-information")`
-- `zork_strategy_generator.py` - `@observe(name="strategy-generate-update")` + `@observe(name="knowledge-synthesize-strategic")`
+- `zork_strategy_generator.py` (now `knowledge/adaptive_manager.py`) - `@observe(name="strategy-generate-update")` + `@observe(name="knowledge-synthesize-strategic")`
 - `managers/episode_synthesizer.py` - `@observe(name="episode-generate-synthesis")`
 
 **Trace Hierarchy Achieved**:
@@ -218,7 +218,7 @@ Additional config toggles (explicit enable flag, sampling rate) deemed unnecessa
 4. `zork_agent.py` - @observe decorator
 5. `zork_critic.py` - @observe decorator
 6. `hybrid_zork_extractor.py` - @observe decorator
-7. `zork_strategy_generator.py` - @observe decorators (2)
+7. `zork_strategy_generator.py` (now `knowledge/adaptive_manager.py`) - @observe decorators (2)
 8. `managers/episode_synthesizer.py` - @observe decorator
 
 ### Created Test Files (3)

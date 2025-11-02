@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from managers.base_manager import BaseManager
 from session.game_state import GameState
 from session.game_configuration import GameConfiguration
-from zork_strategy_generator import AdaptiveKnowledgeManager
+from knowledge import AdaptiveKnowledgeManager
 from shared_utils import create_json_schema, strip_markdown_json_fences, extract_json_from_text
 
 

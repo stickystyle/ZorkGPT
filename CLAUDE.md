@@ -341,9 +341,9 @@ The refactored system follows a **manager pattern** where specialized managers h
 
 #### LLM-Powered Components
 - **Agent** (`zork_agent.py`): Generates game actions based on current state and context
-- **Extractor** (`hybrid_zork_extractor.py`): Parses raw game text into structured information  
+- **Extractor** (`hybrid_zork_extractor.py`): Parses raw game text into structured information
 - **Critic** (`zork_critic.py`): Evaluates proposed actions before execution with confidence scoring
-- **Strategy Generator** (`zork_strategy_generator.py`): Manages adaptive knowledge and continuous learning
+- **Strategy Generator** (`knowledge/adaptive_manager.py`): Manages adaptive knowledge and continuous learning
 
 #### Supporting Systems
 - **Map Graph** (`map_graph.py`): Builds and maintains spatial understanding with confidence tracking

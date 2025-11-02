@@ -16,7 +16,7 @@ from typing import List, Dict, Any
 from managers.base_manager import BaseManager
 from session.game_state import GameState
 from session.game_configuration import GameConfiguration
-from zork_strategy_generator import AdaptiveKnowledgeManager
+from knowledge import AdaptiveKnowledgeManager
 
 
 class KnowledgeManager(BaseManager):

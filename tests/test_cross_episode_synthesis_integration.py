@@ -6,7 +6,7 @@ ABOUTME: Validates that synthesize_inter_episode_wisdom updates the correct file
 import pytest
 import os
 from unittest.mock import Mock, patch, MagicMock
-from zork_strategy_generator import AdaptiveKnowledgeManager
+from knowledge import AdaptiveKnowledgeManager
 
 
 class TestCrossEpisodeSynthesisIntegration:

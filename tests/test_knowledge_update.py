@@ -5,7 +5,7 @@ ABOUTME: Validates that long episodes can still receive knowledge updates.
 
 import pytest
 from unittest.mock import Mock
-from zork_strategy_generator import AdaptiveKnowledgeManager
+from knowledge import AdaptiveKnowledgeManager
 
 
 class TestKnowledgeUpdateQuality:

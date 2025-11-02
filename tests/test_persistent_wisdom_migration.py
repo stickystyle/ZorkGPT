@@ -6,7 +6,7 @@ ABOUTME: Validates helper methods for section extraction and cross-episode insig
 import pytest
 import re
 from unittest.mock import Mock
-from zork_strategy_generator import AdaptiveKnowledgeManager
+from knowledge import AdaptiveKnowledgeManager
 
 
 class TestSectionExtractionMethods:
