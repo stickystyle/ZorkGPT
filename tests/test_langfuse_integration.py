@@ -34,11 +34,7 @@ class TestLangfuseClientInitialization:
 
     def test_langfuse_client_initialization_without_credentials(self, monkeypatch):
         """Test that system works without Langfuse credentials."""
-        # Clear environment variables
-        monkeypatch.delenv("LANGFUSE_PUBLIC_KEY", raising=False)
-        monkeypatch.delenv("LANGFUSE_SECRET_KEY", raising=False)
-        monkeypatch.delenv("LANGFUSE_HOST", raising=False)
-
+        # Note: Global conftest.py fixture already clears Langfuse env vars
         # Orchestrator should initialize but langfuse_client should be None
         with patch('orchestration.zork_orchestrator_v2.Langfuse') as MockLangfuse:
             # Simulate Langfuse initialization failure due to missing credentials
