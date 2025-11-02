@@ -257,8 +257,6 @@ map_state.json
 
 analysis*
 
-.SAVE_REQUESTED_BY_SYSTEM
-
 game_files/
 tmp/
 

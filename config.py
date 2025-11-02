@@ -135,7 +135,6 @@ class GameplayConfig(BaseModel):
     # Save/restore configuration
     zork_save_filename_template: str = "zorkgpt_save_{timestamp}.sav"
     zork_game_workdir: str = "game_files"
-    save_signal_filename: str = ".SAVE_REQUESTED_BY_SYSTEM"
 
 
 class LoggingConfig(BaseModel):
