@@ -115,7 +115,8 @@ def run_episode(episode_id=None, max_turns=None):
         else:
             print("\n⚡ Exiting immediately without saving...")
 
-        return  # Exit after handling interrupt
+        # Re-raise KeyboardInterrupt to properly exit continuous/multi-episode mode
+        raise KeyboardInterrupt()
     except Exception as e:
         print(f"❌ Error: {e}")
         import traceback
