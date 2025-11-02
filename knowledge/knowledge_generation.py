@@ -244,9 +244,6 @@ CRITICAL REQUIREMENTS:
 Remember: The structured memory system handles factual data (locations, connections, inventory).
 This knowledge base provides strategic intelligence to make better decisions."""
 
-    # Add qwen3-30b-a3b optimization if needed
-    prompt = r"\no_think " + prompt
-
     try:
         messages = [
             {

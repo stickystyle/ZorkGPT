@@ -199,9 +199,6 @@ Update the CROSS-EPISODE INSIGHTS section with the most critical learnings from 
 Provide ONLY the updated CROSS-EPISODE INSIGHTS section content (without the ## header).
 If no significant new insights emerged, return the existing content unchanged."""
 
-    # Add qwen3-30b-a3b optimization if needed
-    prompt = r"\no_think " + prompt
-
     try:
         response = client.chat.completions.create(
             model=analysis_model,
