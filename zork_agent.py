@@ -72,10 +72,6 @@ class ZorkAgent:
         # Create sampling params object for LLM calls
         self.sampling_params = config.agent_sampling
 
-        # Prompt logging counter for temporary evaluation
-        self.prompt_counter = 0
-        self.enable_prompt_logging = config.logging.enable_prompt_logging
-
         # Initialize LLM client if not provided
         if client is None:
             self.client = LLMClientWrapper(
@@ -87,37 +83,6 @@ class ZorkAgent:
 
         # Load system prompt
         self._load_system_prompt()
-
-    def _log_prompt_to_file(self, messages: List[Dict], prefix: str = "agent") -> None:
-        """Log the full prompt to a temporary file for evaluation."""
-        if not self.enable_prompt_logging:
-            return
-
-        self.prompt_counter += 1
-        filename = f"tmp/{prefix}_{self.prompt_counter:03d}.txt"
-
-        try:
-            with open(filename, "w", encoding="utf-8") as f:
-                f.write(f"=== {prefix.upper()} PROMPT #{self.prompt_counter} ===\n")
-                f.write(f"Model: {self.model}\n")
-                f.write(f"Temperature: {self.temperature}\n")
-                f.write(f"Top-p: {self.top_p}\n")
-                f.write(f"Top-k: {self.top_k}\n")
-                f.write(f"Min-p: {self.min_p}\n")
-                f.write(f"Max Tokens: {self.max_tokens}\n")
-                f.write(f"Episode ID: {self.episode_id}\n")
-                f.write("=" * 50 + "\n\n")
-
-                for i, message in enumerate(messages):
-                    f.write(f"--- MESSAGE {i + 1} ({message['role'].upper()}) ---\n")
-                    f.write(message["content"])
-                    f.write("\n\n")
-        except Exception as e:
-            if self.logger:
-                self.logger.warning(
-                    f"Failed to log prompt to {filename}: {e}",
-                    extra={"episode_id": self.episode_id},
-                )
 
     def _load_system_prompt(self) -> None:
         """Load agent system prompt from markdown files and enhance with knowledge."""
@@ -392,9 +357,6 @@ The following strategic guide has been compiled from analyzing previous episodes
                 user_content = relevant_memories
 
         messages.append({"role": "user", "content": user_content})
-
-        # Log the full prompt for evaluation
-        self._log_prompt_to_file(messages, "agent")
 
         try:
             client_args = dict(

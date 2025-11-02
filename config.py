@@ -137,12 +137,6 @@ class GameplayConfig(BaseModel):
     zork_game_workdir: str = "game_files"
 
 
-class LoggingConfig(BaseModel):
-    """Logging configuration settings."""
-
-    enable_prompt_logging: bool = False
-
-
 class OrchestratorConfig(BaseModel):
     """Orchestrator configuration settings."""
 
@@ -225,7 +219,6 @@ class ZorkGPTConfig(BaseModel):
     memory_sampling: MemorySamplingConfig = MemorySamplingConfig()
     condensation_sampling: CondensationSamplingConfig = CondensationSamplingConfig()
     gameplay: GameplayConfig = GameplayConfig()
-    logging: LoggingConfig = LoggingConfig()
     orchestrator: OrchestratorConfig = OrchestratorConfig()
     files: FilesConfig = FilesConfig()
     aws: AWSConfig = AWSConfig()

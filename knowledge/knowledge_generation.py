@@ -142,8 +142,7 @@ def generate_knowledge_directly(
     client,
     analysis_model: str,
     analysis_sampling: dict,
-    logger=None,
-    log_prompt_callback=None
+    logger=None
 ) -> str:
     """
     Generate knowledge base content in a single LLM call.
@@ -160,7 +159,6 @@ def generate_knowledge_directly(
         analysis_model: Model identifier for knowledge generation
         analysis_sampling: Sampling parameters (temperature, top_p, top_k, min_p, max_tokens)
         logger: Optional logger instance for logging
-        log_prompt_callback: Optional callback function to log prompts (receives messages list and prefix)
 
     Returns:
         Complete knowledge base content or existing knowledge on failure
@@ -257,10 +255,6 @@ This knowledge base provides strategic intelligence to make better decisions."""
             },
             {"role": "user", "content": prompt},
         ]
-
-        # Log the knowledge generation prompt if callback provided
-        if log_prompt_callback:
-            log_prompt_callback(messages, "knowledge_generation")
 
         response = client.chat.completions.create(
             model=analysis_model,

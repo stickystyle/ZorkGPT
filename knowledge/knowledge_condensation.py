@@ -31,7 +31,6 @@ def condense_knowledge_base(
     client,
     condensation_model: str,
     condensation_sampling: dict,
-    log_prompt_callback=None,
     logger=None
 ) -> Optional[str]:
     """
@@ -46,7 +45,6 @@ def condense_knowledge_base(
         client: LLM client wrapper instance
         condensation_model: Model identifier for condensation task
         condensation_sampling: Sampling parameters (temperature, top_p, top_k, min_p, max_tokens)
-        log_prompt_callback: Optional callback function to log prompts (receives messages list and prefix)
         logger: Optional logger instance for logging
 
     Returns:
@@ -93,10 +91,6 @@ Focus on creating a guide that is information-dense but highly readable for an A
             },
             {"role": "user", "content": prompt},
         ]
-
-        # Log the condensation prompt if callback provided
-        if log_prompt_callback:
-            log_prompt_callback(messages, "knowledge_condensation")
 
         response = client.chat.completions.create(
             model=condensation_model,

@@ -120,10 +120,6 @@ class HybridZorkExtractor:
         self.logger = logger
         self.episode_id = episode_id
 
-        # Prompt logging counter for temporary evaluation
-        self.prompt_counter = 0
-        self.enable_prompt_logging = config.logging.enable_prompt_logging
-
         # Initialize LLM client if not provided
         if client is None:
             self.client = LLMClientWrapper(
@@ -139,36 +135,6 @@ class HybridZorkExtractor:
         # Previous state tracking for context
         self.previous_combat_state = False
         self.previous_location = None
-
-    def _log_prompt_to_file(
-        self, messages: List[dict], prefix: str = "extractor"
-    ) -> None:
-        """Log the full prompt to a temporary file for evaluation."""
-        if not self.enable_prompt_logging:
-            return
-
-        self.prompt_counter += 1
-        filename = f"tmp/{prefix}_{self.prompt_counter:03d}.txt"
-
-        try:
-            with open(filename, "w", encoding="utf-8") as f:
-                f.write(f"=== {prefix.upper()} PROMPT #{self.prompt_counter} ===\n")
-                f.write(f"Model: {self.model}\n")
-                f.write(f"Temperature: {self.temperature}\n")
-                f.write(f"Max Tokens: {self.max_tokens}\n")
-                f.write(f"Episode ID: {self.episode_id}\n")
-                f.write("=" * 50 + "\n\n")
-
-                for i, message in enumerate(messages):
-                    f.write(f"--- MESSAGE {i + 1} ({message['role'].upper()}) ---\n")
-                    f.write(message["content"])
-                    f.write("\n\n")
-        except Exception as e:
-            if self.logger:
-                self.logger.warning(
-                    f"Failed to log prompt to {filename}: {e}",
-                    extra={"episode_id": self.episode_id},
-                )
 
     def _load_system_prompt(self) -> None:
         """Load the system prompt for LLM extraction."""
@@ -396,9 +362,6 @@ Extract key information from the game text and return it as JSON with these fiel
                 },
                 {"role": "user", "content": extraction_prompt},
             ]
-
-            # Log the full prompt for evaluation if enabled
-            self._log_prompt_to_file(messages, "extractor")
 
             # Define minimal schema for LLM extraction
             class LLMExtraction(BaseModel):

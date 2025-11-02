@@ -81,43 +81,12 @@ class AdaptiveKnowledgeManager:
         self.enable_condensation = config.gameplay.enable_knowledge_condensation
         self.condensation_threshold = config.gameplay.knowledge_condensation_threshold
 
-        # Prompt logging counter for temporary evaluation
-        self.prompt_counter = 0
-        self.enable_prompt_logging = config.logging.enable_prompt_logging
-
         # Load agent instructions to avoid duplication
         self.agent_instructions = self._load_agent_instructions()
 
     def _get_episode_log_file(self, episode_id: str) -> Path:
         """Get the log file path for a specific episode."""
         return Path(self.workdir) / "episodes" / episode_id / "episode_log.jsonl"
-
-    def _log_prompt_to_file(
-        self, messages: list, prefix: str = "knowledge"
-    ) -> None:
-        """Log the full prompt to a temporary file for evaluation."""
-        if not self.enable_prompt_logging:
-            return
-
-        self.prompt_counter += 1
-        filename = f"tmp/{prefix}_{self.prompt_counter:03d}.txt"
-
-        try:
-            with open(filename, "w", encoding="utf-8") as f:
-                f.write(f"=== {prefix.upper()} PROMPT #{self.prompt_counter} ===\n")
-                f.write(f"Model: {self.analysis_model}\n")
-                f.write("=" * 50 + "\n\n")
-
-                for i, message in enumerate(messages):
-                    f.write(f"--- MESSAGE {i + 1} ({message['role'].upper()}) ---\n")
-                    f.write(message["content"])
-                    f.write("\n\n")
-        except Exception as e:
-            if self.logger:
-                self.logger.warning(
-                    f"Failed to log prompt to {filename}: {e}",
-                    extra={"event_type": "knowledge_update"},
-                )
 
     def _load_agent_instructions(self) -> str:
         """Load the agent.md prompt to understand what's already covered."""
@@ -348,8 +317,7 @@ class AdaptiveKnowledgeManager:
             client=self.client,
             analysis_model=self.analysis_model,
             analysis_sampling=self.analysis_sampling,
-            logger=self.logger,
-            log_prompt_callback=self._log_prompt_to_file if self.enable_prompt_logging else None
+            logger=self.logger
         )
 
         if not new_knowledge or new_knowledge.startswith("SKIP:"):
@@ -391,10 +359,6 @@ class AdaptiveKnowledgeManager:
                         "size": len(new_knowledge),
                     },
                 )
-
-            # Step 7: Log the prompt if in debug mode
-            if hasattr(self, "log_prompts") and self.log_prompts:
-                self._log_prompt_to_file("knowledge_update", turn_data, new_knowledge)
 
             return True
 
