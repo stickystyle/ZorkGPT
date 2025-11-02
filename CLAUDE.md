@@ -400,7 +400,6 @@ Response: You are in a meadow.
 
 - **Empty history** (first turns): Section not included in context
 - **Missing fields**: Graceful fallbacks ("(No reasoning recorded)")
-- **Long reasoning**: Truncated at 500 characters with "..."
 - **Duplicate actions**: Matches most recent response (reverse iteration)
 - **Non-dict entries**: Skipped gracefully with logging
 
@@ -408,8 +407,6 @@ Response: You are in a meadow.
 
 - **Window size**: Last 3 turns included in agent context
   - Location: `managers/context_manager.py:505` (`num_turns=3` parameter)
-- **Truncation limit**: 500 characters per reasoning block
-  - Location: `managers/context_manager.py:366-368`
 - **Storage**: Unbounded during episode (cleared on episode reset)
 
 #### Testing

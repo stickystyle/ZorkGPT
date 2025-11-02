@@ -669,10 +669,10 @@ class TestReasoningHistoryFormatting:
         assert "Turn 1:" in formatted
         assert "Response: (Response not recorded)" in formatted
 
-    def test_get_recent_reasoning_formatted_truncates_long_reasoning(
+    def test_get_recent_reasoning_formatted_preserves_long_reasoning(
         self, context_manager, game_state
     ):
-        """Test that very long reasoning is truncated."""
+        """Test that long reasoning is preserved in full without truncation."""
         # Create reasoning > 500 characters
         long_reasoning = "A" * 600
 
@@ -685,13 +685,13 @@ class TestReasoningHistoryFormatting:
 
         formatted = context_manager.get_recent_reasoning_formatted(num_turns=3)
 
-        # Should be truncated to 500 chars (497 + "...")
+        # Should preserve full reasoning without truncation
         assert "Turn 1:" in formatted
-        assert "..." in formatted
+        assert long_reasoning in formatted  # Full reasoning preserved
         # Count the reasoning portion (not including "Reasoning: " prefix)
         reasoning_line = [line for line in formatted.split('\n') if 'Reasoning: ' in line][0]
         reasoning_text = reasoning_line.replace("Reasoning: ", "")
-        assert len(reasoning_text) == 500  # 497 chars + "..."
+        assert len(reasoning_text) == 600  # Full length preserved
 
     def test_get_recent_reasoning_formatted_blank_lines_between_turns(
         self, context_manager, game_state

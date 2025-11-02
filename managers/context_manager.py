@@ -363,10 +363,6 @@ class ContextManager(BaseManager):
                 # Extract reasoning (with fallback)
                 reasoning = entry.get("reasoning", "(No reasoning recorded)")
 
-                # Truncate very long reasoning to control context size
-                if len(reasoning) > 500:
-                    reasoning = reasoning[:497] + "..."
-
                 # Extract action (with fallback)
                 action = entry.get("action", "(No action recorded)")
 
