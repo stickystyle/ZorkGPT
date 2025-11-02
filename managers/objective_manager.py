@@ -329,23 +329,16 @@ Example valid response:
 
                 # Parse JSON response
                 try:
-                    # Check for empty response
-                    if not response_content or not response_content.strip():
-                        self.log_warning(
-                            "LLM returned empty response for objective discovery",
-                            details=f"Model: {model_to_use}, response was empty or whitespace-only"
-                        )
-                        updated_objectives = []
-                    else:
-                        # Extract JSON (handles markdown fences, reasoning tags, and embedded JSON)
-                        json_content = extract_json_from_text(response_content)
-                        response_data = ObjectiveDiscoveryResponse.model_validate_json(
-                            json_content
-                        )
-                        updated_objectives = response_data.objectives
-                        reasoning = response_data.reasoning
+                    # Note: Empty response checking is now handled by llm_client with automatic retries
+                    # Extract JSON (handles markdown fences, reasoning tags, and embedded JSON)
+                    json_content = extract_json_from_text(response_content)
+                    response_data = ObjectiveDiscoveryResponse.model_validate_json(
+                        json_content
+                    )
+                    updated_objectives = response_data.objectives
+                    reasoning = response_data.reasoning
 
-                        self.log_debug(
+                    self.log_debug(
                             f"Parsed {len(updated_objectives)} objectives from JSON response",
                             details=f"Reasoning: {reasoning[:100]}...",
                         )
@@ -575,14 +568,7 @@ Example valid response:
 
                 # Parse JSON response
                 try:
-                    # Check for empty response
-                    if not response_content or not response_content.strip():
-                        self.log_warning(
-                            "LLM returned empty response for objective completion evaluation",
-                            details=f"Model: {self.adaptive_knowledge_manager.analysis_model}, response was empty"
-                        )
-                        return
-
+                    # Note: Empty response checking is now handled by llm_client with automatic retries
                     # Extract JSON (handles markdown fences, reasoning tags, and embedded JSON)
                     json_content = extract_json_from_text(response_content)
                     response_data = ObjectiveCompletionResponse.model_validate_json(
@@ -860,14 +846,7 @@ Example valid response:
 
                 # Parse JSON response
                 try:
-                    # Check for empty response
-                    if not response_content or not response_content.strip():
-                        self.log_warning(
-                            "LLM returned empty response for objective refinement",
-                            details=f"Model: {self.adaptive_knowledge_manager.analysis_model}, response was empty"
-                        )
-                        return
-
+                    # Note: Empty response checking is now handled by llm_client with automatic retries
                     # Extract JSON (handles markdown fences, reasoning tags, and embedded JSON)
                     json_content = extract_json_from_text(response_content)
                     response_data = ObjectiveRefinementResponse.model_validate_json(

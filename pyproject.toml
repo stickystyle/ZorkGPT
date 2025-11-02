@@ -52,6 +52,16 @@ condensation_model = "qwen/qwq-32b"
 
 [tool.zorkgpt.retry]
 # Retry and Exponential Backoff Configuration
+#
+# The retry system automatically handles:
+# - Empty or whitespace-only responses (reasoning models sometimes return these)
+# - Rate limit errors (429 status code)
+# - Server errors (5xx status codes)
+# - Timeout errors
+#
+# Reasoning models (DeepSeek R1, QwQ, o1/o3) automatically get max_tokens=8000
+# if not explicitly specified to prevent token exhaustion during long reasoning chains.
+#
 max_retries = 5
 initial_delay = 1.0           # Initial retry delay in seconds
 max_delay = 60.0              # Maximum retry delay in seconds

@@ -1266,15 +1266,7 @@ Example valid response for remembering:
                 response_format=create_json_schema(MemorySynthesisResponse)
             )
 
-            # Check for empty response
-            if not llm_response.content or not llm_response.content.strip():
-                self.log_warning(
-                    "LLM returned empty response for memory synthesis",
-                    location_id=location_id,
-                    details="Response was empty or whitespace-only"
-                )
-                return None
-
+            # Note: Empty response checking is now handled by llm_client with automatic retries
             # Extract JSON (handles markdown fences, reasoning tags, and embedded JSON)
             json_content = extract_json_from_text(llm_response.content)
 
@@ -1301,11 +1293,17 @@ Example valid response for remembering:
             return synthesis
 
         except Exception as e:
+            # Get response preview safely (llm_response may not be defined if error occurred during call)
+            try:
+                response_preview = llm_response.content[:500] if llm_response and llm_response.content else "No response content"
+            except (NameError, AttributeError):
+                response_preview = "Error occurred before LLM response received"
+
             self.log_error(
                 f"Failed to synthesize memory: {e}",
                 location_id=location_id,
                 error=str(e),
-                response_preview=llm_response.content[:500] if llm_response and llm_response.content else "No response content"
+                response_preview=response_preview
             )
             return None
 

@@ -13,6 +13,20 @@ from dataclasses import dataclass
 from config import get_config, get_client_api_key
 from enum import Enum
 
+# Default max_tokens for reasoning models (DeepSeek R1, QwQ, o1/o3)
+#
+# Reasoning models produce extensive internal reasoning chains that can
+# easily exceed typical token limits. Without explicit max_tokens, some
+# models return empty responses when hitting their internal limits.
+#
+# Value selection rationale:
+# - Too low (2000): Cuts off reasoning mid-stream, leads to empty responses
+# - Too high (32000): Wasteful, slow, expensive for typical use cases
+# - 8000: Sweet spot for most reasoning tasks (typical chains: 2000-6000 tokens)
+#
+# This default can be overridden per-call if you need more/less reasoning depth.
+REASONING_MODEL_DEFAULT_MAX_TOKENS = 8000
+
 # Langfuse integration for LLM observability
 try:
     from langfuse import get_client as get_langfuse_client
@@ -50,6 +64,12 @@ class ServerError(RetryableError):
 
 class LLMTimeoutError(RetryableError):
     """Exception for timeout errors."""
+
+    pass
+
+
+class EmptyResponseError(RetryableError):
+    """Exception for empty or whitespace-only responses from LLM."""
 
     pass
 
@@ -464,6 +484,22 @@ class LLMClient:
                 processed_messages.append(new_msg)
             messages = processed_messages
 
+            # Apply default max_tokens for reasoning models if not explicitly set
+            # Reasoning models often produce long outputs and can hit token limits
+            if max_tokens is None:
+                max_tokens = REASONING_MODEL_DEFAULT_MAX_TOKENS
+                if self.logger:
+                    self.logger.debug(
+                        f"Setting max_tokens={REASONING_MODEL_DEFAULT_MAX_TOKENS} for reasoning model {model}",
+                        extra={
+                            "extras": {
+                                "event_type": "reasoning_model_max_tokens_applied",
+                                "model": model,
+                                "max_tokens": REASONING_MODEL_DEFAULT_MAX_TOKENS,
+                            }
+                        },
+                    )
+
         # Build model_parameters dict with filtering for reasoning models
         # This single source of truth is used for both payload and Langfuse tracking
         model_parameters = {}
@@ -711,6 +747,33 @@ class LLMClient:
 
             # Extract model from response (or use from payload)
             model = response_data.get("model", payload.get("model", "unknown"))
+
+            # Check for empty or whitespace-only responses
+            if content is None or (isinstance(content, str) and not content.strip()):
+                # Build diagnostic message
+                diagnostic_parts = [f"Empty response from model {model}"]
+                if usage:
+                    diagnostic_parts.append(f"usage={usage}")
+                diagnostic_parts.append(f"response_keys={list(response_data.keys())}")
+
+                diagnostic_msg = ". ".join(diagnostic_parts)
+
+                # Log diagnostic info
+                if self.logger:
+                    self.logger.warning(
+                        f"Detected empty response from {model}",
+                        extra={
+                            "extras": {
+                                "event_type": "empty_response_detected",
+                                "model": model,
+                                "content_length": len(content) if content else 0,
+                                "usage": usage,
+                                "response_keys": list(response_data.keys()),
+                            }
+                        },
+                    )
+
+                raise EmptyResponseError(diagnostic_msg)
 
             return LLMResponse(content=content, model=model, usage=usage)
 
