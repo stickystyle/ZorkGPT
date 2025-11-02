@@ -536,6 +536,21 @@ class LLMClient:
         # Add any additional kwargs
         payload.update(kwargs)
 
+        # Diagnostic logging for reasoning model requests
+        if is_reasoning_model and self.logger:
+            self.logger.info(
+                f"Reasoning model request payload for {model}",
+                extra={
+                    "extras": {
+                        "event_type": "reasoning_model_request",
+                        "model": model,
+                        "max_tokens_in_payload": payload.get("max_tokens"),
+                        "payload_keys": list(payload.keys()),
+                        "message_count": len(messages),
+                    }
+                }
+            )
+
         # Wrap request with Langfuse generation tracking if available
         if self.langfuse_client:
             try:
@@ -727,6 +742,38 @@ class LLMClient:
                     raise Exception(f"HTTP {response.status_code}: {response.text}")
 
             response_data = response.json()
+
+            # Diagnostic logging for reasoning model responses
+            model = response_data.get("model", payload.get("model", "unknown"))
+            is_reasoning_model = any(marker in model.lower() for marker in ["deepseek-r1", "deepseek-reasoner", "o1-", "o3-", "qwq"])
+
+            if is_reasoning_model and self.logger:
+                choices_info = None
+                if "choices" in response_data and len(response_data["choices"]) > 0:
+                    first_choice = response_data["choices"][0]
+                    message = first_choice.get("message", {})
+                    content = message.get("content", "")
+                    choices_info = {
+                        "choice_count": len(response_data["choices"]),
+                        "content_type": type(content).__name__,
+                        "content_length": len(content) if content else 0,
+                        "content_is_none": content is None,
+                        "content_is_empty_str": content == "",
+                        "finish_reason": first_choice.get("finish_reason"),
+                    }
+
+                self.logger.info(
+                    f"Reasoning model response from {model}",
+                    extra={
+                        "extras": {
+                            "event_type": "reasoning_model_response",
+                            "model": model,
+                            "response_keys": list(response_data.keys()),
+                            "usage": response_data.get("usage"),
+                            "choices_info": choices_info,
+                        }
+                    }
+                )
 
             # Extract content from response
             # Reasoning models (QwQ, DeepSeek R1, etc.) may return different formats
