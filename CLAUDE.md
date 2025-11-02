@@ -22,7 +22,7 @@ This architecture enables:
 - Clean separation of concerns
 - ~40% reduction in LLM calls
 
-## Jericho Integration (Phases 1-7 Complete)
+## Jericho Integration ()
 
 ### Architecture Overview
 
@@ -227,37 +227,6 @@ def _validate_against_object_tree(action: str, jericho_interface):
 - Test with walkthrough fixtures for determinism
 - Measure performance with benchmarks
 
-### Migration Notes
-
-If you're working with code that pre-dates Jericho integration:
-
-**Old Pattern (DEPRECATED):**
-```python
-# DON'T DO THIS
-room_name = extract_location_from_text(game_text)
-map_graph.add_room(room_name)
-```
-
-**New Pattern (CORRECT):**
-```python
-# DO THIS
-location = jericho_interface.get_location_structured()
-room_id = location.num
-room_name = location.name
-map_graph.add_room(room_id, room_name)
-```
-
-### Phase Summary
-
-- **Phase 1**: JerichoInterface foundation - dfrotz eliminated
-- **Phase 2**: Direct Z-machine access - 40% LLM reduction
-- **Phase 3**: Integer-based maps - 512 lines deleted, zero fragmentation
-- **Phase 4**: Movement detection - ID comparison (100% accuracy)
-- **Phase 5**: Object tree integration - 83.3% LLM reduction for invalid actions
-- **Phase 6**: State loop detection - exact state tracking
-- **Phase 7**: Testing & validation - 74 Phase 5 tests, walkthrough-based testing
-
-All phases complete and validated. See `refactor.md` for detailed implementation notes.
 
 ### Cross-Episode Map Persistence
 
@@ -367,6 +336,88 @@ Dependency flow:
 - ObjectiveManager → needs knowledge manager reference
 - EpisodeSynthesizer → needs knowledge and state managers
 
+### Reasoning History and Strategic Continuity
+
+**Problem Solved**: Without access to previous reasoning, the agent experiences "strategic amnesia" - it must re-derive strategies each turn, breaking continuity for multi-step plans.
+
+**Solution**: The system now captures and includes agent reasoning in turn context, enabling strategic continuity across turns.
+
+#### Architecture
+
+**Data Storage** (`session/game_state.py`):
+- `action_reasoning_history: List[Dict[str, Any]]` - Stores recent reasoning entries
+- Each entry: `{"turn": int, "reasoning": str, "action": str, "timestamp": str}`
+- Automatically cleared on episode reset
+- History accumulates during episode (unbounded; consider size limit for very long episodes)
+
+**Capture** (`orchestration/zork_orchestrator_v2.py`):
+- After `agent.get_action_with_reasoning()` returns, reasoning is captured
+- `ContextManager.add_reasoning()` stores entry in game state
+- Reasoning extracted from `<think>`, `<thinking>`, or `<reflection>` tags
+
+**Context Inclusion** (`managers/context_manager.py`):
+- `get_recent_reasoning_formatted()` method formats last 3 turns
+- Includes: turn number, reasoning, action, game response
+- Section added to agent prompt: "## Previous Reasoning and Actions"
+- Positioned after game state, before objectives (strategic context flow)
+- Conditionally included (only when history exists)
+
+**Agent Guidance** (`agent.md`):
+- Explicit instructions on using previous reasoning
+- Three scenarios: continuing plans, revising plans, starting fresh
+- Encourages building on prior thinking rather than restarting
+
+#### Example Context Format
+
+```markdown
+## Previous Reasoning and Actions
+
+Turn 47:
+Reasoning: I need to explore north systematically. Plan: (1) go north, (2) search area, (3) return if nothing found.
+Action: go north
+Response: You are in a forest clearing. Trees surround you.
+
+Turn 48:
+Reasoning: Continuing systematic exploration. Will examine objects before moving on.
+Action: examine trees
+Response: The trees are ordinary pine trees.
+
+Turn 49:
+Reasoning: Nothing interesting here. Moving east to continue exploration.
+Action: go east
+Response: You are in a meadow.
+```
+
+#### Benefits
+
+1. **Strategic Continuity**: Agent maintains multi-step plans across turns
+2. **Reduced Redundancy**: No need to re-explain same strategy each turn
+3. **Progress Tracking**: Agent explicitly references previous steps
+4. **Adaptive Learning**: Agent must explicitly justify plan changes
+5. **Reasoning Efficiency**: Shorter reasoning blocks that build on prior thinking
+
+#### Edge Case Handling
+
+- **Empty history** (first turns): Section not included in context
+- **Missing fields**: Graceful fallbacks ("(No reasoning recorded)")
+- **Long reasoning**: Truncated at 500 characters with "..."
+- **Duplicate actions**: Matches most recent response (reverse iteration)
+- **Non-dict entries**: Skipped gracefully with logging
+
+#### Configuration
+
+- **Window size**: Last 3 turns included in agent context
+  - Location: `managers/context_manager.py:505` (`num_turns=3` parameter)
+- **Truncation limit**: 500 characters per reasoning block
+  - Location: `managers/context_manager.py:366-368`
+- **Storage**: Unbounded during episode (cleared on episode reset)
+
+#### Testing
+
+- Unit tests: `tests/test_phase5_enhanced_context.py` (27 tests)
+- Integration tests: `tests/test_phase3_reasoning_guidance.py` (9 tests)
+- Coverage: Data structures, formatting, edge cases, prompt integration
+
 ### Knowledge Base Structure
 
 The ZorkGPT knowledge base (`knowledgebase.md`) is a consolidated document containing:
@@ -391,15 +442,3 @@ This section is updated via `synthesize_inter_episode_wisdom()` at episode end w
 - Final score >= 50, OR
 - Turn count >= 100, OR
 - Average critic score >= 0.3
-
-**Note on Map Storage**: The spatial map is NOT stored in `knowledgebase.md`. It is persisted in `map_state.json` (see "Cross-Episode Map Persistence" section above) and passed to the agent dynamically via context at each turn. The knowledge base focuses solely on strategic wisdom, not spatial/factual data.
-
-**Historical Note**: Cross-episode wisdom was previously stored in a separate `persistent_wisdom.md` file but has been consolidated into the CROSS-EPISODE INSIGHTS section of `knowledgebase.md`.
-
-## Memories and Principles
-
-- The state should be exported at the end of every turn.
-
-## Development Commands
-
-[Rest of the file remains the same as in the original content]

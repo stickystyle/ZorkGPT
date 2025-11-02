@@ -40,7 +40,7 @@ class GameState:
     action_history: List[Tuple[str, str]] = field(
         default_factory=list
     )  # (action, response)
-    action_reasoning_history: List[str] = field(default_factory=list)
+    action_reasoning_history: List[Dict[str, Any]] = field(default_factory=list)  # Each entry: {"turn": int, "reasoning": str, "action": str, "timestamp": str}
     memory_log_history: List[Dict[str, Any]] = field(default_factory=list)
     failed_actions_by_location: Dict[str, List[str]] = field(default_factory=dict)
 

@@ -328,6 +328,70 @@ class ContextManager(BaseManager):
             self.log_error(f"Failed to get recent reasoning: {e}")
             return []
 
+    def get_recent_reasoning_formatted(self, num_turns: int = 3) -> str:
+        """
+        Format recent reasoning history for inclusion in agent context.
+
+        Args:
+            num_turns: Number of recent turns to include (default: 3)
+
+        Returns:
+            Formatted markdown string with reasoning, actions, and responses
+        """
+        try:
+            # Handle empty reasoning history
+            if not self.game_state.action_reasoning_history:
+                return ""
+
+            # Get last num_turns entries
+            recent_entries = self.game_state.action_reasoning_history[-num_turns:]
+            if not recent_entries:
+                return ""
+
+            formatted_parts = []
+
+            for entry in recent_entries:
+                # Skip non-dict entries gracefully
+                if not isinstance(entry, dict):
+                    continue
+
+                # Extract turn number (required - skip if missing)
+                turn = entry.get("turn")
+                if turn is None:
+                    continue
+
+                # Extract reasoning (with fallback)
+                reasoning = entry.get("reasoning", "(No reasoning recorded)")
+
+                # Truncate very long reasoning to control context size
+                if len(reasoning) > 500:
+                    reasoning = reasoning[:497] + "..."
+
+                # Extract action (with fallback)
+                action = entry.get("action", "(No action recorded)")
+
+                # Find matching game response from action_history
+                # Iterate in reverse to match the most recent occurrence
+                response = "(Response not recorded)"
+                for hist_action, hist_response in reversed(self.game_state.action_history):
+                    if hist_action == action:
+                        response = hist_response
+                        break
+
+                # Format this turn's entry
+                formatted_parts.append(f"Turn {turn}:")
+                formatted_parts.append(f"Reasoning: {reasoning}")
+                formatted_parts.append(f"Action: {action}")
+                formatted_parts.append(f"Response: {response}")
+                formatted_parts.append("")  # Blank line between turns
+
+            # Join all parts and return
+            return "\n".join(formatted_parts)
+
+        except Exception as e:
+            self.log_error(f"Failed to format recent reasoning: {e}")
+            return ""
+
     def get_recent_action_outcomes(self, n: int = 3) -> List[Dict[str, Any]]:
         """Get recent action outcomes for critic context."""
         try:
@@ -437,13 +501,11 @@ class ContextManager(BaseManager):
             if context.get("in_combat"):
                 formatted_parts.append("STATUS: IN COMBAT")
 
-            # Recent actions
-            recent_actions = context.get("recent_actions", [])
-            if recent_actions:
-                formatted_parts.append("\nRECENT ACTIONS:")
-                for action, response in recent_actions[-3:]:  # Last 3 actions
-                    formatted_parts.append(f"  > {action}")
-                    formatted_parts.append(f"    {response[:100]}...")
+            # Previous reasoning and actions (includes action + response + reasoning)
+            recent_reasoning = self.get_recent_reasoning_formatted(num_turns=3)
+            if recent_reasoning:  # Only include if we have reasoning history
+                formatted_parts.append("\n## Previous Reasoning and Actions\n")
+                formatted_parts.append(recent_reasoning)
 
             # Failed actions at this location
             failed_actions = context.get("failed_actions_here", [])

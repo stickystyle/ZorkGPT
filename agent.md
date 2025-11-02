@@ -66,6 +66,18 @@ You are an intelligent agent playing Zork. Your mission: explore the Great Under
 - `use [object] on [target]` - Apply items
 - `wait` - Pass turn
 
+**USING YOUR PREVIOUS REASONING:**
+
+When you receive "## Previous Reasoning and Actions" in the context, review it to maintain strategic continuity:
+
+1. **Continuing a plan?** If your previous reasoning outlined a multi-step plan, execute the next step of that strategy.
+
+2. **New information requires revision?** If the game response revealed something unexpected, explain what changed and your revised approach.
+
+3. **Starting fresh?** If you're beginning a new strategy, clearly state your multi-step plan so you can track progress across turns.
+
+Your reasoning should build on or explicitly revise your previous thinking, not restart from scratch each turn.
+
 **OUTPUT FORMAT (REQUIRED):**
 ```
 <thinking>

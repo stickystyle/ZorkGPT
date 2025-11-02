@@ -52,6 +52,7 @@ def game_config():
         simple_memory_file="Memories.md",
         simple_memory_max_shown=10,
         map_state_file="test_map_state.json",
+        knowledge_file="test_knowledgebase.md",
         # Sampling parameters
         agent_sampling={},
         critic_sampling={},
@@ -445,6 +446,401 @@ class TestAttributeFormatting:
 
         # Should still format properly with empty attribute string
         assert "test object (ID:1," in formatted
+
+
+class TestReasoningHistoryFormatting:
+    """Test formatting of reasoning history for agent context."""
+
+    def test_get_recent_reasoning_formatted_empty_history(
+        self, context_manager, game_state
+    ):
+        """Test formatting with empty reasoning history."""
+        # Clear any existing reasoning history
+        game_state.action_reasoning_history.clear()
+
+        formatted = context_manager.get_recent_reasoning_formatted(num_turns=3)
+
+        # Should return empty string
+        assert formatted == ""
+
+    def test_get_recent_reasoning_formatted_single_entry(
+        self, context_manager, game_state
+    ):
+        """Test formatting with single reasoning entry."""
+        # Add one reasoning entry
+        game_state.action_reasoning_history.append({
+            "turn": 1,
+            "reasoning": "I should explore north to find new areas.",
+            "action": "go north",
+            "timestamp": "2025-11-02T10:00:00"
+        })
+
+        # Add matching action history
+        game_state.action_history.append(
+            ("go north", "You are in a forest clearing.")
+        )
+
+        formatted = context_manager.get_recent_reasoning_formatted(num_turns=3)
+
+        # Verify formatting
+        assert "Turn 1:" in formatted
+        assert "Reasoning: I should explore north to find new areas." in formatted
+        assert "Action: go north" in formatted
+        assert "Response: You are in a forest clearing." in formatted
+
+    def test_get_recent_reasoning_formatted_multiple_entries(
+        self, context_manager, game_state
+    ):
+        """Test formatting with multiple reasoning entries."""
+        # Add three reasoning entries
+        entries = [
+            {
+                "turn": 47,
+                "reasoning": "I need to explore north systematically. Plan: (1) go north, (2) search area, (3) return if nothing found.",
+                "action": "go north",
+                "timestamp": "2025-11-02T10:00:00"
+            },
+            {
+                "turn": 48,
+                "reasoning": "Continuing systematic exploration. Will examine objects before moving on.",
+                "action": "examine trees",
+                "timestamp": "2025-11-02T10:01:00"
+            },
+            {
+                "turn": 49,
+                "reasoning": "Nothing interesting here. Moving east to continue exploration.",
+                "action": "go east",
+                "timestamp": "2025-11-02T10:02:00"
+            }
+        ]
+
+        for entry in entries:
+            game_state.action_reasoning_history.append(entry)
+
+        # Add matching action history
+        game_state.action_history.extend([
+            ("go north", "You are in a forest clearing. Trees surround you."),
+            ("examine trees", "The trees are ordinary pine trees."),
+            ("go east", "You are in a meadow.")
+        ])
+
+        formatted = context_manager.get_recent_reasoning_formatted(num_turns=3)
+
+        # Verify all three turns are present
+        assert "Turn 47:" in formatted
+        assert "Turn 48:" in formatted
+        assert "Turn 49:" in formatted
+
+        # Verify reasoning is present
+        assert "I need to explore north systematically" in formatted
+        assert "Continuing systematic exploration" in formatted
+        assert "Nothing interesting here" in formatted
+
+        # Verify actions are present
+        assert "Action: go north" in formatted
+        assert "Action: examine trees" in formatted
+        assert "Action: go east" in formatted
+
+        # Verify responses are present
+        assert "Response: You are in a forest clearing." in formatted
+        assert "Response: The trees are ordinary pine trees." in formatted
+        assert "Response: You are in a meadow." in formatted
+
+    def test_get_recent_reasoning_formatted_limits_turns(
+        self, context_manager, game_state
+    ):
+        """Test that formatting limits to num_turns entries."""
+        # Add 5 reasoning entries
+        for i in range(1, 6):
+            game_state.action_reasoning_history.append({
+                "turn": i,
+                "reasoning": f"Reasoning for turn {i}",
+                "action": f"action {i}",
+                "timestamp": "2025-11-02T10:00:00"
+            })
+            game_state.action_history.append((f"action {i}", f"response {i}"))
+
+        # Request only last 3
+        formatted = context_manager.get_recent_reasoning_formatted(num_turns=3)
+
+        # Should only include turns 3, 4, 5
+        assert "Turn 1:" not in formatted
+        assert "Turn 2:" not in formatted
+        assert "Turn 3:" in formatted
+        assert "Turn 4:" in formatted
+        assert "Turn 5:" in formatted
+
+    def test_get_recent_reasoning_formatted_handles_missing_reasoning(
+        self, context_manager, game_state
+    ):
+        """Test handling of entry with missing reasoning field."""
+        game_state.action_reasoning_history.append({
+            "turn": 1,
+            "action": "go north",
+            "timestamp": "2025-11-02T10:00:00"
+            # Missing "reasoning" field
+        })
+
+        formatted = context_manager.get_recent_reasoning_formatted(num_turns=3)
+
+        # Should use fallback text
+        assert "Turn 1:" in formatted
+        assert "(No reasoning recorded)" in formatted
+        assert "Action: go north" in formatted
+
+    def test_get_recent_reasoning_formatted_handles_missing_action(
+        self, context_manager, game_state
+    ):
+        """Test handling of entry with missing action field."""
+        game_state.action_reasoning_history.append({
+            "turn": 1,
+            "reasoning": "Some reasoning",
+            "timestamp": "2025-11-02T10:00:00"
+            # Missing "action" field
+        })
+
+        formatted = context_manager.get_recent_reasoning_formatted(num_turns=3)
+
+        # Should use fallback text
+        assert "Turn 1:" in formatted
+        assert "Reasoning: Some reasoning" in formatted
+        assert "(No action recorded)" in formatted
+
+    def test_get_recent_reasoning_formatted_handles_missing_turn(
+        self, context_manager, game_state
+    ):
+        """Test handling of entry with missing turn field."""
+        game_state.action_reasoning_history.append({
+            "reasoning": "Some reasoning",
+            "action": "go north",
+            "timestamp": "2025-11-02T10:00:00"
+            # Missing "turn" field
+        })
+
+        formatted = context_manager.get_recent_reasoning_formatted(num_turns=3)
+
+        # Should skip entry without turn number
+        assert formatted == ""
+
+    def test_get_recent_reasoning_formatted_handles_non_dict_entries(
+        self, context_manager, game_state
+    ):
+        """Test graceful handling of non-dict entries."""
+        # Add invalid entries
+        game_state.action_reasoning_history.extend([
+            "invalid string entry",
+            None,
+            123,
+            ["list", "entry"]
+        ])
+
+        # Add one valid entry
+        game_state.action_reasoning_history.append({
+            "turn": 1,
+            "reasoning": "Valid reasoning",
+            "action": "go north",
+            "timestamp": "2025-11-02T10:00:00"
+        })
+
+        game_state.action_history.append(("go north", "You go north."))
+
+        formatted = context_manager.get_recent_reasoning_formatted(num_turns=10)
+
+        # Should skip invalid entries and format the valid one
+        assert "Turn 1:" in formatted
+        assert "Valid reasoning" in formatted
+
+    def test_get_recent_reasoning_formatted_handles_missing_response(
+        self, context_manager, game_state
+    ):
+        """Test handling when response is not found in action history."""
+        game_state.action_reasoning_history.append({
+            "turn": 1,
+            "reasoning": "Some reasoning",
+            "action": "go north",
+            "timestamp": "2025-11-02T10:00:00"
+        })
+
+        # Don't add matching action history
+
+        formatted = context_manager.get_recent_reasoning_formatted(num_turns=3)
+
+        # Should use fallback text for response
+        assert "Turn 1:" in formatted
+        assert "Response: (Response not recorded)" in formatted
+
+    def test_get_recent_reasoning_formatted_truncates_long_reasoning(
+        self, context_manager, game_state
+    ):
+        """Test that very long reasoning is truncated."""
+        # Create reasoning > 500 characters
+        long_reasoning = "A" * 600
+
+        game_state.action_reasoning_history.append({
+            "turn": 1,
+            "reasoning": long_reasoning,
+            "action": "go north",
+            "timestamp": "2025-11-02T10:00:00"
+        })
+
+        formatted = context_manager.get_recent_reasoning_formatted(num_turns=3)
+
+        # Should be truncated to 500 chars (497 + "...")
+        assert "Turn 1:" in formatted
+        assert "..." in formatted
+        # Count the reasoning portion (not including "Reasoning: " prefix)
+        reasoning_line = [line for line in formatted.split('\n') if 'Reasoning: ' in line][0]
+        reasoning_text = reasoning_line.replace("Reasoning: ", "")
+        assert len(reasoning_text) == 500  # 497 chars + "..."
+
+    def test_get_recent_reasoning_formatted_blank_lines_between_turns(
+        self, context_manager, game_state
+    ):
+        """Test that blank lines separate turns for readability."""
+        # Add two reasoning entries
+        for i in range(1, 3):
+            game_state.action_reasoning_history.append({
+                "turn": i,
+                "reasoning": f"Reasoning {i}",
+                "action": f"action {i}",
+                "timestamp": "2025-11-02T10:00:00"
+            })
+            game_state.action_history.append((f"action {i}", f"response {i}"))
+
+        formatted = context_manager.get_recent_reasoning_formatted(num_turns=3)
+
+        # Split into lines
+        lines = formatted.split('\n')
+
+        # Find turn separators (blank lines)
+        # Format: Turn X:\nReasoning:\nAction:\nResponse:\n<blank>\nTurn Y:...
+        blank_lines = [i for i, line in enumerate(lines) if line == ""]
+
+        # Should have at least one blank line separating turns
+        assert len(blank_lines) >= 1
+
+    def test_duplicate_actions_match_most_recent_response(
+        self, context_manager, game_state
+    ):
+        """Test that duplicate actions match the most recent response, not the first."""
+        # Add same action multiple times with different responses
+        game_state.action_history.extend([
+            ("go north", "You enter a forest."),
+            ("examine tree", "It's a pine tree."),
+            ("go north", "You enter a clearing."),
+            ("examine leaf", "It's green."),
+            ("go north", "You enter a cave."),
+        ])
+
+        # Add reasoning for the LAST "go north" (the cave one)
+        game_state.action_reasoning_history.append({
+            "turn": 5,
+            "reasoning": "Exploring the cave entrance",
+            "action": "go north",
+            "timestamp": "2025-01-01T00:05:00",
+        })
+
+        formatted = context_manager.get_recent_reasoning_formatted()
+
+        # Should match the MOST RECENT "go north" response (the cave)
+        assert "You enter a cave." in formatted, \
+            f"Expected most recent 'go north' response, got: {formatted}"
+
+        # Should NOT match earlier responses
+        assert "You enter a forest." not in formatted
+        assert "You enter a clearing." not in formatted
+
+        # Verify the full formatting
+        assert "Turn 5:" in formatted
+        assert "Reasoning: Exploring the cave entrance" in formatted
+        assert "Action: go north" in formatted
+
+
+class TestFormattedPromptWithReasoning:
+    """Test that formatted prompt includes reasoning section."""
+
+    def test_formatted_prompt_includes_reasoning_section(
+        self, context_manager, game_state
+    ):
+        """Test that formatted prompt includes reasoning section when history exists."""
+        # Add reasoning history
+        game_state.action_reasoning_history.append({
+            "turn": 1,
+            "reasoning": "I should explore north.",
+            "action": "go north",
+            "timestamp": "2025-11-02T10:00:00"
+        })
+        game_state.action_history.append(("go north", "You go north."))
+
+        # Get context and format it
+        context = context_manager.get_agent_context(
+            current_state="You are in a room.",
+            inventory=[],
+            location="Test Room",
+        )
+
+        formatted = context_manager.get_formatted_agent_prompt_context(context)
+
+        # Verify reasoning section is present
+        assert "## Previous Reasoning and Actions" in formatted
+        assert "Turn 1:" in formatted
+        assert "I should explore north." in formatted
+
+    def test_formatted_prompt_without_reasoning_history(
+        self, context_manager, game_state
+    ):
+        """Test that formatted prompt works without reasoning history."""
+        # Clear reasoning history
+        game_state.action_reasoning_history.clear()
+
+        # Get context and format it
+        context = context_manager.get_agent_context(
+            current_state="You are in a room.",
+            inventory=[],
+            location="Test Room",
+        )
+
+        formatted = context_manager.get_formatted_agent_prompt_context(context)
+
+        # Verify reasoning section is NOT present
+        assert "## Previous Reasoning and Actions" not in formatted
+
+        # But other sections should still be present
+        assert "CURRENT LOCATION:" in formatted
+
+    def test_formatted_prompt_reasoning_section_placement(
+        self, context_manager, game_state
+    ):
+        """Test that reasoning section appears after game state and before objectives."""
+        # Add reasoning history
+        game_state.action_reasoning_history.append({
+            "turn": 1,
+            "reasoning": "Test reasoning",
+            "action": "test action",
+            "timestamp": "2025-11-02T10:00:00"
+        })
+        game_state.action_history.append(("test action", "test response"))
+
+        # Add objectives
+        game_state.discovered_objectives.append("Find treasure")
+
+        # Get context and format it
+        context = context_manager.get_agent_context(
+            current_state="You are in a room.",
+            inventory=[],
+            location="Test Room",
+            discovered_objectives=["Find treasure"]
+        )
+
+        formatted = context_manager.get_formatted_agent_prompt_context(context)
+
+        # Find positions of key sections
+        score_pos = formatted.find("SCORE:")
+        reasoning_pos = formatted.find("## Previous Reasoning and Actions")
+        objectives_pos = formatted.find("CURRENT OBJECTIVES:")
+
+        # Verify ordering: score < reasoning < objectives
+        assert score_pos < reasoning_pos < objectives_pos
 
 
 if __name__ == "__main__":
