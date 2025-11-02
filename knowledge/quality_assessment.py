@@ -9,34 +9,7 @@ based on turn data quality, action variety, and content significance.
 """
 
 import os
-import re
 from typing import Dict, Tuple, Optional
-
-
-def _trim_map_section(content: str) -> str:
-    """
-    Remove the map section from knowledge content for content analysis.
-
-    Args:
-        content: Knowledge base content that may include a map section
-
-    Returns:
-        Content with map section removed, or original content if no map found
-    """
-    if not content or "## CURRENT WORLD MAP" not in content:
-        return content
-
-    # Remove the mermaid diagram section more precisely
-    # Look for the pattern: ## CURRENT WORLD MAP followed by ```mermaid...```
-    pattern = r"## CURRENT WORLD MAP\s*\n\s*```mermaid\s*\n.*?\n```"
-
-    # Remove the mermaid diagram section while preserving other content
-    knowledge_only = re.sub(pattern, "", content, flags=re.DOTALL)
-
-    # Clean up any extra whitespace that might be left
-    knowledge_only = re.sub(r"\n\s*\n\s*\n", "\n\n", knowledge_only)
-
-    return knowledge_only.strip()
 
 
 def should_update_knowledge(turn_data: Dict, logger=None) -> Tuple[bool, str]:
@@ -192,9 +165,6 @@ def is_first_meaningful_update(output_file: str, logger=None) -> bool:
         # Check if content only contains basic auto-generated sections
         # Look for indicators of LLM-generated strategic content
 
-        # Remove map section for analysis
-        content_without_map = _trim_map_section(content)
-
         # Basic strategy indicators that suggest auto-generated content
         basic_indicators = [
             "Always begin each location with 'look'",
@@ -206,12 +176,12 @@ def is_first_meaningful_update(output_file: str, logger=None) -> bool:
 
         # Count how many basic indicators are present
         basic_indicator_count = sum(
-            1 for indicator in basic_indicators if indicator in content_without_map
+            1 for indicator in basic_indicators if indicator in content
         )
 
         # If content is very short and mostly contains basic indicators, treat as first update
         content_lines = [
-            line.strip() for line in content_without_map.split("\n") if line.strip()
+            line.strip() for line in content.split("\n") if line.strip()
         ]
         meaningful_content_lines = [
             line

@@ -101,9 +101,6 @@ Watch out for grues.
 
 ## CROSS-EPISODE INSIGHTS
 Old insights that should be replaced.
-
-## CURRENT WORLD MAP
-Map diagram here.
 """
         with open(manager.output_file, "w") as f:
             f.write(existing_content)
@@ -145,10 +142,6 @@ Map diagram here.
         assert "## CROSS-EPISODE INSIGHTS" in content
         assert "Updated cross-episode insights." in content
         assert "Old insights that should be replaced." not in content
-
-        # Verify map section is preserved
-        assert "## CURRENT WORLD MAP" in content
-        assert "Map diagram here." in content
 
     def test_synthesis_skips_insignificant_episodes(self, manager):
         """Test that synthesis skips episodes that don't meet criteria."""
@@ -229,9 +222,6 @@ Puzzle content.
 
 ## STRATEGIC PATTERNS
 Strategy content.
-
-## CURRENT WORLD MAP
-Map content.
 """
         with open(manager.output_file, "w") as f:
             f.write(existing_content)
@@ -267,12 +257,11 @@ Map content.
         puzzles_pos = content.find("## PUZZLE SOLUTIONS")
         strategy_pos = content.find("## STRATEGIC PATTERNS")
         insights_pos = content.find("## CROSS-EPISODE INSIGHTS")
-        map_pos = content.find("## CURRENT WORLD MAP")
 
-        # Verify CROSS-EPISODE INSIGHTS is before map but after other content
-        assert dangers_pos < insights_pos < map_pos
-        assert puzzles_pos < insights_pos < map_pos
-        assert strategy_pos < insights_pos < map_pos
+        # Verify CROSS-EPISODE INSIGHTS is after other content
+        assert dangers_pos < insights_pos
+        assert puzzles_pos < insights_pos
+        assert strategy_pos < insights_pos
 
     def test_synthesis_handles_llm_failure(self, manager, episode_data):
         """Test that synthesis handles LLM failures gracefully."""

@@ -125,9 +125,6 @@ class AdaptiveKnowledgeManager:
             # Check if content only contains basic auto-generated sections
             # Look for indicators of LLM-generated strategic content
 
-            # Remove map section for analysis
-            content_without_map = section_utils.trim_map_section(content)
-
             # Basic strategy indicators that suggest auto-generated content
             basic_indicators = [
                 "Always begin each location with 'look'",
@@ -139,12 +136,12 @@ class AdaptiveKnowledgeManager:
 
             # Count how many basic indicators are present
             basic_indicator_count = sum(
-                1 for indicator in basic_indicators if indicator in content_without_map
+                1 for indicator in basic_indicators if indicator in content
             )
 
             # If content is very short and mostly contains basic indicators, treat as first update
             content_lines = [
-                line.strip() for line in content_without_map.split("\n") if line.strip()
+                line.strip() for line in content.split("\n") if line.strip()
             ]
             meaningful_content_lines = [
                 line
@@ -291,9 +288,6 @@ class AdaptiveKnowledgeManager:
                 with open(self.output_file, "r", encoding="utf-8") as f:
                     existing_knowledge = f.read()
 
-                # Trim map section for LLM processing
-                existing_knowledge = section_utils.trim_map_section(existing_knowledge)
-
         except Exception as e:
             if self.logger:
                 self.logger.warning(
@@ -331,20 +325,7 @@ class AdaptiveKnowledgeManager:
                 )
             return False
 
-        # Step 5: Preserve map section if it exists
-        if existing_knowledge and "## CURRENT WORLD MAP" in existing_knowledge:
-            # Extract and preserve the map section
-            original_with_map = ""
-            try:
-                with open(self.output_file, "r", encoding="utf-8") as f:
-                    original_with_map = f.read()
-                new_knowledge = section_utils.preserve_map_section(
-                    original_with_map, new_knowledge
-                )
-            except:
-                pass  # Map preservation is non-critical
-
-        # Step 6: Write updated knowledge to file
+        # Step 5: Write updated knowledge to file
         try:
             with open(self.output_file, "w", encoding="utf-8") as f:
                 f.write(new_knowledge)

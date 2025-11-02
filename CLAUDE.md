@@ -392,10 +392,9 @@ This section is updated via `synthesize_inter_episode_wisdom()` at episode end w
 - Turn count >= 100, OR
 - Average critic score >= 0.3
 
-#### CURRENT WORLD MAP (Updated periodically)
-- Mermaid diagram of discovered world
+**Note on Map Storage**: The spatial map is NOT stored in `knowledgebase.md`. It is persisted in `map_state.json` (see "Cross-Episode Map Persistence" section above) and passed to the agent dynamically via context at each turn. The knowledge base focuses solely on strategic wisdom, not spatial/factual data.
 
-**Legacy Note**: Prior to this refactoring, cross-episode wisdom was stored in a separate `persistent_wisdom.md` file. This has been consolidated into the CROSS-EPISODE INSIGHTS section of `knowledgebase.md`. The migration can be performed using the `scripts/migrate_persistent_wisdom.py` script or the `KnowledgeManager.migrate_persistent_wisdom_to_knowledgebase()` method.
+**Historical Note**: Cross-episode wisdom was previously stored in a separate `persistent_wisdom.md` file but has been consolidated into the CROSS-EPISODE INSIGHTS section of `knowledgebase.md`.
 
 ## Memories and Principles
 
