@@ -5,130 +5,156 @@
 ## Table of Contents
 
 1. [Project Overview](#project-overview)
-2. [Core Mission and Design Philosophy](#core-mission-and-design-philosophy)
-3. [System Architecture](#system-architecture)
-    * [Central Coordinator](#central-coordinator)
-    * [Core LLM-Powered Modules](#core-llm-powered-modules)
-    * [Supporting Systems](#supporting-systems)
-4. [Key Features](#key-features)
-    * [Extended Gameplay Sessions](#extended-gameplay-sessions)
-    * [Adaptive Knowledge System](#adaptive-knowledge-system)
-    * [Spatial Intelligence System](#spatial-intelligence-system)
-5. [Data Management](#data-management)
-6. [System Flow](#system-flow)
-7. [Logging Infrastructure](#logging-infrastructure)
-8. [Architecture Diagram](#architecture-diagram)
-9. [Turn-by-Turn Flow with Adaptive Learning](#turn-by-turn-flow-with-adaptive-learning)
+2. [Quick Start](#quick-start)
+3. [Core Research Approach](#core-research-approach)
+4. [System Architecture](#system-architecture)
+5. [Subsystems](#subsystems)
+6. [System Execution Flow](#system-execution-flow)
+7. [Architecture Diagrams](#architecture-diagrams)
 
 ## Project Overview
 
-ZorkGPT is an AI agent system designed to play the classic interactive fiction game "[Zork](https://en.wikipedia.org/wiki/Zork)" using Large Language Models (LLMs). The project explores how modern language models can understand, navigate, and solve complex interactive environments through natural language reasoning. It aims to achieve genuine AI-driven gameplay by relying on LLM capabilities for all aspects of decision-making and learning, rather than pre-programmed logic or solutions.
+Interactive fiction games like Zork present a compelling challenge for artificial intelligence: they require long-horizon planning, spatial reasoning, puzzle solving, and the ability to learn from failure—all through natural language interaction. Traditional approaches rely on reinforcement learning with carefully shaped rewards or extensive offline training. Can large language models achieve genuine competence in these complex environments through pure reasoning and real-time adaptive learning, without any hardcoded solutions?
 
-The system employs a modular architecture where specialized LLM-driven components handle different aspects of gameplay: action generation, information extraction, action evaluation, and strategic learning. This design allows each component to focus on its specific task while adhering to the core principle that all reasoning originates from the language models. Gameplay occurs over extended sessions, during which the system continuously accumulates knowledge and refines its strategies in real-time.
+ZorkGPT explores this question by demonstrating an AI agent system that plays the classic text adventure game "[Zork](https://en.wikipedia.org/wiki/Zork)" using only LLM-driven reasoning and continuous in-game learning. The system achieves extended gameplay sessions spanning thousands of turns, during which it builds spatial knowledge, discovers objectives, synthesizes strategic insights, and accumulates cross-episode wisdom—all without predetermined solutions or game-specific programming.
 
-## Core Mission and Design Philosophy
+The research contribution lies in demonstrating that LLMs can develop authentic gameplay competence through a combination of specialized cognitive modules (action generation, evaluation, knowledge synthesis), direct game state access via the Z-machine, and a sophisticated multi-step learning pipeline that continuously refines strategic understanding during play.
 
-ZorkGPT operates under several fundamental principles:
+## Quick Start
 
-* **LLM-First Design**: All game reasoning, decision-making, and understanding must originate from language models. The system deliberately avoids hardcoded game mechanics, location databases, or predetermined solutions.
-* **No Hardcoded Solutions**: The only acceptable hardcoded logic is for validating parser acceptance (i.e., did the Zork game engine understand the command). Puzzle solutions, navigation choices, and strategic decisions must emerge from LLM reasoning.
-* **Adaptive Learning**: The system implements continuous knowledge extraction and strategy refinement *during* gameplay. The AI analyzes its experiences in real-time, updating its strategic understanding at regular intervals (e.g., every 100 turns). This allows for the immediate incorporation of new insights.
-* **Genuine AI Play**: The objective is to have the LLMs genuinely "play" the game, demonstrating authentic language model capabilities in a complex, interactive environment. When LLMs encounter challenges, the approach is to improve prompts, models, or context rather than introducing fallback mechanisms.
+```bash
+# Prerequisites: Python 3.11+, uv installed
+
+# 1. Clone and setup
+git clone https://github.com/yourusername/ZorkGPT
+cd ZorkGPT
+uv sync
+
+# 2. Configure API keys
+cp .env.example .env
+# Edit .env with your LLM API keys (OpenAI, Anthropic, etc.)
+
+# 3. Run a gameplay episode
+uv run python main.py
+
+# Watch the agent play live or review episode logs in game_files/episodes/
+```
+
+## Core Research Approach
+
+ZorkGPT operates under four fundamental research principles:
+
+### LLM-First Design
+
+All game reasoning, decision-making, and understanding must originate from language models. The system deliberately avoids hardcoded game mechanics, location databases, or predetermined solutions. This constraint forces the agent to rely on genuine language model capabilities rather than falling back on programmatic shortcuts.
+
+### No Hardcoded Solutions
+
+The only acceptable hardcoded logic validates whether the game engine accepted a command. Puzzle solutions, navigation choices, and strategic decisions must emerge entirely from LLM reasoning. This ensures that observed competence reflects authentic AI capabilities, not disguised rule-based systems.
+
+### Adaptive Learning During Gameplay
+
+The system implements continuous knowledge extraction and strategy refinement *during* gameplay sessions, not just between them. The agent analyzes its experiences in real-time, updating its strategic understanding at regular intervals (every 100 turns by default). This allows immediate incorporation of new insights and demonstrates online learning capabilities.
+
+### Genuine AI Play
+
+The objective is to have LLMs genuinely "play" the game, demonstrating authentic language model capabilities in complex, interactive environments. When the agent encounters challenges, the solution is to improve prompts, models, or context—never to introduce fallback mechanisms or hardcoded assistance.
 
 ## System Architecture
 
-ZorkGPT utilizes a multi-component architecture, coordinated by a central orchestrator, with distinct LLM-powered modules for different cognitive functions, supported by specialized systems for game interaction and data management.
-
-### Jericho Integration
-
-The system leverages the **Jericho** library for direct Z-machine memory access, providing:
-
-* **Direct Z-machine Access**: Instant retrieval of inventory, location, score, and object data without text parsing
-* **Integer-based Location IDs**: Stable room identification eliminating fragmentation issues
-* **Object Tree Visibility**: Access to game object attributes and valid action verbs
-* **Built-in Save/Restore**: Leverages Z-machine state management for session handling
-* **Perfect Movement Detection**: Location ID comparison replaces error-prone heuristics
+ZorkGPT employs a modular architecture coordinated by a central orchestrator, with specialized LLM-powered components handling distinct cognitive functions and supporting systems managing game interaction and data persistence.
 
 ### Central Coordinator
 
-A **ZorkOrchestrator** class serves as the primary coordinator. It manages extended gameplay sessions (potentially thousands of turns), coordinates the interactions between all other system components, handles the overall game loop, and orchestrates the periodic adaptive knowledge updates.
+The **ZorkOrchestratorV2** serves as the primary coordination layer, managing extended gameplay sessions that can span thousands of turns. It orchestrates interactions between all system components, handles the main game loop, coordinates periodic knowledge updates, and manages episode lifecycle from initialization through finalization and cross-episode synthesis.
 
-### Core LLM-Powered Modules
+### LLM-Powered Cognitive Modules
 
-These components form the cognitive core of the agent:
+Four specialized LLM components form the cognitive core of the agent:
 
-* **Agent LM**: Responsible for generating game actions. It analyzes the current game state, integrates relevant information from session memory, spatial knowledge, and strategic guidance from the knowledge base to decide the next action. Receives structured Z-machine object data for enhanced reasoning.
-* **Extractor LM**: Parses raw game text output into structured information. With Jericho integration, extraction is now hybrid: inventory, location, score, and objects come directly from Z-machine memory, while LLM parsing focuses on exits, combat, and important messages. This reduces LLM calls by 40% per turn.
-* **Critic LM**: Evaluates proposed actions before execution. It assesses actions based on relevance, potential for progress, risk, and alignment with current strategy, providing a confidence score and justification. This helps filter out suboptimal actions and guides the agent towards more effective gameplay. It also incorporates a trust mechanism that can adapt its strictness based on recent performance. Performs fast object tree validation before expensive LLM calls (83.3% LLM reduction for invalid actions).
-* **Adaptive Knowledge Manager (Strategy LM)**: Drives the continuous learning process. This component analyzes gameplay data in real-time (e.g., within 100-turn windows) to identify patterns, successful tactics, and areas for improvement. It assesses the quality of new information and intelligently merges new insights into the existing knowledge base, ensuring that learning is productive and avoids knowledge degradation.
+**Agent LM** generates actions by analyzing current game state, integrating memories from previous turns, consulting spatial knowledge from the map system, and following strategic guidance from the knowledge base. It receives structured Z-machine object data including attributes and valid action verbs to inform its reasoning.
+
+**Extractor LM** operates as a hybrid system: it retrieves inventory, location, score, and visible objects directly from Z-machine memory (bypassing text parsing), while using LLM reasoning to extract exits, combat status, and important narrative messages from game text. This hybrid approach reduces LLM calls significantly per turn while maintaining reasoning quality.
+
+**Critic LM** evaluates proposed actions before execution through a two-stage process. It first performs fast object tree validation (microseconds) to catch impossible actions, then conducts LLM-based evaluation assessing relevance, progress potential, risk, and strategic alignment. This reduces expensive LLM calls significantly for invalid actions. The Critic incorporates a trust calibration mechanism that adapts its strictness based on recent agent performance.
+
+**Strategy Generator LM** drives the continuous learning process by analyzing gameplay data within turn windows (typically 100 turns), identifying successful tactics and patterns, and synthesizing strategic insights. It assesses the quality of new information and intelligently merges insights into the existing knowledge base, ensuring productive learning without knowledge degradation.
 
 ### Supporting Systems
 
-Several systems support the core LLM modules:
+Several specialized systems support the LLM cognitive modules:
 
-* **Game Interface (JerichoInterface)**: Manages low-level interaction with the Z-machine game engine via the Jericho library, providing instant access to game state, inventory, location data, object attributes, and valid action vocabulary.
-* **Spatial Intelligence System**: Builds and maintains a dynamic understanding of the game world's layout using integer-based location IDs from the Z-machine, eliminating room fragmentation and enabling perfect movement detection.
-* **Logging System**: Captures detailed data from all parts of the system for analysis, debugging, and to provide the raw material for the adaptive learning process.
+**Jericho Interface** manages low-level interaction with the Z-machine game engine through the Jericho library, providing direct memory access for instant retrieval of inventory, location, score, and object data without text parsing. It uses integer-based location IDs for stable room identification, eliminating fragmentation issues that plague text-based parsing. The interface exposes the object tree for validation and provides built-in save/restore capabilities, enabling perfect movement detection through location ID comparison.
 
-## Key Features
+**Map System** builds and maintains a dynamic graph-based representation of the game world using integer location IDs from the Z-machine. It tracks connection confidence scores, analyzes movement patterns, and prunes consistently failing exits based on empirical evidence from gameplay.
 
-### Extended Gameplay Sessions
+**Memory System** implements a multi-step synthesis pipeline that transforms raw action history into location-specific memories and ultimately strategic knowledge. Memories are stored at source locations (not destinations) to enable effective cross-episode learning and are deduplicated to prevent redundancy.
 
-ZorkGPT is designed for multi-thousand turn gameplay sessions. Knowledge and memory persist and evolve throughout these long sessions, allowing for cumulative learning and adaptation over extended periods of interaction with the game world.
+**State Manager** handles game state persistence, context overflow detection (triggering LLM-based summarization when token limits approach), state loop detection (alerting when exact game states repeat), and exports state to local storage and S3.
+
+## Subsystems
 
 ### Adaptive Knowledge System
 
-The system features a sophisticated continuous learning pipeline:
+The adaptive knowledge system enables ZorkGPT to improve continuously during gameplay through real-time analysis and knowledge synthesis. Rather than learning only between episodes, the agent analyzes its recent experiences every 100 turns (by default) to extract strategic insights.
 
-* **Real-Time Analysis**: Gameplay data is analyzed during play. For instance, every 100 turns, recent experiences are processed to extract strategic insights.
-* **LLM-Driven Assessment**: The determination of what constitutes valuable knowledge and how it should be integrated is itself an LLM-driven process, adhering to the LLM-first principle.
-* **Intelligent Merging**: New insights are merged into the existing knowledge base in a way that aims to enhance, rather than overwrite or degrade, prior learning.
-* **Dynamic Strategy Guides**: The output of this system is a dynamically updated knowledge base that provides strategic guidance to the Agent LM, influencing its decisions.
-* **Dynamic Objective Formulation**: The learning system contributes to identifying and prioritizing high-level objectives. These emergent goals, derived from gameplay analysis and strategic understanding, help guide the agent's long-term decision-making and focus its exploration and actions towards achieving meaningful progress in the game.
+The system operates through an LLM-driven assessment process that determines what constitutes valuable knowledge and how to integrate it. The Strategy Generator analyzes turn windows to identify successful tactics, failed approaches, and emerging patterns. New insights are intelligently merged into the existing knowledge base in a way that enhances rather than overwrites prior learning, preventing knowledge degradation.
+
+The output is a dynamically updated knowledge base that provides strategic guidance to the Agent LM, influencing its decisions. The system also contributes to objective discovery and prioritization—high-level goals that emerge from gameplay analysis and help guide the agent's long-term decision-making and exploration focus.
+
+At episode boundaries, particularly after significant progress or failure (death), the system performs cross-episode synthesis to distill validated wisdom that persists across gameplay sessions.
 
 ### Spatial Intelligence System
 
-Understanding and navigating the game's geography is crucial:
+Understanding and navigating Zork's complex geography is crucial for progress. ZorkGPT builds a dynamic graph-based map where locations are nodes identified by stable integer IDs from the Z-machine, and connections are edges with associated confidence scores.
 
-* **Graph-Based Mapping**: A dynamic graph represents the game world, with locations as nodes and connections as edges. Confidence scores are associated with connections, reflecting the agent's certainty about them.
-* **Movement Analysis**: The system analyzes movement patterns to verify connections, identify efficient routes, and recognize important spatial features like hubs or dead ends.
-* **Contextual Navigation**: Spatial information (current location, known exits, map-based relationships) is provided to the Agent LM to inform its navigation decisions.
-* **Intelligent Exit Validation**: Failed movement attempts are tracked. Exits that consistently fail are eventually pruned from the agent's map to prevent repeated errors, based on empirical evidence from gameplay.
+The system achieves perfect movement detection by comparing location IDs before and after actions, eliminating the ambiguity inherent in text-based approaches. Movement patterns are analyzed to verify connections, identify efficient routes, and recognize important spatial features like hub rooms or dead ends.
 
-## Data Management
+Spatial information—current location, known exits, map-based relationships—is provided to the Agent LM to inform navigation decisions. The system tracks failed movement attempts and prunes exits that consistently fail, preventing repeated errors based on empirical evidence from gameplay.
 
-Effective gameplay relies on robust data management:
+### Memory System
 
-* **Session Memory**: Structured records of turn-by-turn observations, including game text, extracted information, and actions taken, are maintained throughout a session. This provides historical context for decision-making.
-* **Dynamic Knowledge Base**: A continuously updated repository of strategic insights, learned heuristics, and important facts about the game world. This knowledge base is curated by the Adaptive Knowledge Manager and directly informs the Agent LM.
+ZorkGPT implements a multi-step memory hierarchy that converts raw experiences into strategic understanding:
 
-## System Flow
+**Action History** → **Location Memories** → **Strategic Knowledge** → **Cross-Episode Wisdom**
 
-A typical gameplay loop involves several stages:
+Location-specific memories are synthesized when certain triggers occur: score changes, location changes, deaths, or manual triggers. The Memory Manager uses LLM reasoning to analyze recent actions and outcomes, creating concise memories that capture what happened and why it matters.
 
-1. **Observation**: The system receives the latest game text from the Z-machine.
-2. **Extraction (Hybrid)**:
-   - **Instant Z-machine Access**: Inventory, location, score, and visible objects retrieved directly from game memory
-   - **LLM Parsing**: Extractor LM processes text for exits, combat, and important messages only
-3. **State Update**: Session memory and the spatial map are updated with the new information. Movement detection uses location ID comparison (perfect accuracy).
-4. **Contextualization**: Relevant memories, spatial data, strategic knowledge, and structured Z-machine object data are assembled for the Agent LM.
-5. **Action Generation**: The Agent LM proposes an action, informed by structured object attributes and valid action vocabulary.
-6. **Evaluation**: The Critic performs fast object tree validation first (microseconds), then LLM evaluation if needed. If the action is deemed suboptimal, the Agent LM may be prompted for alternatives. Object tree validation reduces LLM calls by 83.3% for invalid actions.
+Memories are stored at the *source* location where they were created, not at destination locations. This design enables cross-episode learning: when revisiting a location, the agent receives memories from all previous episodes at that location, regardless of when they occurred.
+
+The system handles supersession, allowing new memories to replace or refine earlier ones when better understanding emerges. Deduplication prevents redundant memories from cluttering the knowledge base.
+
+## System Execution Flow
+
+A typical gameplay turn proceeds through these stages:
+
+1. **Observation**: The system receives game text from the Z-machine after the previous action.
+
+2. **Hybrid Extraction**: Inventory, location ID, score, and visible objects are retrieved instantly from Z-machine memory. The Extractor LM parses game text only for exits, combat status, and important messages.
+
+3. **State Update**: Session memory is updated with new information. The map system compares location IDs to detect movement with perfect accuracy. State hash tracking identifies exact state loops.
+
+4. **Context Assembly**: The Context Manager gathers relevant memories from the current location, spatial data from the map, strategic knowledge from the knowledge base, and structured object data from the Z-machine, assembling a comprehensive context for the Agent LM.
+
+5. **Action Generation**: The Agent LM analyzes the context and proposes an action, informed by object attributes, valid action vocabulary, spatial relationships, and strategic guidance.
+
+6. **Action Evaluation**: The Critic performs fast object tree validation (microseconds). If the action passes, it conducts LLM-based evaluation (~800ms). Low-scoring actions may trigger re-generation with feedback, subject to trust calibration and rejection override logic.
+
 7. **Execution**: The chosen action is sent to the Z-machine game engine.
-8. **Learning**: Periodically (e.g., every 25 turns for map-focused updates, every 100 turns for broader strategic updates), the Adaptive Knowledge Manager analyzes recent gameplay to refine the knowledge base. State loop detection alerts when exact game states repeat.
 
-This cycle repeats, allowing the agent to explore, interact, and learn from its experiences in the game world over thousands of turns.
+8. **Periodic Learning**: At regular intervals, specialized updates occur:
+   - Every 25 turns: Objective discovery and completion tracking
+   - Every 100 turns: Strategic knowledge synthesis and knowledge base updates
+   - Every turn: Memory synthesis triggers (score change, location change, death)
+   - Continuous: State export, context overflow detection, map updates
 
-## Logging Infrastructure
+This cycle repeats over extended sessions, allowing the agent to explore, learn, and improve over thousands of turns.
 
-Comprehensive logging captures all significant events, LLM interactions, state changes, and decisions. This structured log data is crucial for:
+## Architecture Diagrams
 
-* **Debugging and Analysis**: Understanding system behavior and diagnosing issues.
-* **Adaptive Learning**: Providing the raw data (e.g., turn-window information) that the Adaptive Knowledge Manager uses to extract insights and generate new strategies.
+### Component Architecture
 
-The design of the logging system is specifically tailored to support the turn-based analysis required for continuous learning.
-
-## Architecture Diagram
+The following diagram illustrates the relationships between ZorkGPT's components in its manager-based architecture. Solid lines show direct dependencies between components, while dashed lines indicate data persistence relationships. The architecture separates concerns into coordination (orchestrator), session management (shared state), specialized managers (objectives, knowledge, map, memory, state, context, episodes, rejection), LLM-powered components (agent, extractor, critic, strategy), supporting systems (Jericho, map graph, logger, LLM client), and persistent data stores.
 
 ```mermaid
 graph TB
@@ -258,7 +284,9 @@ graph TB
     class ZorkGame external
 ```
 
-## Turn-by-Turn Flow with Manager-Based Architecture
+### Turn-by-Turn Execution Flow
+
+This sequence diagram details the execution flow for a single gameplay turn, showing how the orchestrator coordinates managers, LLM components, the Jericho interface, and persistent data stores. Note the two-stage critic evaluation (fast object tree validation followed by LLM evaluation only when needed), the hybrid extraction process (Z-machine direct access + selective LLM parsing), and periodic update triggers based on turn counts.
 
 ```mermaid
 sequenceDiagram
@@ -410,7 +438,7 @@ sequenceDiagram
         ObjectiveMgr-->>Orch: Completion status
         deactivate ObjectiveMgr
 
-        alt Every 20 turns (Objective Updates)
+        alt Every 25 turns (Objective Updates)
             Orch->>ObjectiveMgr: check_and_update_objectives()
             activate ObjectiveMgr
             ObjectiveMgr->>ObjectiveMgr: LLM discover new objectives
@@ -419,7 +447,7 @@ sequenceDiagram
             deactivate ObjectiveMgr
         end
 
-        alt Every 50 turns (Knowledge Updates)
+        alt Every 100 turns (Knowledge Updates)
             Orch->>KnowledgeMgr: check_periodic_update()
             activate KnowledgeMgr
             KnowledgeMgr->>KnowledgeMgr: Analyze full episode history
