@@ -82,6 +82,22 @@ class TestBaseManagerSetup:
             analysis_sampling={},
             memory_sampling={},
             condensation_sampling={},
+            # Retry configuration
+            retry={
+                "max_retries": 5,
+                "initial_delay": 1.0,
+                "max_delay": 60.0,
+                "exponential_base": 2.0,
+                "jitter_factor": 0.1,
+                "retry_on_timeout": True,
+                "retry_on_rate_limit": True,
+                "retry_on_server_error": True,
+                "timeout_seconds": 30.0,
+                "circuit_breaker_enabled": True,
+                "circuit_breaker_failure_threshold": 5,
+                "circuit_breaker_recovery_timeout": 60.0,
+                "circuit_breaker_success_threshold": 2,
+            },
         )
 
     @pytest.fixture

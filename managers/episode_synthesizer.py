@@ -360,11 +360,11 @@ Keep it under 200 words."""
             response = self.llm_client.chat.completions.create(
                 model=self.config.analysis_model,
                 messages=messages,
-                temperature=self.config.analysis_sampling.temperature,
-                top_p=self.config.analysis_sampling.top_p,
-                top_k=self.config.analysis_sampling.top_k,
-                min_p=self.config.analysis_sampling.min_p,
-                max_tokens=self.config.analysis_sampling.max_tokens,
+                temperature=self.config.analysis_sampling.get("temperature"),
+                top_p=self.config.analysis_sampling.get("top_p"),
+                top_k=self.config.analysis_sampling.get("top_k"),
+                min_p=self.config.analysis_sampling.get("min_p"),
+                max_tokens=self.config.analysis_sampling.get("max_tokens"),
                 name="EpisodeSynthesizer",
             )
 

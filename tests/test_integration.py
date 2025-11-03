@@ -386,7 +386,8 @@ class TestZorkOrchestratorV2Integration:
 
             # Verify S3 upload was attempted
             assert success is True
-            mock_boto_client.return_value.put_object.assert_called_once()
+            # Should upload twice: current_state.json + snapshot
+            assert mock_boto_client.return_value.put_object.call_count == 2
 
 
 class TestManagerInteractions:

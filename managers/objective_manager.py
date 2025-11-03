@@ -557,11 +557,11 @@ Example valid response:
                     self.adaptive_knowledge_manager.client.chat.completions.create(
                         model=self.adaptive_knowledge_manager.analysis_model,
                         messages=[{"role": "user", "content": prompt}],
-                        temperature=self.adaptive_knowledge_manager.analysis_sampling.temperature,
-                        top_p=self.adaptive_knowledge_manager.analysis_sampling.top_p,
-                        top_k=self.adaptive_knowledge_manager.analysis_sampling.top_k,
-                        min_p=self.adaptive_knowledge_manager.analysis_sampling.min_p,
-                        max_tokens=self.adaptive_knowledge_manager.analysis_sampling.max_tokens,
+                        temperature=self.adaptive_knowledge_manager.analysis_sampling.get("temperature"),
+                        top_p=self.adaptive_knowledge_manager.analysis_sampling.get("top_p"),
+                        top_k=self.adaptive_knowledge_manager.analysis_sampling.get("top_k"),
+                        min_p=self.adaptive_knowledge_manager.analysis_sampling.get("min_p"),
+                        max_tokens=self.adaptive_knowledge_manager.analysis_sampling.get("max_tokens"),
                         name="ObjectiveManager",
                         response_format=create_json_schema(ObjectiveCompletionResponse),
                     )

@@ -209,11 +209,11 @@ If no significant new insights emerged, return the existing content unchanged.""
                 },
                 {"role": "user", "content": prompt},
             ],
-            temperature=analysis_sampling.temperature,
-            top_p=analysis_sampling.top_p,
-            top_k=analysis_sampling.top_k,
-            min_p=analysis_sampling.min_p,
-            max_tokens=analysis_sampling.max_tokens or 2000,
+            temperature=analysis_sampling.get("temperature"),
+            top_p=analysis_sampling.get("top_p"),
+            top_k=analysis_sampling.get("top_k"),
+            min_p=analysis_sampling.get("min_p"),
+            max_tokens=analysis_sampling.get("max_tokens") or 2000,
             name="StrategyGenerator",
         )
 

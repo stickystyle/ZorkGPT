@@ -256,11 +256,11 @@ This knowledge base provides strategic intelligence to make better decisions."""
         response = client.chat.completions.create(
             model=analysis_model,
             messages=messages,
-            temperature=analysis_sampling.temperature,
-            top_p=analysis_sampling.top_p,
-            top_k=analysis_sampling.top_k,
-            min_p=analysis_sampling.min_p,
-            max_tokens=analysis_sampling.max_tokens or 3000,
+            temperature=analysis_sampling.get("temperature"),
+            top_p=analysis_sampling.get("top_p"),
+            top_k=analysis_sampling.get("top_k"),
+            min_p=analysis_sampling.get("min_p"),
+            max_tokens=analysis_sampling.get("max_tokens") or 3000,
             name="StrategyGenerator",
         )
 
