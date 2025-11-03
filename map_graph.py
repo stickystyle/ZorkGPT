@@ -434,11 +434,11 @@ class MapGraph:
 
                 if self.logger:
                     self.logger.warning(
-                        f"Map conflict detected: {from_name} -> {processed_exit_taken}",
+                        f"Map conflict detected: {from_name} (ID:{from_room_id}) -> {processed_exit_taken}",
                         extra={
                             "event_type": "progress",
                             "stage": "map_building",
-                            "details": f"Existing: {existing_dest_name} ({existing_confidence:.2f}, {existing_verifications}x) vs New: {new_dest_name} ({confidence:.2f}, 1x)",
+                            "details": f"Existing: {existing_dest_name} (ID:{existing_destination}, {existing_confidence:.2f}, {existing_verifications}x) vs New: {new_dest_name} (ID:{to_room_id}, {confidence:.2f}, 1x)",
                         },
                     )
 

@@ -1042,52 +1042,46 @@ class ZorkOrchestratorV2:
             self.game_state.game_over_flag = True
 
         # Update location and map
-        if (
-            hasattr(extracted_info, "current_location_name")
-            and extracted_info.current_location_name
-        ):
-            new_location = extracted_info.current_location_name
+        # CRITICAL: Always use Jericho's authoritative location data (both ID and name)
+        # Do NOT use extractor's parsed location name - it's unreliable and causes map conflicts
+        # when the extractor misreads room names from text responses
+        try:
+            location_obj = self.jericho_interface.get_location_structured()
+            new_location_id = location_obj.num if location_obj else None
+            new_location = location_obj.name if location_obj else None
+        except Exception as e:
+            self.logger.warning(f"Failed to get location from Jericho: {e}")
+            new_location_id = None
+            new_location = None
 
-            # Extract location ID from Jericho
-            try:
-                location_obj = self.jericho_interface.get_location_structured()
-                new_location_id = location_obj.num if location_obj else None
-            except Exception as e:
-                self.logger.warning(f"Failed to get location ID from Jericho: {e}")
-                new_location_id = None
+        # Only proceed with map updates if we have valid location data
+        if new_location_id is not None and new_location is not None:
+            # Add to visited locations
+            self.game_state.visited_locations.add(new_location)
 
-            # Skip map updates if we don't have a valid location ID
-            if new_location_id is None:
-                self.logger.warning(
-                    f"Skipping map update - no location ID available for {new_location}"
+            # Update map
+            if action and self.game_state.current_room_id:
+                self.map_manager.update_from_movement(
+                    action_taken=action,
+                    new_room_id=new_location_id,
+                    new_room_name=new_location,
+                    previous_room_id=self.game_state.current_room_id,
+                    previous_room_name=self.game_state.current_room_name_for_map,
+                    game_response=response,
                 )
+            elif not self.game_state.current_room_id:
+                # Initial room
+                self.map_manager.add_initial_room(new_location_id, new_location)
+
+            # Update rejection manager's movement tracking
+            if self.game_state.current_room_name_for_map != new_location:
+                self.rejection_manager.update_movement_tracking(moved=True)
             else:
-                # Add to visited locations
-                self.game_state.visited_locations.add(new_location)
+                self.rejection_manager.update_movement_tracking(moved=False)
 
-                # Update map
-                if action and self.game_state.current_room_id:
-                    self.map_manager.update_from_movement(
-                        action_taken=action,
-                        new_room_id=new_location_id,
-                        new_room_name=new_location,
-                        previous_room_id=self.game_state.current_room_id,
-                        previous_room_name=self.game_state.current_room_name_for_map,
-                        game_response=response,
-                    )
-                elif not self.game_state.current_room_id:
-                    # Initial room
-                    self.map_manager.add_initial_room(new_location_id, new_location)
-
-                # Update rejection manager's movement tracking
-                if self.game_state.current_room_name_for_map != new_location:
-                    self.rejection_manager.update_movement_tracking(moved=True)
-                else:
-                    self.rejection_manager.update_movement_tracking(moved=False)
-
-                # Update GameState with new location
-                self.game_state.current_room_id = new_location_id
-                self.game_state.current_room_name_for_map = new_location
+            # Update GameState with new location
+            self.game_state.current_room_id = new_location_id
+            self.game_state.current_room_name_for_map = new_location
 
         # Track failed actions
         if action and response:
