@@ -6,6 +6,7 @@ loading directly from pyproject.toml and environment variables.
 """
 
 import tomllib
+import warnings
 from typing import Optional
 from pathlib import Path
 from pydantic import Field
@@ -398,3 +399,39 @@ class GameConfiguration(BaseSettings):
 
         # Return model-specific URL if available, otherwise fall back to client_base_url
         return base_url_map.get(model_type) or self.client_base_url
+
+    def get_memory_history_window(self) -> int:
+        """
+        Get the number of recent turns to include in memory synthesis context.
+
+        This value controls how many recent actions/reasoning entries are included
+        in memory synthesis prompts. Higher values provide more context but may
+        use excessive tokens.
+
+        Returns:
+            Number of recent turns (validated to be >= 1)
+
+        Warns:
+            If value is > 10 (may use excessive context)
+        """
+        window = self.memory_sampling.get("memory_history_window", 3)
+
+        # Validation: must be at least 1
+        if window < 1:
+            warnings.warn(
+                f"memory_history_window must be >= 1, got {window}. Using default: 3",
+                UserWarning,
+                stacklevel=2
+            )
+            return 3
+
+        # Warning: recommended range is 3-8
+        if window > 10:
+            warnings.warn(
+                f"memory_history_window = {window} may use excessive context. "
+                f"Recommended range: 3-8 actions.",
+                UserWarning,
+                stacklevel=2
+            )
+
+        return window

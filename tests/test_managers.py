@@ -121,8 +121,8 @@ class TestObjectiveManager(TestBaseManagerSetup):
         manager = Mock()
         manager.client = Mock()
         manager.analysis_model = "gpt-4"
-        manager.analysis_sampling = Mock()
-        manager.analysis_sampling.model_dump.return_value = {"temperature": 0.3}
+        # analysis_sampling is now a dict after config migration
+        manager.analysis_sampling = {"temperature": 0.3, "max_tokens": 5000}
         return manager
 
     @pytest.fixture

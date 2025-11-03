@@ -55,9 +55,12 @@ def mock_config(tmp_path):
     config = Mock(spec=GameConfiguration)
     config.zork_game_workdir = str(tmp_path)
     config.info_ext_model = "gpt-4"
+    config.memory_model = "gpt-4"  # For memory synthesis
     config.simple_memory_file = "Memories.md"
     config.simple_memory_max_shown = 10
     config.max_turns_per_episode = 1000
+    config.get_memory_history_window = Mock(return_value=3)  # Default window size for Phase 3
+    config.memory_sampling = {"temperature": 0.3, "max_tokens": 1000}  # Default sampling params
     return config
 
 

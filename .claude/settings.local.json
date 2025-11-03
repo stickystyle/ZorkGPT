@@ -61,5 +61,9 @@
   "enabledMcpjsonServers": [
     "awslabs.code-doc-gen-mcp-server",
     "awslabs.aws-diagram-mcp-server"
-  ]
+  ],
+  "sandbox": {
+    "enabled": true,
+    "autoAllowBashIfSandboxed": true
+  }
 }

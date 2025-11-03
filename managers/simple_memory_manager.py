@@ -14,7 +14,7 @@ import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Literal, Set
+from typing import Dict, List, Optional, Any, Literal, Set, Tuple
 
 from filelock import FileLock
 from pydantic import BaseModel, Field, model_validator
@@ -1121,6 +1121,21 @@ EXISTING MEMORIES AT THIS LOCATION:
             else:
                 existing_section = "\nEXISTING MEMORIES: None (first memory for this location)\n"
 
+            # Retrieve recent history for multi-step procedure detection
+            window_size = self.config.get_memory_history_window()
+
+            # Get recent actions (from game_state)
+            recent_actions = self.game_state.action_history[-window_size:] if self.game_state.action_history else []
+            current_turn = self.game_state.turn_count
+
+            # Get recent reasoning (from game_state)
+            recent_reasoning = self.game_state.action_reasoning_history[-window_size:] if self.game_state.action_reasoning_history else []
+
+            # Format using Phase 2 helpers
+            start_turn = max(1, current_turn - len(recent_actions) + 1)
+            actions_formatted = self._format_recent_actions(recent_actions, start_turn)
+            reasoning_formatted = self._format_recent_reasoning(recent_reasoning, self.game_state.action_history)
+
             # Build concise, focused prompt optimized for reasoning model
             prompt = f"""Location: {location_name} (ID: {location_id})
 {existing_section}
@@ -1183,7 +1198,27 @@ Examples:
 
 **Rule of thumb:** If you think "this worked... for now", mark it TENTATIVE.
 ═══════════════════════════════════════════════════════════════
+"""
 
+            # Add history sections if available (for multi-step procedure detection)
+            if actions_formatted or reasoning_formatted:
+                prompt += "\n═══════════════════════════════════════════════════════════════\n"
+                prompt += "RECENT ACTION SEQUENCE:\n"
+                prompt += "═══════════════════════════════════════════════════════════════\n"
+
+                if actions_formatted:
+                    prompt += f"\n{actions_formatted}\n"
+                else:
+                    prompt += "\n(No recent actions available - this is one of the first turns)\n"
+
+                if reasoning_formatted:
+                    prompt += "\nAGENT'S REASONING:\n"
+                    prompt += f"{reasoning_formatted}\n"
+
+                prompt += "\n═══════════════════════════════════════════════════════════════\n"
+
+            # Continue with ACTION ANALYSIS section
+            prompt += f"""
 ACTION ANALYSIS:
 Action: {action}
 Response: {response}
@@ -1205,6 +1240,32 @@ REASONING STEPS (use your reasoning capabilities):
    - "blocks" = "prevents" = "stops"
 5. If semantic match found → should_remember=false
 6. If truly new insight → should_remember=true
+
+MULTI-STEP PROCEDURE DETECTION:
+═══════════════════════════════════════════════════════════════
+Review the RECENT ACTION SEQUENCE above. Does the current outcome depend on previous actions?
+
+**Look for these patterns:**
+
+1. **Prerequisites** (action B requires action A first):
+   Example: "open window" (turn N) → "enter window" (turn N+1) → success
+   Memory: "To enter kitchen: (1) open window, (2) enter window"
+
+2. **Delayed Consequences** (action seemed successful but had delayed effect):
+   Example: "give lunch to troll" (turn N, seemed ok) → troll attacks (turn N+1)
+   Memory: "Troll attacks after accepting gift - gift strategy fails"
+   Action: Mark previous TENTATIVE memory as SUPERSEDED
+
+3. **Progressive Discovery** (understanding deepens over multiple turns):
+   Example: Turn N "examine door" (locked) → Turn N+1 "unlock with key" → Turn N+2 "open door" (success)
+   Memory: "Door requires key to unlock before opening"
+
+**How to capture multi-step procedures:**
+- If outcome required previous actions: Include steps in memory_text
+- Format: "To achieve X: (1) step1, (2) step2" or "After A, then B occurs"
+- Don't duplicate if existing memory already captures the complete procedure
+
+═══════════════════════════════════════════════════════════════
 
 REMEMBER (actionable game mechanics):
 ✅ Object interactions (how to use items, what works/fails)
@@ -1455,5 +1516,114 @@ Example valid response for remembering:
             lines.append("⚠️  TENTATIVE MEMORIES (unconfirmed, may be invalidated):")
             for mem in tentative_memories:
                 lines.append(f"  [{mem.category}] {mem.title}: {mem.text}")
+
+        return "\n".join(lines)
+
+    # ========================================================================
+    # Phase 2: History Formatting Helpers
+    # ========================================================================
+
+    def _format_recent_actions(
+        self,
+        actions: List[Tuple[str, str]],
+        start_turn: int
+    ) -> str:
+        """
+        Format recent action/response pairs into markdown.
+
+        Args:
+            actions: List of (action, response) tuples
+            start_turn: Turn number of the first action in the list
+
+        Returns:
+            Formatted markdown string with turn context
+
+        Example output:
+            Turn 47: go north
+            Response: You are in a forest clearing.
+
+            Turn 48: examine trees
+            Response: The trees are ordinary pine trees.
+        """
+        # Handle empty list
+        if not actions:
+            return ""
+
+        lines = []
+        for i, (action, response) in enumerate(actions):
+            turn_num = start_turn + i
+            lines.append(f"Turn {turn_num}: {action}")
+            lines.append(f"Response: {response}")
+            # Add blank line between entries (except after last entry)
+            if i < len(actions) - 1:
+                lines.append("")
+
+        return "\n".join(lines)
+
+    def _format_recent_reasoning(
+        self,
+        reasoning_entries: List[Dict[str, Any]],
+        action_history: Optional[List[Tuple[str, str]]] = None
+    ) -> str:
+        """
+        Format recent reasoning history into markdown.
+
+        Args:
+            reasoning_entries: List of reasoning history dicts
+                Each dict has: turn, reasoning, action, timestamp
+            action_history: Optional list of (action, response) tuples for response lookup
+
+        Returns:
+            Formatted markdown string similar to ContextManager style
+
+        Example output:
+            Turn 47:
+            Reasoning: I need to explore north systematically.
+            Action: go north
+            Response: You are in a forest clearing.
+
+            Turn 48:
+            Reasoning: Will examine objects before moving on.
+            Action: examine trees
+            Response: The trees are ordinary pine trees.
+        """
+        # Handle empty list
+        if not reasoning_entries:
+            return ""
+
+        lines = []
+        for i, entry in enumerate(reasoning_entries):
+            # Skip non-dict entries gracefully
+            if not isinstance(entry, dict):
+                self.log_debug(
+                    "Skipping non-dict reasoning entry",
+                    entry_type=type(entry).__name__
+                )
+                continue
+
+            # Extract fields with fallbacks
+            turn = entry.get("turn")
+            if turn is None:
+                turn = "?"
+            reasoning = entry.get("reasoning", "(No reasoning recorded)")
+            action = entry.get("action", "(No action recorded)")
+
+            # Find matching game response from action_history
+            # Iterate in reverse to match the most recent occurrence
+            response = "(Response not recorded)"
+            if action_history:
+                for hist_action, hist_response in reversed(action_history):
+                    if hist_action == action:
+                        response = hist_response
+                        break
+
+            # Format this entry
+            lines.append(f"Turn {turn}:")
+            lines.append(f"Reasoning: {reasoning}")
+            lines.append(f"Action: {action}")
+            lines.append(f"Response: {response}")
+            # Add blank line between entries (except after last entry)
+            if i < len(reasoning_entries) - 1:
+                lines.append("")
 
         return "\n".join(lines)

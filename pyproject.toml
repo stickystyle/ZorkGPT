@@ -106,6 +106,7 @@ max_tokens = 400
 # Memory Synthesis LLM Sampling Parameters
 temperature = 0.3
 max_tokens = 1000
+memory_history_window = 3
 # top_p = null     # Optional - leave commented for default
 # top_k = null     # Optional - leave commented for default
 # min_p = null     # Optional - leave commented for default

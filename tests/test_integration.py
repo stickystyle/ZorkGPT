@@ -413,8 +413,8 @@ class TestManagerInteractions:
         mock_adaptive_manager = Mock()
         mock_adaptive_manager.client = Mock()
         mock_adaptive_manager.analysis_model = "gpt-4"
-        mock_adaptive_manager.analysis_sampling = Mock()
-        mock_adaptive_manager.analysis_sampling.model_dump.return_value = {}
+        # analysis_sampling is now a dict after config migration
+        mock_adaptive_manager.analysis_sampling = {"temperature": 0.3, "max_tokens": 5000}
 
         # Create objective manager
         from managers import ObjectiveManager

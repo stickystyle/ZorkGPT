@@ -298,10 +298,9 @@ Example valid response:
 
             try:
                 # Use response_format for structured output
+                # analysis_sampling is already a dict after config migration
                 sampling_params = (
-                    self.adaptive_knowledge_manager.analysis_sampling.model_dump(
-                        exclude_unset=True
-                    )
+                    dict(self.adaptive_knowledge_manager.analysis_sampling)
                     if self.adaptive_knowledge_manager
                     else {}
                 )

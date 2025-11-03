@@ -878,6 +878,7 @@ class ZorkOrchestratorV2:
         score_before, _ = self.jericho_interface.get_score()
         location_before = self.jericho_interface.get_location_structured()
         location_id_before = location_before.num if location_before else 0
+        location_name_before = location_before.name if location_before else "Unknown"
         inventory_before = self.jericho_interface.get_inventory_structured()
 
         # Execute action using Jericho
@@ -946,8 +947,8 @@ class ZorkOrchestratorV2:
 
         # Record action outcome for memory synthesis
         self.simple_memory.record_action_outcome(
-            location_id=self.game_state.current_room_id,
-            location_name=self.game_state.current_room_name_for_map,
+            location_id=location_id_before,
+            location_name=location_name_before,
             action=action_to_take,
             response=clean_response,
             z_machine_context=z_machine_context
