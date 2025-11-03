@@ -202,6 +202,7 @@ celerybeat.pid
 *.sage.py
 
 # Environments
+# .env contains API keys and secrets - NEVER commit to version control
 .env
 .venv
 env/
@@ -248,12 +249,13 @@ zork_experiences.json
 zork_episode_log.txt
 
 knowledgebase.md
+persistent_wisdom.md.migrated
+persistent_wisdom.md.backup
 test_current_state.json
 current_state.json
+map_state.json
 
 analysis*
-
-.SAVE_REQUESTED_BY_SYSTEM
 
 game_files/
 tmp/
@@ -261,3 +263,5 @@ tmp/
 infrastructure/cdk.out/
 
 zorkgpt/
+
+repomix-output.xml

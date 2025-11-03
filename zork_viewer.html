@@ -1943,9 +1943,25 @@
                 
                 // Final critic evaluation
                 if (entry.critic_justification) {
-                    const status = entry.was_overridden ? 'Action rejected' : 'Action approved';
+                    let status;
                     const score = entry.critic_score !== undefined ? entry.critic_score.toFixed(2) : 'N/A';
+
+                    // Determine status based on score and override
+                    if (entry.was_overridden) {
+                        // Rejection was overridden - show this clearly
+                        status = '<span style="color: #ff9800;">Action rejected BUT OVERRIDDEN</span>';
+                    } else if (entry.critic_score !== undefined && entry.critic_score < 0) {
+                        status = 'Action rejected';
+                    } else {
+                        status = 'Action approved';
+                    }
+
                     html += `<div class="log-critic">⚖️ Final Critic Evaluation: ${status} (Score: ${score})<br>"${this.escapeHtml(entry.critic_justification)}"</div>`;
+
+                    // If overridden, show override reason if available
+                    if (entry.was_overridden && entry.override_reason && entry.override_reason.trim()) {
+                        html += `<div class="log-critic" style="margin-left: 20px; color: #ff9800;">↳ Override reason: ${this.escapeHtml(entry.override_reason)}</div>`;
+                    }
                 }
                 
                 // Action taken

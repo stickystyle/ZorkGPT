@@ -16,13 +16,11 @@ Available actions:
 """
 
 import subprocess
-import json
 import sys
 import argparse
 import os
 from datetime import datetime
 from typing import Optional
-import time
 
 
 def get_stack_output(output_key: str) -> Optional[str]:
@@ -44,10 +42,12 @@ def get_stack_output(output_key: str) -> Optional[str]:
 def run_ssh_command(command: str, public_ip: str, capture_output: bool = True) -> bool:
     """Run a command on the EC2 instance via SSH."""
     ssh_cmd = f"ssh -i ~/.ssh/parrishfamily.pem -o StrictHostKeyChecking=no ec2-user@{public_ip} '{command}'"
-    
+
     try:
         if capture_output:
-            result = subprocess.run(ssh_cmd, shell=True, check=True, capture_output=True, text=True)
+            result = subprocess.run(
+                ssh_cmd, shell=True, check=True, capture_output=True, text=True
+            )
             if result.stdout:
                 print(result.stdout)
             if result.stderr:
@@ -59,9 +59,9 @@ def run_ssh_command(command: str, public_ip: str, capture_output: bool = True) -
             return result.returncode == 0
     except subprocess.CalledProcessError as e:
         print(f"❌ SSH command failed: {e}")
-        if capture_output and hasattr(e, 'stdout') and e.stdout:
+        if capture_output and hasattr(e, "stdout") and e.stdout:
             print(f"stdout: {e.stdout}")
-        if capture_output and hasattr(e, 'stderr') and e.stderr:
+        if capture_output and hasattr(e, "stderr") and e.stderr:
             print(f"stderr: {e.stderr}")
         return False
 
@@ -118,33 +118,37 @@ def view_logs(public_ip: str, follow: bool = False) -> None:
         print("Press Ctrl+C to stop following logs")
 
     # When following logs, don't capture output to allow real-time streaming
-    run_ssh_command(f"sudo journalctl -u zorkgpt {follow_flag} --no-pager", public_ip, capture_output=not follow)
+    run_ssh_command(
+        f"sudo journalctl -u zorkgpt {follow_flag} --no-pager",
+        public_ip,
+        capture_output=not follow,
+    )
 
 
 def update_zorkgpt():
     """Update ZorkGPT on the EC2 instance using the update script from the git repository."""
     public_ip = get_stack_output("EC2PublicIP")
-    
+
     if not public_ip:
         print("❌ Could not get EC2 public IP")
         return
-    
+
     print("🚀 Starting ZorkGPT update process...")
-    
+
     # Use the script that's already in the git repository
     script_path = "/home/zorkgpt/ZorkGPT/infrastructure/update_zorkgpt.sh"
-    
+
     print("🔧 Running update script from git repository...")
-    
+
     # Make sure the script is executable and run it with sudo
     execute_cmd = f"sudo chmod +x {script_path} && sudo {script_path}"
-    
+
     # Execute the update script on the remote instance
     # Don't capture output so we can see real-time progress, and redirect stderr to stdout
     ssh_cmd = f"ssh -i ~/.ssh/parrishfamily.pem -o StrictHostKeyChecking=no ec2-user@{public_ip} 'bash -c \"{execute_cmd}\"'"
-    
+
     try:
-        result = subprocess.run(ssh_cmd, shell=True, check=True)
+        subprocess.run(ssh_cmd, shell=True, check=True)
         print("🎉 ZorkGPT update completed successfully!")
         print("📊 Monitor logs with: python infrastructure/manage_ec2.py logs-follow")
     except subprocess.CalledProcessError as e:
@@ -162,7 +166,7 @@ def update_viewer_only(public_ip: str) -> None:
 
     # Get CloudFront distribution ID for cache invalidation
     distribution_id = get_stack_output("DistributionId")
-    
+
     # Get S3 bucket name for uploads
     bucket_name = get_stack_output("BucketName")
     if not bucket_name:
@@ -172,7 +176,7 @@ def update_viewer_only(public_ip: str) -> None:
     # Pull latest code to get updated HTML file
     print("📥 Pulling latest code from git...")
     pull_cmd = 'sudo -u zorkgpt bash -c "cd /home/zorkgpt/ZorkGPT && git pull"'
-    
+
     if not run_ssh_command(pull_cmd, public_ip):
         print("❌ Failed to pull latest code from git")
         return
@@ -182,7 +186,7 @@ def update_viewer_only(public_ip: str) -> None:
     # Upload the viewer HTML file
     print("📤 Uploading viewer HTML to S3...")
     upload_cmd = f'sudo -u zorkgpt bash -c "cd /home/zorkgpt/ZorkGPT && aws s3 cp zork_viewer.html s3://{bucket_name}/zork_viewer.html"'
-    
+
     if not run_ssh_command(upload_cmd, public_ip):
         print("❌ Failed to upload zork_viewer.html to S3")
         return
@@ -194,7 +198,9 @@ def update_viewer_only(public_ip: str) -> None:
         print("🔄 Invalidating CloudFront cache for viewer HTML...")
         invalidation_cmd = f"aws cloudfront create-invalidation --distribution-id {distribution_id} --paths '/zork_viewer.html' --profile parrishfamily"
         try:
-            result = subprocess.run(invalidation_cmd, shell=True, check=True, capture_output=True, text=True)
+            subprocess.run(
+                invalidation_cmd, shell=True, check=True, capture_output=True, text=True
+            )
             print("✅ CloudFront cache invalidation initiated")
         except subprocess.CalledProcessError as e:
             print(f"⚠️  CloudFront invalidation failed: {e}")
@@ -203,72 +209,79 @@ def update_viewer_only(public_ip: str) -> None:
         print("⚠️  Could not get CloudFront distribution ID for cache invalidation")
 
     print("🎉 Viewer update completed successfully!")
-    print("💡 Note: ZorkGPT service was not restarted - only the viewer HTML was updated")
+    print(
+        "💡 Note: ZorkGPT service was not restarted - only the viewer HTML was updated"
+    )
 
 
 def download_analysis_files(public_ip: str) -> None:
     """Download analysis files from the EC2 instance."""
     print("📥 Downloading analysis files from EC2 instance...")
-    
+
     # Create timestamped directory for analysis files
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     analysis_dir = f"analysis_{timestamp}"
-    
+
     try:
         os.makedirs(analysis_dir, exist_ok=True)
         print(f"📁 Created analysis directory: {analysis_dir}")
     except OSError as e:
         print(f"❌ Failed to create analysis directory: {e}")
         return
-    
+
     # Files to download from the ZorkGPT working directory
     files_to_download = [
-        "current_state.json",
-        "knowledgebase.md", 
-        "persistent_wisdom.md",
-        "zork_episode_log.jsonl"
+        "game_files/current_state.json",
+        "game_files/knowledgebase.md",
+        "game_files/map_state.json",
+        # "persistent_wisdom.md",  # Removed: now integrated into knowledgebase.md
+        "game_files/zork_episode_log.jsonl",
     ]
-    
+
     success_count = 0
-    
+
     for filename in files_to_download:
         print(f"📄 Downloading {filename}...")
-        
+
         # First, copy the file to a temporary location accessible by ec2-user
         # Use sudo -u zorkgpt to access the file as the zorkgpt user
         temp_path = f"/tmp/{filename}"
         copy_cmd = f"sudo -u zorkgpt cp /home/zorkgpt/ZorkGPT/{filename} {temp_path} && sudo chown ec2-user:ec2-user {temp_path}"
-        
+
         # Copy file to temp location on EC2
         if not run_ssh_command(copy_cmd, public_ip):
             print(f"⚠️  Failed to copy {filename} to temporary location")
             continue
-        
+
         # Use scp to download the file from temp location
         scp_cmd = f"scp -i ~/.ssh/parrishfamily.pem -o StrictHostKeyChecking=no ec2-user@{public_ip}:{temp_path} {analysis_dir}/"
-        
+
         try:
-            result = subprocess.run(scp_cmd, shell=True, check=True, capture_output=True, text=True)
+            subprocess.run(
+                scp_cmd, shell=True, check=True, capture_output=True, text=True
+            )
             print(f"✅ Downloaded {filename}")
             success_count += 1
-            
+
             # Clean up temp file on EC2
             cleanup_cmd = f"rm -f {temp_path}"
             run_ssh_command(cleanup_cmd, public_ip)
-            
+
         except subprocess.CalledProcessError as e:
             print(f"⚠️  Failed to download {filename}: {e}")
-            if hasattr(e, 'stderr') and e.stderr:
+            if hasattr(e, "stderr") and e.stderr:
                 print(f"   Error details: {e.stderr}")
-            
+
             # Still try to clean up temp file
             cleanup_cmd = f"rm -f {temp_path}"
             run_ssh_command(cleanup_cmd, public_ip)
-    
+
     if success_count > 0:
-        print(f"\n🎉 Downloaded {success_count}/{len(files_to_download)} files to {analysis_dir}/")
-        print(f"📊 Analysis files ready for review:")
-        
+        print(
+            f"\n🎉 Downloaded {success_count}/{len(files_to_download)} files to {analysis_dir}/"
+        )
+        print("📊 Analysis files ready for review:")
+
         # List what was actually downloaded
         for filename in files_to_download:
             filepath = os.path.join(analysis_dir, filename)
@@ -288,7 +301,7 @@ def download_analysis_files(public_ip: str) -> None:
 
 def ssh_connect(public_ip: str) -> None:
     """Open an interactive SSH session."""
-    print(f"🔗 Connecting to EC2 instance...")
+    print("🔗 Connecting to EC2 instance...")
     ssh_cmd = f"ssh -i ~/.ssh/parrishfamily.pem ec2-user@{public_ip}"
     subprocess.run(ssh_cmd, shell=True)
 

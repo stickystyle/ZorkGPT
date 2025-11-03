@@ -8,6 +8,12 @@ dependencies = [
     "pydantic>=2.11.4",
     "requests>=2.31.0",
     "python-dotenv>=1.0.0",
+    "jericho>=3.3.0",
+    # needed for Jericho get_valid_actions() call
+    "en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
+    "langfuse>=3.8.1,<4.0",
+    "filelock>=3.20.0",
+    "pydantic-settings>=2.11.0",
 ]
 
 [project.optional-dependencies]
@@ -27,23 +33,36 @@ dev = [
 [tool.zorkgpt.llm]
 # LLM Configuration
 client_base_url = "https://openrouter.ai/api/v1"
-agent_model = "qwen/qwen3-235b-a22b"
-info_ext_model = "gemma-3-12b-it-qat"
-# info_ext_model = "google/gemma-3-12b-it"
-critic_model = "gemma-3-12b-it-qat"
-# critic_model = "google/gemma-3-12b-it"
-analysis_model = "meta-llama/llama-4-scout"
+agent_model = "deepseek/deepseek-r1-0528"
+#info_ext_model = "gemma-3-12b-it-qat"
+info_ext_model = "google/gemma-3-12b-it"
+#critic_model = "gemma-3-12b-it-qat"
+#critic_model = "google/gemma-3-12b-it"  # Too small - fails to follow movement validation logic
+critic_model = "google/gemma-3-27b-it"   # Correctly validates movements against available exits
+analysis_model = "deepseek/deepseek-r1-0528"  # Superior reasoning depth and actionable pattern extraction vs llama-4-scout
+memory_model = "qwen/qwq-32b"
+condensation_model = "qwen/qwq-32b"
 
 # Per-model base URLs (optional, for cost optimization)
 # If not specified, will fall back to client_base_url
 # Examples:
 # agent_base_url = "https://api.together.xyz/v1"
-info_ext_base_url = "http://oracle.nord:1234/v1"
-critic_base_url = "http://oracle.nord:1234/v1"
+# info_ext_base_url = "http://oracle.nord:1234/v1"
+# critic_base_url = "http://oracle.nord:1234/v1"
 # analysis_base_url = "https://api.openai.com/v1"
 
 [tool.zorkgpt.retry]
 # Retry and Exponential Backoff Configuration
+#
+# The retry system automatically handles:
+# - Empty or whitespace-only responses (reasoning models sometimes return these)
+# - Rate limit errors (429 status code)
+# - Server errors (5xx status codes)
+# - Timeout errors
+#
+# Reasoning models (DeepSeek R1, QwQ, o1/o3) automatically get max_tokens=8000
+# if not explicitly specified to prevent token exhaustion during long reasoning chains.
+#
 max_retries = 5
 initial_delay = 1.0           # Initial retry delay in seconds
 max_delay = 60.0              # Maximum retry delay in seconds
@@ -69,7 +88,7 @@ min_p = 0.0
 
 [tool.zorkgpt.critic_sampling]
 # Critic LLM Sampling Parameters
-temperature = 0.2
+temperature = 0.1  # Low temperature for consistent validation logic
 max_tokens = 100
 # top_p = null     # Optional - leave commented for default
 # top_k = null     # Optional - leave commented for default
@@ -83,6 +102,15 @@ max_tokens = 400
 # top_k = null     # Optional - leave commented for default
 # min_p = null     # Optional - leave commented for default
 
+[tool.zorkgpt.memory_sampling]
+# Memory Synthesis LLM Sampling Parameters
+temperature = 0.3
+max_tokens = 1000
+memory_history_window = 3
+# top_p = null     # Optional - leave commented for default
+# top_k = null     # Optional - leave commented for default
+# min_p = null     # Optional - leave commented for default
+
 [tool.zorkgpt.analysis_sampling]
 # Analysis Model LLM Sampling Parameters (for knowledge generation)
 temperature = 0.3
@@ -91,9 +119,17 @@ top_k = 20     # Optional - leave commented for default
 min_p = 0.0     # Optional - leave commented for default
 max_tokens = 5000  # Optional - leave commented to use default
 
+[tool.zorkgpt.condensation_sampling]
+# Knowledge Condensation LLM Sampling Parameters
+temperature = 0.3
+top_p = 0.8
+top_k = 20
+min_p = 0.0
+max_tokens = 5000
+
 [tool.zorkgpt.gameplay]
 # Gameplay Configuration
-turn_delay_seconds = 30.0
+turn_delay_seconds = 3.0
 turn_window_size = 100
 min_knowledge_quality = 6.0
 critic_rejection_threshold = -0.2  # More permissive from -0.05 to allow more experimentation
@@ -106,17 +142,11 @@ knowledge_condensation_threshold = 15000  # Characters before triggering condens
 # Save/restore configuration
 zork_save_filename_template = "zorkgpt_save_{timestamp}"
 zork_game_workdir = "game_files"
-save_signal_filename = ".SAVE_REQUESTED_BY_SYSTEM"
-
-[tool.zorkgpt.logging]
-# Logging Configuration
-enable_prompt_logging = false
 
 [tool.zorkgpt.orchestrator]
 # Orchestrator Configuration
-max_turns_per_episode = 5000
+max_turns_per_episode = 500
 knowledge_update_interval = 100
-map_update_interval = 10
 objective_update_interval = 25
 enable_state_export = true
 max_context_tokens = 40000
@@ -129,13 +159,20 @@ refined_objectives_target_count = 8
 
 # Inter-episode synthesis configuration
 enable_inter_episode_synthesis = true
-persistent_wisdom_file = "persistent_wisdom.md"
+
+[tool.zorkgpt.simple_memory]
+# Simple Memory System Configuration
+memory_file = "Memories.md"
+max_memories_shown = 10
 
 [tool.zorkgpt.files]
 # File Configuration
 episode_log_file = "zork_episode_log.txt"
 json_log_file = "zork_episode_log.jsonl"
 state_export_file = "current_state.json"
+map_state_file = "map_state.json"
+knowledge_file = "knowledgebase.md"
+game_file_path = "jericho-game-suite/zork1.z5"
 
 [tool.zorkgpt.aws]
 # AWS Configuration (optional)

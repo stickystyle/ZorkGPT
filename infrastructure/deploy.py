@@ -88,13 +88,9 @@ def setup_python_environment():
 
     # Activate virtual environment and install dependencies
     if sys.platform == "win32":
-        activate_cmd = ".venv\\Scripts\\activate"
         pip_cmd = ".venv\\Scripts\\pip"
-        python_cmd = ".venv\\Scripts\\python"
     else:
-        activate_cmd = "source .venv/bin/activate"
         pip_cmd = ".venv/bin/pip"
-        python_cmd = ".venv/bin/python"
 
     if not run_command(
         f"{pip_cmd} install -r requirements.txt", "Installing Python dependencies"

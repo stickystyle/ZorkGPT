@@ -27,7 +27,7 @@ class ZorkGPTViewerStack(Stack):
 
         # Domain configuration
         domain_name = "zorkgpt.com"
-        
+
         # Create a new hosted zone for the domain
         hosted_zone = route53.HostedZone(
             self,
@@ -110,8 +110,8 @@ class ZorkGPTViewerStack(Stack):
                         cache_policy_name=f"ZorkGPT-State-Cache-{self.stack_name}",
                         comment="Cache policy for current_state.json - 6 second cache for real-time data",
                         default_ttl=Duration.seconds(6),  # Cache for 6 seconds
-                        max_ttl=Duration.seconds(10),     # Max 10 seconds
-                        min_ttl=Duration.seconds(0),      # Allow no cache if needed
+                        max_ttl=Duration.seconds(10),  # Max 10 seconds
+                        min_ttl=Duration.seconds(0),  # Allow no cache if needed
                         cookie_behavior=cloudfront.CacheCookieBehavior.none(),
                         header_behavior=cloudfront.CacheHeaderBehavior.none(),
                         query_string_behavior=cloudfront.CacheQueryStringBehavior.none(),
@@ -180,7 +180,6 @@ class ZorkGPTViewerStack(Stack):
         # Note: HTML files are now deployed from the EC2 instance using the manage_ec2.py update command
         # This avoids unwanted service restarts caused by CDK BucketDeployment custom resources
 
-
         # Create VPC for EC2 instance (or use default VPC)
         vpc = ec2.Vpc.from_lookup(self, "DefaultVPC", is_default=True)
 
@@ -215,7 +214,7 @@ class ZorkGPTViewerStack(Stack):
                 "CloudWatchAgentServerPolicy"
             )
         )
-        
+
         # Add SSM permissions for remote management
         ec2_role.add_managed_policy(
             iam.ManagedPolicy.from_aws_managed_policy_name(
@@ -225,9 +224,7 @@ class ZorkGPTViewerStack(Stack):
 
         # Create SNS topic for monitoring alerts
         alert_topic = sns.Topic(
-            self,
-            "ZorkGPTAlerts",
-            display_name="ZorkGPT Monitoring Alerts"
+            self, "ZorkGPTAlerts", display_name="ZorkGPT Monitoring Alerts"
         )
 
         # Grant SNS permissions to EC2 role
@@ -307,10 +304,8 @@ class ZorkGPTViewerStack(Stack):
             "systemctl enable zorkgpt.service",
             # Upload initial HTML file to S3 for immediate viewer availability
             f"aws s3 cp /home/zorkgpt/ZorkGPT/zork_viewer.html s3://{self.bucket.bucket_name}/zork_viewer.html || echo 'Could not upload initial zork_viewer.html'",
-            
             # Set up monitoring
             f"echo 'export ALERT_TOPIC_ARN={alert_topic.topic_arn}' >> /home/zorkgpt/.bashrc",
-            
             # Create monitoring script
             "cat > /home/zorkgpt/monitor.py << 'EOF'",
             """
@@ -435,17 +430,15 @@ if __name__ == '__main__':
 """,
             "EOF",
             "chown zorkgpt:zorkgpt /home/zorkgpt/monitor.py",
-            
             # Create cron job to check every 5 minutes
             "echo '*/5 * * * * cd /home/zorkgpt && source ~/.bashrc && /home/zorkgpt/.local/bin/uv run python monitor.py' | sudo -u zorkgpt crontab -",
-            
             # Create helpful log viewing scripts
             "cat > /home/zorkgpt/view_logs.sh << 'EOF'",
             "#!/bin/bash",
             "echo '=== ZorkGPT Service Logs (last 20 lines) ==='",
             "journalctl -u zorkgpt --no-pager -n 20",
             "echo ''",
-            "echo '=== Monitor Logs (last 10 checks) ==='", 
+            "echo '=== Monitor Logs (last 10 checks) ==='",
             "journalctl -t zorkgpt-monitor --no-pager -n 10",
             "echo ''",
             "echo '=== Current Service Status ==='",
@@ -453,14 +446,13 @@ if __name__ == '__main__':
             "EOF",
             "chmod +x /home/zorkgpt/view_logs.sh",
             "chown zorkgpt:zorkgpt /home/zorkgpt/view_logs.sh",
-            
             # Create a script to follow logs in real-time
             "cat > /home/zorkgpt/follow_logs.sh << 'EOF'",
             "#!/bin/bash",
             "echo 'Following ZorkGPT logs... (Ctrl+C to exit)'",
             "echo 'Service logs in one terminal, monitor logs in another'",
             "echo ''",
-            "if [ \"$1\" = \"monitor\" ]; then",
+            'if [ "$1" = "monitor" ]; then',
             "    journalctl -t zorkgpt-monitor -f",
             "else",
             "    journalctl -u zorkgpt -f",
@@ -468,7 +460,6 @@ if __name__ == '__main__':
             "EOF",
             "chmod +x /home/zorkgpt/follow_logs.sh",
             "chown zorkgpt:zorkgpt /home/zorkgpt/follow_logs.sh",
-            
             # Configure CloudWatch Agent for system metrics
             "cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json << 'EOF'",
             """{
@@ -527,11 +518,9 @@ if __name__ == '__main__':
     }
 }""",
             "EOF",
-            
             # Start CloudWatch Agent
             "systemctl enable amazon-cloudwatch-agent",
             "systemctl start amazon-cloudwatch-agent",
-            
             # Log completion
             "echo 'ZorkGPT setup completed with Frotz, monitoring, and CloudWatch Agent' > /var/log/zorkgpt-setup.log",
         )
@@ -550,7 +539,9 @@ if __name__ == '__main__':
             security_group=security_group,
             role=ec2_role,
             user_data=user_data,
-            key_pair=ec2.KeyPair.from_key_pair_name(self, "ImportedKeyPair", "parrishfamily"),
+            key_pair=ec2.KeyPair.from_key_pair_name(
+                self, "ImportedKeyPair", "parrishfamily"
+            ),
             vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC),
         )
 
@@ -567,10 +558,10 @@ if __name__ == '__main__':
                 dimensions_map={
                     "InstanceId": self.ec2_instance.instance_id,
                     "host": self.ec2_instance.instance_id,
-                    "cpu": "cpu-total"
+                    "cpu": "cpu-total",
                 },
                 statistic="Average",
-                period=Duration.minutes(5)
+                period=Duration.minutes(5),
             ),
             threshold=80,  # Alert if CPU > 80%
             evaluation_periods=2,
@@ -591,10 +582,10 @@ if __name__ == '__main__':
                 metric_name="mem_used_percent",
                 dimensions_map={
                     "InstanceId": self.ec2_instance.instance_id,
-                    "host": self.ec2_instance.instance_id
+                    "host": self.ec2_instance.instance_id,
                 },
                 statistic="Average",
-                period=Duration.minutes(5)
+                period=Duration.minutes(5),
             ),
             threshold=85,  # Alert if Memory > 85%
             evaluation_periods=2,
@@ -618,10 +609,10 @@ if __name__ == '__main__':
                     "host": self.ec2_instance.instance_id,
                     "device": "/dev/xvda1",
                     "fstype": "xfs",
-                    "path": "/"
+                    "path": "/",
                 },
                 statistic="Average",
-                period=Duration.minutes(5)
+                period=Duration.minutes(5),
             ),
             threshold=80,  # Alert if Disk > 80%
             evaluation_periods=2,
@@ -640,11 +631,9 @@ if __name__ == '__main__':
             metric=cloudwatch.Metric(
                 namespace="AWS/EC2",
                 metric_name="StatusCheckFailed_Instance",
-                dimensions_map={
-                    "InstanceId": self.ec2_instance.instance_id
-                },
+                dimensions_map={"InstanceId": self.ec2_instance.instance_id},
                 statistic="Maximum",
-                period=Duration.minutes(5)
+                period=Duration.minutes(5),
             ),
             threshold=0,  # Alert if any status check fails
             evaluation_periods=2,

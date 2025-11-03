@@ -39,6 +39,16 @@ ZorkGPT operates under several fundamental principles:
 
 ZorkGPT utilizes a multi-component architecture, coordinated by a central orchestrator, with distinct LLM-powered modules for different cognitive functions, supported by specialized systems for game interaction and data management.
 
+### Jericho Integration
+
+The system leverages the **Jericho** library for direct Z-machine memory access, providing:
+
+* **Direct Z-machine Access**: Instant retrieval of inventory, location, score, and object data without text parsing
+* **Integer-based Location IDs**: Stable room identification eliminating fragmentation issues
+* **Object Tree Visibility**: Access to game object attributes and valid action verbs
+* **Built-in Save/Restore**: Leverages Z-machine state management for session handling
+* **Perfect Movement Detection**: Location ID comparison replaces error-prone heuristics
+
 ### Central Coordinator
 
 A **ZorkOrchestrator** class serves as the primary coordinator. It manages extended gameplay sessions (potentially thousands of turns), coordinates the interactions between all other system components, handles the overall game loop, and orchestrates the periodic adaptive knowledge updates.
@@ -47,17 +57,17 @@ A **ZorkOrchestrator** class serves as the primary coordinator. It manages exten
 
 These components form the cognitive core of the agent:
 
-* **Agent LM**: Responsible for generating game actions. It analyzes the current game state, integrates relevant information from session memory, spatial knowledge, and strategic guidance from the knowledge base to decide the next action.
-* **Extractor LM**: Parses raw game text output into structured information. This component identifies locations, exits, objects, characters, and important game messages, maintaining consistency in how game elements are understood and tracked.
-* **Critic LM**: Evaluates proposed actions before execution. It assesses actions based on relevance, potential for progress, risk, and alignment with current strategy, providing a confidence score and justification. This helps filter out suboptimal actions and guides the agent towards more effective gameplay. It also incorporates a trust mechanism that can adapt its strictness based on recent performance.
+* **Agent LM**: Responsible for generating game actions. It analyzes the current game state, integrates relevant information from session memory, spatial knowledge, and strategic guidance from the knowledge base to decide the next action. Receives structured Z-machine object data for enhanced reasoning.
+* **Extractor LM**: Parses raw game text output into structured information. With Jericho integration, extraction is now hybrid: inventory, location, score, and objects come directly from Z-machine memory, while LLM parsing focuses on exits, combat, and important messages. This reduces LLM calls by 40% per turn.
+* **Critic LM**: Evaluates proposed actions before execution. It assesses actions based on relevance, potential for progress, risk, and alignment with current strategy, providing a confidence score and justification. This helps filter out suboptimal actions and guides the agent towards more effective gameplay. It also incorporates a trust mechanism that can adapt its strictness based on recent performance. Performs fast object tree validation before expensive LLM calls (83.3% LLM reduction for invalid actions).
 * **Adaptive Knowledge Manager (Strategy LM)**: Drives the continuous learning process. This component analyzes gameplay data in real-time (e.g., within 100-turn windows) to identify patterns, successful tactics, and areas for improvement. It assesses the quality of new information and intelligently merges new insights into the existing knowledge base, ensuring that learning is productive and avoids knowledge degradation.
 
 ### Supporting Systems
 
 Several systems support the core LLM modules:
 
-* **Game Interface**: Manages the low-level interaction with the Zork game process, sending commands and receiving text responses.
-* **Spatial Intelligence System**: Builds and maintains a dynamic understanding of the game world's layout.
+* **Game Interface (JerichoInterface)**: Manages low-level interaction with the Z-machine game engine via the Jericho library, providing instant access to game state, inventory, location data, object attributes, and valid action vocabulary.
+* **Spatial Intelligence System**: Builds and maintains a dynamic understanding of the game world's layout using integer-based location IDs from the Z-machine, eliminating room fragmentation and enabling perfect movement detection.
 * **Logging System**: Captures detailed data from all parts of the system for analysis, debugging, and to provide the raw material for the adaptive learning process.
 
 ## Key Features
@@ -96,14 +106,16 @@ Effective gameplay relies on robust data management:
 
 A typical gameplay loop involves several stages:
 
-1. **Observation**: The system receives the latest game text.
-2. **Extraction**: The Extractor LM processes this text into a structured format.
-3. **State Update**: Session memory and the spatial map are updated with the new information.
-4. **Contextualization**: Relevant memories, spatial data, and strategic knowledge are assembled for the Agent LM.
-5. **Action Generation**: The Agent LM proposes an action.
-6. **Evaluation**: The Critic LM assesses the proposed action. If the action is deemed suboptimal, the Agent LM may be prompted for alternatives.
-7. **Execution**: The chosen action is sent to the game.
-8. **Learning**: Periodically (e.g., every 25 turns for map-focused updates, every 100 turns for broader strategic updates), the Adaptive Knowledge Manager analyzes recent gameplay to refine the knowledge base.
+1. **Observation**: The system receives the latest game text from the Z-machine.
+2. **Extraction (Hybrid)**:
+   - **Instant Z-machine Access**: Inventory, location, score, and visible objects retrieved directly from game memory
+   - **LLM Parsing**: Extractor LM processes text for exits, combat, and important messages only
+3. **State Update**: Session memory and the spatial map are updated with the new information. Movement detection uses location ID comparison (perfect accuracy).
+4. **Contextualization**: Relevant memories, spatial data, strategic knowledge, and structured Z-machine object data are assembled for the Agent LM.
+5. **Action Generation**: The Agent LM proposes an action, informed by structured object attributes and valid action vocabulary.
+6. **Evaluation**: The Critic performs fast object tree validation first (microseconds), then LLM evaluation if needed. If the action is deemed suboptimal, the Agent LM may be prompted for alternatives. Object tree validation reduces LLM calls by 83.3% for invalid actions.
+7. **Execution**: The chosen action is sent to the Z-machine game engine.
+8. **Learning**: Periodically (e.g., every 25 turns for map-focused updates, every 100 turns for broader strategic updates), the Adaptive Knowledge Manager analyzes recent gameplay to refine the knowledge base. State loop detection alerts when exact game states repeat.
 
 This cycle repeats, allowing the agent to explore, interact, and learn from its experiences in the game world over thousands of turns.
 
@@ -120,193 +132,344 @@ The design of the logging system is specifically tailored to support the turn-ba
 
 ```mermaid
 graph TB
-    subgraph "ZorkGPT Adaptive Architecture"
-        subgraph "Core Coordination"
-            Orchestrator[ZorkOrchestrator<br/>Extended Session Management<br/>Component Coordination<br/>Adaptive Learning Orchestration]
+    subgraph "ZorkGPT Manager-Based Architecture"
+        subgraph "Central Coordination"
+            Orchestrator[ZorkOrchestratorV2<br/>Episode Lifecycle Management<br/>Turn-by-Turn Coordination<br/>Manager Orchestration]
         end
-        
+
+        subgraph "Core Session Management"
+            GameState[GameState<br/>Centralized Shared State<br/>Episode & Turn Tracking<br/>Action & Memory History]
+            GameConfig[GameConfiguration<br/>TOML + Env Config<br/>Model Settings<br/>Update Intervals]
+        end
+
+        subgraph "Specialized Managers"
+            ObjectiveMgr[ObjectiveManager<br/>Objective Discovery<br/>Completion Tracking<br/>Staleness Management]
+            KnowledgeMgr[KnowledgeManager<br/>Periodic Updates<br/>Episode Synthesis<br/>Inter-Episode Wisdom]
+            MapMgr[MapManager<br/>Integer-Based Mapping<br/>Connection Tracking<br/>Map Persistence]
+            StateMgr[StateManager<br/>State Export & S3<br/>Context Overflow<br/>Loop Detection]
+            ContextMgr[ContextManager<br/>Agent Context Assembly<br/>Critic Context Prep<br/>Memory Filtering]
+            EpisodeSynth[EpisodeSynthesizer<br/>Episode Lifecycle<br/>Final Synthesis<br/>Episode Summaries]
+            RejectionMgr[RejectionManager<br/>Trust Calibration<br/>Override Decisions<br/>Rejection Tracking]
+            MemoryMgr[SimpleMemoryManager<br/>Location Memories<br/>Memory Synthesis<br/>Deduplication]
+        end
+
         subgraph "LLM-Powered Components"
-            Agent[Agent LM<br/>Action Generation<br/>Context Integration<br/>Memory Retrieval]
-            HybridExtractor[Extractor LM<br/>Structured + LLM Parsing<br/>Location Persistence<br/>State Structuring]
-            Critic[Critic LM<br/>Action Evaluation<br/>Trust Management<br/>Rejection System]
-            AdaptiveKM[Adaptive Knowledge Manager<br/>Continuous Learning<br/>Quality Assessment<br/>Intelligent Merging]
+            Agent[Agent<br/>Action Generation<br/>Knowledge Integration<br/>Loop Detection]
+            Extractor[HybridExtractor<br/>Z-machine + LLM Parsing<br/>Object Tree Access<br/>State Structuring]
+            Critic[Critic<br/>Object Tree Validation<br/>LLM Evaluation<br/>Trust Tracking]
+            StrategyGen[StrategyGenerator<br/>Turn-Window Analysis<br/>Knowledge Synthesis<br/>Cross-Episode Learning]
         end
-        
+
         subgraph "Supporting Systems"
-            GameAPI[Game Interface<br/>Game Process Management<br/>Command Execution<br/>Response Processing]
-            MapGraph[Spatial Intelligence System<br/>Confidence-Tracked Mapping<br/>Connection Verification<br/>Quality Metrics]
-            Movement[Movement Analyzer<br/>Pattern Analysis<br/>Navigation Optimization<br/>Spatial Intelligence]
-            Logger[Logging System<br/>Multi-format Logging<br/>Turn-Window Analysis<br/>Performance Tracking]
-            StructuredParser[Structured Parser Helper<br/>Header Parsing<br/>Score/Moves Extraction<br/>Clean Text Separation]
+            JerichoIF[JerichoInterface<br/>Direct Z-machine Access<br/>Object Tree Queries<br/>Save/Restore]
+            MapGraph[MapGraph<br/>Integer-Based Rooms<br/>Confidence Scoring<br/>Exit Pruning]
+            MovementAnalyzer[MovementAnalyzer<br/>ID-Based Detection<br/>Perfect Accuracy]
+            Logger[Logger<br/>Triple-Output System<br/>Structured Events<br/>Episode Logs]
+            LLMClient[LLMClient<br/>Advanced Sampling<br/>Retry + Circuit Breaker<br/>Langfuse Integration]
         end
-        
-        subgraph "Session Data Structures"
-            MemoryLog[Session Memory<br/>Turn-by-turn observations<br/>Historical context]
-            ActionHistory[Action History<br/>Previous actions & responses<br/>Action patterns<br/>Repetition tracking]
-            GameMap[Internal Game Map<br/>Graph-based representation<br/>Confidence-tracked connections<br/>Verification metrics]
-            ActionReasoning[Action Reasoning Log<br/>Agent reasoning & critic scores<br/>Override tracking<br/>State export data]
+
+        subgraph "Persistent Data"
+            KnowledgeBase[knowledgebase.md<br/>Strategic Insights<br/>Cross-Episode Wisdom<br/>World Map]
+            MapState[map_state.json<br/>Room Graph<br/>Connection Confidence<br/>Pruned Exits]
+            MemoryFile[Memories.md<br/>Location Memories<br/>Status Tracking<br/>Supersession]
+            EpisodeLogs[Episode JSON Logs<br/>Turn-by-Turn Data<br/>Analysis Substrate]
         end
-        
-        subgraph "Adaptive Knowledge System (Data)"
-            KnowledgeBase[Dynamic Knowledge Base<br/>Continuously Updated Strategies<br/>Real-time Insights<br/>Quality-Assessed Knowledge]
-            TurnAnalysis[Turn Window Analysis<br/>Quality Assessment<br/>Strategy Determination<br/>Intelligent Merging]
-        end
-        
-        subgraph "External Interface"
-            ZorkGame[Zork Game Process<br/>Interactive Fiction Engine<br/>Extended Gameplay Sessions]
+
+        subgraph "External"
+            ZorkGame[Zork I Z-machine<br/>via Jericho Library<br/>Direct Memory Access]
         end
     end
-    
+
+    %% Orchestrator connections
+    Orchestrator --> GameState
+    Orchestrator --> GameConfig
     Orchestrator --> Agent
-    Orchestrator --> HybridExtractor
+    Orchestrator --> Extractor
     Orchestrator --> Critic
-    Orchestrator --> AdaptiveKM
+    Orchestrator --> JerichoIF
     Orchestrator --> Logger
-    
-    Agent --> MemoryLog
-    Agent --> ActionHistory
-    Agent --> GameMap
+
+    %% Manager dependencies
+    Orchestrator --> ObjectiveMgr
+    Orchestrator --> KnowledgeMgr
+    Orchestrator --> MapMgr
+    Orchestrator --> StateMgr
+    Orchestrator --> ContextMgr
+    Orchestrator --> EpisodeSynth
+    Orchestrator --> RejectionMgr
+    Orchestrator --> MemoryMgr
+
+    %% Manager interactions
+    KnowledgeMgr --> Agent
+    KnowledgeMgr --> MapMgr
+    KnowledgeMgr --> StrategyGen
+    ObjectiveMgr --> KnowledgeMgr
+    EpisodeSynth --> KnowledgeMgr
+    EpisodeSynth --> StateMgr
+    ContextMgr --> MapMgr
+    ContextMgr --> MemoryMgr
+
+    %% LLM component dependencies
+    Agent --> LLMClient
     Agent --> KnowledgeBase
-    HybridExtractor --> MemoryLog
-    Critic --> ActionReasoning
-    
-    Orchestrator --> Movement
-    Orchestrator --> MapGraph
-    GameAPI --> ZorkGame
-    Orchestrator --> GameAPI
-    HybridExtractor --> StructuredParser
-    
-    %% Data flows within session
-    MemoryLog --> Agent
-    ActionHistory --> Agent
-    GameMap --> Agent
-    KnowledgeBase --> Agent
-    Logger --> ActionReasoning
-    
-    ZorkGame -.->|Game State| GameAPI
-    GameAPI -.->|Commands| ZorkGame
-    
-    AdaptiveKM -.->|Continuous Updates| KnowledgeBase
-    Logger -.->|Turn Window Data| TurnAnalysis
-    TurnAnalysis -.->|Quality Assessment| AdaptiveKM
-    Movement -.->|Spatial Insights| MapGraph
-    ActionReasoning -.->|Session Data| AdaptiveKM
-    
-    classDef llmComponent fill:#e1f5fe,stroke:#01579b,stroke-width:2px
-    classDef supportSystem fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
-    classDef dataStructure fill:#e8f5e8,stroke:#1b5e20,stroke-width:2px
+    Extractor --> LLMClient
+    Extractor --> JerichoIF
+    Critic --> LLMClient
+    Critic --> JerichoIF
+    StrategyGen --> LLMClient
+    StrategyGen --> EpisodeLogs
+
+    %% Supporting system connections
+    MapMgr --> MapGraph
+    MapMgr --> MovementAnalyzer
+    StateMgr --> LLMClient
+    MemoryMgr --> LLMClient
+    JerichoIF --> ZorkGame
+
+    %% Data persistence
+    MapMgr -.->|Load/Save| MapState
+    KnowledgeMgr -.->|Read/Write| KnowledgeBase
+    MemoryMgr -.->|Read/Write| MemoryFile
+    Logger -.->|Write| EpisodeLogs
+
+    %% GameState access (all managers read/write)
+    GameState -.->|Shared State| ObjectiveMgr
+    GameState -.->|Shared State| KnowledgeMgr
+    GameState -.->|Shared State| MapMgr
+    GameState -.->|Shared State| StateMgr
+    GameState -.->|Shared State| ContextMgr
+    GameState -.->|Shared State| RejectionMgr
+    GameState -.->|Shared State| MemoryMgr
+
     classDef coordinator fill:#fff3e0,stroke:#e65100,stroke-width:3px
+    classDef session fill:#ffecb3,stroke:#f57f17,stroke-width:2px
+    classDef manager fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    classDef llm fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    classDef support fill:#e8f5e8,stroke:#1b5e20,stroke-width:2px
+    classDef data fill:#fff9c4,stroke:#f57f17,stroke-width:2px
     classDef external fill:#fce4ec,stroke:#880e4f,stroke-width:2px
-    classDef knowledge fill:#f1f8e9,stroke:#33691e,stroke-width:2px
-    classDef adaptive fill:#e3f2fd,stroke:#0277bd,stroke-width:2px
-    
-    class Agent,HybridExtractor,Critic llmComponent
-    class GameAPI,MapGraph,Movement,Logger,StructuredParser supportSystem
-    class MemoryLog,ActionHistory,GameMap,ActionReasoning dataStructure
+
     class Orchestrator coordinator
+    class GameState,GameConfig session
+    class ObjectiveMgr,KnowledgeMgr,MapMgr,StateMgr,ContextMgr,EpisodeSynth,RejectionMgr,MemoryMgr manager
+    class Agent,Extractor,Critic,StrategyGen llm
+    class JerichoIF,MapGraph,MovementAnalyzer,Logger,LLMClient support
+    class KnowledgeBase,MapState,MemoryFile,EpisodeLogs data
     class ZorkGame external
-    class KnowledgeBase knowledge
-    class AdaptiveKM,TurnAnalysis adaptive
 ```
 
-## Turn-by-Turn Flow with Adaptive Learning
+## Turn-by-Turn Flow with Manager-Based Architecture
 
 ```mermaid
 sequenceDiagram
     participant UserMain as User/Main
-    participant Orchestrator as Central Coordinator
+    participant Orch as ZorkOrchestratorV2
+    participant EpisodeSynth as EpisodeSynthesizer
+    participant Jericho as JerichoInterface
+    participant HybridExt as HybridExtractor
+    participant ContextMgr as ContextManager
+    participant MemoryMgr as SimpleMemoryManager
     participant Agent as Agent LM
-    participant Extractor as Extractor LM
     participant Critic as Critic LM
-    participant AdaptiveKM as Adaptive Knowledge Manager
-    participant ZorkGameProcess as Zork Game (via Interface)
+    participant RejectionMgr as RejectionManager
+    participant MapMgr as MapManager
+    participant StateMgr as StateManager
+    participant ObjectiveMgr as ObjectiveManager
+    participant KnowledgeMgr as KnowledgeManager
 
-    UserMain->>Orchestrator: Start Gameplay Session
-    activate Orchestrator
-    
-    Orchestrator->>Orchestrator: Initialize session state (memory, map, knowledge)
-    
-    Orchestrator->>ZorkGameProcess: Start Game
-    activate ZorkGameProcess
-    ZorkGameProcess-->>Orchestrator: Initial Game Text
-    deactivate ZorkGameProcess
+    UserMain->>Orch: Start Episode
+    activate Orch
 
-    Orchestrator->>Extractor: Process Game Text
-    activate Extractor
-    Extractor-->>Orchestrator: Structured Information
-    deactivate Extractor
+    Orch->>EpisodeSynth: initialize_episode()
+    activate EpisodeSynth
+    EpisodeSynth->>EpisodeSynth: Reset GameState, set episode_id
+    EpisodeSynth-->>Orch: Episode initialized
+    deactivate EpisodeSynth
 
-    Orchestrator->>Orchestrator: Update Session Memory & Map
+    Orch->>Jericho: Start game
+    activate Jericho
+    Jericho-->>Orch: Initial game text
+    deactivate Jericho
 
-    loop Extended Gameplay (e.g., up to 5000 turns)
-        Orchestrator->>Orchestrator: Increment turn counter
-        
-        Orchestrator->>Agent: Prepare context (current state, relevant memories, map info, knowledge)
-        
-        Orchestrator->>Agent: Get Action
+    Orch->>HybridExt: extract_info(game_text)
+    activate HybridExt
+    HybridExt->>Jericho: get_location_structured()
+    Jericho-->>HybridExt: ZObject(num=ID, name)
+    HybridExt->>Jericho: get_inventory_structured()
+    Jericho-->>HybridExt: [ZObjects]
+    HybridExt->>Jericho: get_visible_objects_in_location()
+    Jericho-->>HybridExt: [ZObjects from object tree]
+    HybridExt->>Jericho: get_score()
+    Jericho-->>HybridExt: (score, moves)
+    HybridExt->>HybridExt: LLM extract exits/combat/messages
+    HybridExt-->>Orch: ExtractorResponse (structured data)
+    deactivate HybridExt
+
+    Orch->>MapMgr: add_initial_room(room_id, room_name)
+    activate MapMgr
+    MapMgr-->>Orch: Initial room added
+    deactivate MapMgr
+
+    loop Extended Gameplay (Episode)
+        Orch->>RejectionMgr: start_new_turn()
+
+        Orch->>ContextMgr: get_agent_context()
+        activate ContextMgr
+        ContextMgr->>MapMgr: get_context_for_prompt()
+        MapMgr-->>ContextMgr: Map context
+        ContextMgr->>MemoryMgr: get_location_memory()
+        MemoryMgr-->>ContextMgr: Location memory
+        ContextMgr->>Jericho: get_inventory_structured(), get_visible_objects_in_location()
+        Jericho-->>ContextMgr: Structured objects + attributes
+        ContextMgr-->>Orch: Formatted agent context
+        deactivate ContextMgr
+
+        Orch->>Agent: get_action_with_reasoning(context)
         activate Agent
-        Agent-->>Orchestrator: Proposed Action & Reasoning
+        Agent-->>Orch: Proposed action + reasoning
         deactivate Agent
 
-        Orchestrator->>Critic: Evaluate Action
-        activate Critic
-        Critic-->>Orchestrator: Evaluation (score, justification)
-        deactivate Critic
+        loop Critic Evaluation (max 3 attempts)
+            Orch->>ContextMgr: get_critic_context()
+            activate ContextMgr
+            ContextMgr->>Jericho: get_valid_exits()
+            Jericho-->>ContextMgr: Ground-truth exits
+            ContextMgr-->>Orch: Critic context
+            deactivate ContextMgr
 
-        alt Action Rejected by Critic (and no override)
-            loop Retry (max attempts)
-                Orchestrator->>Agent: Get Alternative Action (with rejection feedback)
-                activate Agent
-                Agent-->>Orchestrator: New Proposed Action
-                deactivate Agent
-                Orchestrator->>Critic: Evaluate New Action
-                activate Critic
-                Critic-->>Orchestrator: New Evaluation
-                deactivate Critic
+            Orch->>Critic: evaluate_action(action, context, jericho_interface)
+            activate Critic
+            Critic->>Critic: Fast object tree validation (<1ms)
+            alt Object Tree Validation Failed
+                Critic-->>Orch: score=0.0, high confidence rejection
+            else Object Tree Validation Passed
+                Critic->>Critic: LLM evaluation (~800ms)
+                Critic-->>Orch: LLM score + justification
+            end
+            deactivate Critic
+
+            alt Action Rejected (score < threshold)
+                Orch->>RejectionMgr: should_override_rejection()
+                activate RejectionMgr
+                RejectionMgr-->>Orch: Override decision
+                deactivate RejectionMgr
+
+                alt No Override - Request New Action
+                    Orch->>Agent: get_action_with_reasoning(rejection feedback)
+                    Agent-->>Orch: Alternative action
+                else Override - Accept Action
+                    Note over Orch: Break evaluation loop
+                end
+            else Action Accepted
+                Note over Orch: Break evaluation loop
             end
         end
 
-        Orchestrator->>Orchestrator: Log chosen action and reasoning
-        Orchestrator->>ZorkGameProcess: Send Chosen Action
-        activate ZorkGameProcess
-        ZorkGameProcess-->>Orchestrator: New Game Text
-        deactivate ZorkGameProcess
+        Orch->>Jericho: send_command(chosen_action)
+        activate Jericho
+        Jericho-->>Orch: New game text
+        deactivate Jericho
 
-        Orchestrator->>Extractor: Process New Game Text
-        activate Extractor
-        Extractor-->>Orchestrator: Updated Structured Information
-        deactivate Extractor
+        Orch->>HybridExt: extract_info(game_text)
+        activate HybridExt
+        HybridExt->>Jericho: Z-machine direct access (location, inventory, objects, score)
+        Jericho-->>HybridExt: Structured data
+        HybridExt->>HybridExt: LLM parse (exits, combat, messages)
+        HybridExt-->>Orch: ExtractorResponse
+        deactivate HybridExt
 
-        Orchestrator->>Orchestrator: Update Session Memory & Map
-        Orchestrator->>Orchestrator: Perform Movement Analysis
+        Orch->>StateMgr: track_state_hash()
+        activate StateMgr
+        StateMgr->>Jericho: get_state_hash()
+        Jericho-->>StateMgr: Z-machine state hash
+        StateMgr-->>Orch: Loop detection result
+        deactivate StateMgr
 
-        alt Periodic Knowledge Update (e.g., every 100 turns)
-            Orchestrator->>AdaptiveKM: Update Knowledge Base
-            activate AdaptiveKM
-            AdaptiveKM->>AdaptiveKM: Analyze recent turn data
-            AdaptiveKM->>AdaptiveKM: Assess quality & determine strategy
-            AdaptiveKM->>AdaptiveKM: Merge new insights
-            AdaptiveKM-->>Orchestrator: Knowledge Update Status
-            deactivate AdaptiveKM
-            
-            opt Knowledge Base Updated
-                Orchestrator->>Agent: Notify of Knowledge Update (Agent reloads/integrates)
-            end
+        Orch->>MapMgr: update_from_movement(old_id, new_id, action, exits)
+        activate MapMgr
+        MapMgr->>MapMgr: Compare location IDs (perfect movement detection)
+        MapMgr->>MapMgr: Update connections, track failures
+        MapMgr-->>Orch: Map updated
+        deactivate MapMgr
+
+        Orch->>MemoryMgr: record_action_outcome()
+        activate MemoryMgr
+        MemoryMgr->>MemoryMgr: Check synthesis triggers (score/location/death)
+        opt Trigger Met
+            MemoryMgr->>MemoryMgr: LLM synthesize memory
+            MemoryMgr->>MemoryMgr: Update Memories.md with file locking
+        end
+        MemoryMgr-->>Orch: Memory recorded
+        deactivate MemoryMgr
+
+        Orch->>ContextMgr: add_action/memory/reasoning()
+        Orch->>KnowledgeMgr: detect_object_events()
+
+        Orch->>ObjectiveMgr: check_objective_completion()
+        activate ObjectiveMgr
+        ObjectiveMgr-->>Orch: Completion status
+        deactivate ObjectiveMgr
+
+        alt Every 20 turns (Objective Updates)
+            Orch->>ObjectiveMgr: check_and_update_objectives()
+            activate ObjectiveMgr
+            ObjectiveMgr->>ObjectiveMgr: LLM discover new objectives
+            ObjectiveMgr->>ObjectiveMgr: Check staleness, refinement
+            ObjectiveMgr-->>Orch: Updated objectives
+            deactivate ObjectiveMgr
         end
 
-        alt Periodic Map-focused Update (e.g., every 25 turns)
-             Orchestrator->>AdaptiveKM: Update Knowledge (focus on map/spatial)
+        alt Every 50 turns (Knowledge Updates)
+            Orch->>KnowledgeMgr: check_periodic_update()
+            activate KnowledgeMgr
+            KnowledgeMgr->>KnowledgeMgr: Analyze full episode history
+            KnowledgeMgr->>KnowledgeMgr: Update knowledgebase.md sections
+            KnowledgeMgr->>Agent: Reload knowledge base
+            KnowledgeMgr-->>Orch: Knowledge updated
+            deactivate KnowledgeMgr
         end
-        
-        Orchestrator->>Orchestrator: Optionally export current state for monitoring
 
-        alt Game Over OR Max Turns Reached
-            Orchestrator->>Orchestrator: End Gameplay Loop
+        Orch->>StateMgr: export_current_state()
+        activate StateMgr
+        StateMgr->>StateMgr: Check context overflow (>80% tokens)
+        opt Context Overflow
+            StateMgr->>StateMgr: LLM summarize history, prune memories
+        end
+        StateMgr->>StateMgr: Write state JSON (local + S3)
+        StateMgr-->>Orch: State exported
+        deactivate StateMgr
+
+        Orch->>RejectionMgr: update_movement_tracking()
+
+        alt Death or Max Turns
+            Note over Orch: End gameplay loop
         end
     end
-    
-    Orchestrator->>AdaptiveKM: Perform final knowledge consolidation (if applicable)
-    
-    Orchestrator-->>UserMain: Session End (e.g., final score)
-    deactivate Orchestrator
+
+    Orch->>EpisodeSynth: finalize_episode()
+    activate EpisodeSynth
+    EpisodeSynth->>KnowledgeMgr: perform_final_update()
+    activate KnowledgeMgr
+    KnowledgeMgr-->>EpisodeSynth: Final update complete
+    deactivate KnowledgeMgr
+
+    opt Death or High Score/Turns
+        EpisodeSynth->>KnowledgeMgr: perform_inter_episode_synthesis()
+        activate KnowledgeMgr
+        KnowledgeMgr->>KnowledgeMgr: Synthesize CROSS-EPISODE INSIGHTS
+        KnowledgeMgr-->>EpisodeSynth: Inter-episode wisdom updated
+        deactivate KnowledgeMgr
+    end
+
+    EpisodeSynth-->>Orch: Episode finalized
+    deactivate EpisodeSynth
+
+    Orch->>MapMgr: save_map_state()
+    activate MapMgr
+    MapMgr->>MapMgr: Persist to map_state.json
+    MapMgr-->>Orch: Map persisted
+    deactivate MapMgr
+
+    Orch-->>UserMain: Episode complete (score, summary)
+    deactivate Orch
 ```
