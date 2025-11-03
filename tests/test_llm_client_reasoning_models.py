@@ -9,9 +9,9 @@ from llm_client import LLMClient
 class TestReasoningModelDetection:
     """Test detection of reasoning models."""
 
-    def test_deepseek_r1_detected_as_reasoning_model(self):
+    def test_deepseek_r1_detected_as_reasoning_model(self, test_config):
         """Verify deepseek-r1 is detected as reasoning model."""
-        client = LLMClient(base_url="http://test.com", api_key="test-key")
+        client = LLMClient(config=test_config, base_url="http://test.com", api_key="test-key")
 
         mock_response = Mock()
         mock_response.ok = True
@@ -37,9 +37,9 @@ class TestReasoningModelDetection:
             # All messages should be "user" role for reasoning models
             assert all(msg["role"] == "user" for msg in payload["messages"])
 
-    def test_deepseek_reasoner_detected_as_reasoning_model(self):
+    def test_deepseek_reasoner_detected_as_reasoning_model(self, test_config):
         """Verify deepseek-reasoner is detected as reasoning model."""
-        client = LLMClient(base_url="http://test.com", api_key="test-key")
+        client = LLMClient(config=test_config, base_url="http://test.com", api_key="test-key")
 
         mock_response = Mock()
         mock_response.ok = True
@@ -65,9 +65,9 @@ class TestReasoningModelDetection:
             # All messages should be "user" role for reasoning models
             assert all(msg["role"] == "user" for msg in payload["messages"])
 
-    def test_qwq_detected_as_reasoning_model(self):
+    def test_qwq_detected_as_reasoning_model(self, test_config):
         """Verify qwq is detected as reasoning model."""
-        client = LLMClient(base_url="http://test.com", api_key="test-key")
+        client = LLMClient(config=test_config, base_url="http://test.com", api_key="test-key")
 
         mock_response = Mock()
         mock_response.ok = True
@@ -93,9 +93,9 @@ class TestReasoningModelDetection:
             # All messages should be "user" role for reasoning models
             assert all(msg["role"] == "user" for msg in payload["messages"])
 
-    def test_o1_detected_as_reasoning_model(self):
+    def test_o1_detected_as_reasoning_model(self, test_config):
         """Verify o1 models are detected as reasoning models."""
-        client = LLMClient(base_url="http://test.com", api_key="test-key")
+        client = LLMClient(config=test_config, base_url="http://test.com", api_key="test-key")
 
         mock_response = Mock()
         mock_response.ok = True
@@ -121,9 +121,9 @@ class TestReasoningModelDetection:
             # All messages should be "user" role for reasoning models
             assert all(msg["role"] == "user" for msg in payload["messages"])
 
-    def test_non_reasoning_model_not_detected(self):
+    def test_non_reasoning_model_not_detected(self, test_config):
         """Verify non-reasoning models are not detected as reasoning models."""
-        client = LLMClient(base_url="http://test.com", api_key="test-key")
+        client = LLMClient(config=test_config, base_url="http://test.com", api_key="test-key")
 
         mock_response = Mock()
         mock_response.ok = True
@@ -157,9 +157,9 @@ class TestReasoningModelDetection:
 class TestReasoningModelMaxTokens:
     """Test max_tokens handling for reasoning models."""
 
-    def test_reasoning_model_with_no_max_tokens_gets_default(self):
+    def test_reasoning_model_with_no_max_tokens_gets_default(self, test_config):
         """Verify reasoning model with no max_tokens gets 8000 default."""
-        client = LLMClient(base_url="http://test.com", api_key="test-key")
+        client = LLMClient(config=test_config, base_url="http://test.com", api_key="test-key")
 
         mock_response = Mock()
         mock_response.ok = True
@@ -184,9 +184,9 @@ class TestReasoningModelMaxTokens:
             payload = mock_post.call_args[1]['json']
             assert payload["max_tokens"] == 8000
 
-    def test_reasoning_model_with_explicit_max_tokens_keeps_it(self):
+    def test_reasoning_model_with_explicit_max_tokens_keeps_it(self, test_config):
         """Verify reasoning model with explicit max_tokens keeps it."""
-        client = LLMClient(base_url="http://test.com", api_key="test-key")
+        client = LLMClient(config=test_config, base_url="http://test.com", api_key="test-key")
 
         mock_response = Mock()
         mock_response.ok = True
@@ -212,9 +212,9 @@ class TestReasoningModelMaxTokens:
             payload = mock_post.call_args[1]['json']
             assert payload["max_tokens"] == 4000
 
-    def test_non_reasoning_model_uses_original_max_tokens(self):
+    def test_non_reasoning_model_uses_original_max_tokens(self, test_config):
         """Verify non-reasoning model uses original max_tokens (or None)."""
-        client = LLMClient(base_url="http://test.com", api_key="test-key")
+        client = LLMClient(config=test_config, base_url="http://test.com", api_key="test-key")
 
         mock_response = Mock()
         mock_response.ok = True
@@ -239,10 +239,10 @@ class TestReasoningModelMaxTokens:
             payload = mock_post.call_args[1]['json']
             assert "max_tokens" not in payload
 
-    def test_max_tokens_increase_is_logged(self):
+    def test_max_tokens_increase_is_logged(self, test_config):
         """Verify max_tokens increase is logged for debugging."""
         mock_logger = Mock()
-        client = LLMClient(base_url="http://test.com", api_key="test-key", logger=mock_logger)
+        client = LLMClient(config=test_config, base_url="http://test.com", api_key="test-key", logger=mock_logger)
 
         mock_response = Mock()
         mock_response.ok = True
@@ -269,9 +269,9 @@ class TestReasoningModelMaxTokens:
             debug_calls = [str(call) for call in mock_logger.debug.call_args_list]
             assert any("max_tokens" in call.lower() or "8000" in call for call in debug_calls)
 
-    def test_all_reasoning_models_get_default_max_tokens(self):
+    def test_all_reasoning_models_get_default_max_tokens(self, test_config):
         """Verify all reasoning model variants get default max_tokens."""
-        client = LLMClient(base_url="http://test.com", api_key="test-key")
+        client = LLMClient(config=test_config, base_url="http://test.com", api_key="test-key")
 
         mock_response = Mock()
         mock_response.ok = True

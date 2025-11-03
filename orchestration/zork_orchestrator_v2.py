@@ -128,23 +128,26 @@ class ZorkOrchestratorV2:
 
     def _initialize_game_components(self) -> None:
         """Initialize core game components (agent, critic, extractor)."""
-        # Initialize agent
+        # Initialize agent with config
         self.agent = ZorkAgent(
+            config=self.config,
             logger=self.logger,
             episode_id=self.game_state.episode_id,
             model=self.config.agent_model,
         )
 
-        # Initialize critic
+        # Initialize critic with config
         self.critic = ZorkCritic(
+            config=self.config,
             logger=self.logger,
             episode_id=self.game_state.episode_id,
             model=self.config.critic_model,
         )
 
-        # Initialize extractor with Jericho interface
+        # Initialize extractor with config and Jericho interface
         self.extractor = HybridZorkExtractor(
             jericho_interface=self.jericho_interface,
+            config=self.config,
             episode_id=self.game_state.episode_id,
             logger=self.logger,
             model=self.config.info_ext_model,

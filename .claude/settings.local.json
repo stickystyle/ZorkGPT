@@ -53,7 +53,8 @@
       "mcp__awslabs_aws-diagram-mcp-server__get_diagram_examples",
       "mcp__awslabs_aws-diagram-mcp-server__list_icons",
       "Bash(gh pr view:*)",
-      "Bash(uv pip show:*)"
+      "Bash(uv pip show:*)",
+      "Bash(env)"
     ],
     "deny": []
   },

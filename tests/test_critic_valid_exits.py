@@ -13,9 +13,9 @@ from zork_critic import ZorkCritic
 class TestCriticValidExits:
     """Test critic handling of valid exits."""
 
-    def test_critic_approves_exit_in_available_exits_list(self):
+    def test_critic_approves_exit_in_available_exits_list(self, test_config):
         """Critic should approve movements that are in the available exits list."""
-        critic = ZorkCritic()
+        critic = ZorkCritic(config=test_config)
 
         # Simulate the exact scenario from the bug report
         game_state = (
@@ -41,9 +41,9 @@ class TestCriticValidExits:
             f"Critic score for valid exit should be >= 0.5, got {response.score}"
         )
 
-    def test_critic_rejects_exit_not_in_available_exits_list(self):
+    def test_critic_rejects_exit_not_in_available_exits_list(self, test_config):
         """Critic should reject movements that are NOT in the available exits list."""
-        critic = ZorkCritic()
+        critic = ZorkCritic(config=test_config)
 
         game_state = (
             "West of House You are standing in an open field west of a white house, "
@@ -67,9 +67,9 @@ class TestCriticValidExits:
             f"Critic score for invalid exit should be <= -0.5, got {response.score}"
         )
 
-    def test_critic_approves_all_valid_cardinal_directions(self):
+    def test_critic_approves_all_valid_cardinal_directions(self, test_config):
         """Critic should approve all cardinal directions when they're in the exits list."""
-        critic = ZorkCritic()
+        critic = ZorkCritic(config=test_config)
 
         game_state = "Junction You are at a crossroads."
         available_exits = ["north", "south", "east", "west"]
@@ -86,9 +86,9 @@ class TestCriticValidExits:
                 f"Justification: {response.justification}"
             )
 
-    def test_critic_doesnt_leak_ground_truth_in_justification(self):
+    def test_critic_doesnt_leak_ground_truth_in_justification(self, test_config):
         """Critic should not reveal ground-truth info in justifications."""
-        critic = ZorkCritic()
+        critic = ZorkCritic(config=test_config)
 
         game_state = "West of House"
         proposed_action = "east"  # Invalid exit

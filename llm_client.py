@@ -10,8 +10,8 @@ import random
 import time
 from typing import Dict, List, Optional, Any, Union
 from dataclasses import dataclass
-from config import get_config, get_client_api_key
 from enum import Enum
+from session.game_configuration import GameConfiguration
 
 # Default max_tokens for reasoning models (DeepSeek R1, QwQ, o1/o3)
 #
@@ -163,6 +163,7 @@ class LLMClient:
 
     def __init__(
         self,
+        config: GameConfiguration,
         base_url: Optional[str] = None,
         api_key: Optional[str] = None,
         logger=None,
@@ -171,22 +172,23 @@ class LLMClient:
         Initialize the LLM client.
 
         Args:
-            base_url: Base URL for the API endpoint
-            api_key: API key for authentication
+            config: GameConfiguration instance
+            base_url: Base URL for the API endpoint (overrides config if provided)
+            api_key: API key for authentication (overrides config if provided)
             logger: Logger instance for tracking retry attempts
         """
-        config = get_config()
-        self.base_url = base_url or config.llm.client_base_url
-        self.api_key = api_key or get_client_api_key() or "not-needed"
+        self.config = config
+        self.base_url = base_url or config.client_base_url
+        self.api_key = api_key or config.get_effective_api_key() or "not-needed"
         self.retry_config = config.retry
         self.logger = logger
 
         # Initialize circuit breaker if enabled
-        if self.retry_config.circuit_breaker_enabled:
+        if self.retry_config["circuit_breaker_enabled"]:
             self.circuit_breaker = CircuitBreaker(
-                failure_threshold=self.retry_config.circuit_breaker_failure_threshold,
-                recovery_timeout=self.retry_config.circuit_breaker_recovery_timeout,
-                success_threshold=self.retry_config.circuit_breaker_success_threshold,
+                failure_threshold=self.retry_config["circuit_breaker_failure_threshold"],
+                recovery_timeout=self.retry_config["circuit_breaker_recovery_timeout"],
+                success_threshold=self.retry_config["circuit_breaker_success_threshold"],
             )
         else:
             self.circuit_breaker = None
@@ -232,16 +234,16 @@ class LLMClient:
     def _calculate_backoff_delay(self, attempt: int) -> float:
         """Calculate the delay for exponential backoff with jitter."""
         # Calculate exponential delay
-        delay = self.retry_config.initial_delay * (
-            self.retry_config.exponential_base**attempt
+        delay = self.retry_config["initial_delay"] * (
+            self.retry_config["exponential_base"]**attempt
         )
 
         # Cap at max_delay
-        delay = min(delay, self.retry_config.max_delay)
+        delay = min(delay, self.retry_config["max_delay"])
 
         # Add jitter to prevent thundering herd
-        if self.retry_config.jitter_factor > 0:
-            jitter = delay * self.retry_config.jitter_factor * random.random()
+        if self.retry_config["jitter_factor"] > 0:
+            jitter = delay * self.retry_config["jitter_factor"] * random.random()
             delay += jitter
 
         return delay
@@ -272,7 +274,7 @@ class LLMClient:
                 pass  # If we can't parse response text, continue with status code logic
 
             # Server errors (5xx)
-            if 500 <= status_code < 600 and self.retry_config.retry_on_server_error:
+            if 500 <= status_code < 600 and self.retry_config["retry_on_server_error"]:
                 return ServerError(f"Server error: {status_code}")
 
             # Other client errors (4xx) generally shouldn't be retried
@@ -282,7 +284,7 @@ class LLMClient:
         if exception is not None:
             if (
                 isinstance(exception, requests.exceptions.Timeout)
-                and self.retry_config.retry_on_timeout
+                and self.retry_config["retry_on_timeout"]
             ):
                 return LLMTimeoutError(f"Request timeout: {exception}")
             elif isinstance(
@@ -354,7 +356,7 @@ class LLMClient:
         last_exception = None
 
         for attempt in range(
-            self.retry_config.max_retries + 1
+            self.retry_config["max_retries"] + 1
         ):  # +1 for initial attempt
             try:
                 result = self._make_request(
@@ -386,14 +388,14 @@ class LLMClient:
                     self.circuit_breaker.call_failed()
 
                 # Don't retry on the last attempt
-                if attempt >= self.retry_config.max_retries:
+                if attempt >= self.retry_config["max_retries"]:
                     break
 
                 # Calculate backoff delay
                 delay = self._calculate_backoff_delay(attempt)
 
                 # Log retry attempt with proper logging if available
-                retry_msg = f"API call failed (attempt {attempt + 1}/{self.retry_config.max_retries + 1}): {e}"
+                retry_msg = f"API call failed (attempt {attempt + 1}/{self.retry_config['max_retries'] + 1}): {e}"
                 backoff_msg = f"Retrying in {delay:.2f} seconds..."
 
                 if self.logger:
@@ -403,7 +405,7 @@ class LLMClient:
                             "extras": {
                                 "event_type": "llm_retry",
                                 "attempt": attempt + 1,
-                                "max_attempts": self.retry_config.max_retries + 1,
+                                "max_attempts": self.retry_config["max_retries"] + 1,
                                 "error_type": type(e).__name__,
                                 "error_message": str(e),
                                 "backoff_delay": delay,
@@ -433,7 +435,7 @@ class LLMClient:
 
         # If we get here, all retries were exhausted
         raise Exception(
-            f"LLM API request failed after {self.retry_config.max_retries + 1} attempts. Last error: {last_exception}"
+            f"LLM API request failed after {self.retry_config['max_retries'] + 1} attempts. Last error: {last_exception}"
         )
 
     def _make_request(
@@ -729,7 +731,7 @@ class LLMClient:
                 url,
                 headers=headers,
                 json=payload,
-                timeout=self.retry_config.timeout_seconds,
+                timeout=self.retry_config["timeout_seconds"],
             )
 
             # Check for errors that should trigger retry
@@ -863,6 +865,7 @@ class LLMClientWrapper:
 
     def __init__(
         self,
+        config: GameConfiguration,
         base_url: Optional[str] = None,
         api_key: Optional[str] = None,
         logger=None,
@@ -872,31 +875,37 @@ class LLMClientWrapper:
         Initialize the wrapper client.
 
         Args:
-            base_url: Base URL for the API endpoint
-            api_key: API key for authentication
+            config: GameConfiguration instance
+            base_url: Base URL for the API endpoint (overrides config if provided)
+            api_key: API key for authentication (overrides config if provided)
             logger: Logger instance for tracking retry attempts
             **kwargs: Additional arguments for LLMClient
         """
         self.client = LLMClient(
-            base_url=base_url, api_key=api_key, logger=logger, **kwargs
+            config=config, base_url=base_url, api_key=api_key, logger=logger, **kwargs
         )
         self.chat = Chat(self.client)
 
 
 # For convenience, provide a function that creates the wrapper
 def create_llm_client(
-    base_url: Optional[str] = None, api_key: Optional[str] = None, logger=None, **kwargs
+    config: GameConfiguration,
+    base_url: Optional[str] = None,
+    api_key: Optional[str] = None,
+    logger=None,
+    **kwargs
 ) -> LLMClientWrapper:
     """
     Create an LLM client wrapper.
 
     Args:
-        base_url: Base URL for the API endpoint
-        api_key: API key for authentication
+        config: GameConfiguration instance
+        base_url: Base URL for the API endpoint (overrides config if provided)
+        api_key: API key for authentication (overrides config if provided)
         logger: Logger instance for tracking retry attempts
         **kwargs: Additional arguments for LLMClient
 
     Returns:
         LLMClientWrapper instance
     """
-    return LLMClientWrapper(base_url=base_url, api_key=api_key, logger=logger, **kwargs)
+    return LLMClientWrapper(config=config, base_url=base_url, api_key=api_key, logger=logger, **kwargs)

@@ -8,6 +8,7 @@ previous reasoning to maintain strategic continuity across turns.
 import pytest
 from unittest.mock import Mock
 from zork_agent import ZorkAgent
+from session.game_configuration import GameConfiguration
 
 
 @pytest.fixture
@@ -21,20 +22,79 @@ def mock_logger():
     return logger
 
 
+@pytest.fixture
+def test_config():
+    """Create a test configuration."""
+    return GameConfiguration(
+        max_turns_per_episode=1000,
+        turn_delay_seconds=0.0,
+        game_file_path="test.z5",
+        critic_rejection_threshold=0.5,
+        episode_log_file="test.log",
+        json_log_file="test.jsonl",
+        state_export_file="test_state.json",
+        zork_game_workdir="test",
+        client_base_url="http://localhost:1234",
+        client_api_key="test_key",
+        agent_model="test-agent",
+        critic_model="test-critic",
+        info_ext_model="test-extractor",
+        analysis_model="test-analysis",
+        memory_model="test-memory",
+        condensation_model="test-condensation",
+        knowledge_update_interval=100,
+        objective_update_interval=20,
+        enable_objective_refinement=True,
+        objective_refinement_interval=200,
+        max_objectives_before_forced_refinement=15,
+        refined_objectives_target_count=10,
+        max_context_tokens=100000,
+        context_overflow_threshold=0.8,
+        enable_state_export=True,
+        s3_bucket="test-bucket",
+        s3_key_prefix="test/",
+        simple_memory_file="Memories.md",
+        simple_memory_max_shown=10,
+        map_state_file="test_map.json",
+        knowledge_file="test_knowledgebase.md",
+        agent_sampling={},
+        critic_sampling={},
+        extractor_sampling={},
+        analysis_sampling={},
+        memory_sampling={},
+        condensation_sampling={},
+        retry={
+            "max_retries": 5,
+            "initial_delay": 1.0,
+            "max_delay": 60.0,
+            "exponential_base": 2.0,
+            "jitter_factor": 0.1,
+            "retry_on_timeout": True,
+            "retry_on_rate_limit": True,
+            "retry_on_server_error": True,
+            "timeout_seconds": 120.0,
+            "circuit_breaker_enabled": True,
+            "circuit_breaker_failure_threshold": 10,
+            "circuit_breaker_recovery_timeout": 300.0,
+            "circuit_breaker_success_threshold": 3,
+        },
+    )
+
+
 class TestAgentPromptReasoningGuidance:
     """Test that agent prompt includes reasoning guidance section."""
 
-    def test_agent_prompt_includes_reasoning_guidance_section(self, mock_logger):
+    def test_agent_prompt_includes_reasoning_guidance_section(self, mock_logger, test_config):
         """Test that agent system prompt includes 'USING YOUR PREVIOUS REASONING' section."""
-        agent = ZorkAgent(logger=mock_logger)
+        agent = ZorkAgent(config=test_config, logger=mock_logger)
 
         # Verify the guidance section header is present
         assert "USING YOUR PREVIOUS REASONING:" in agent.system_prompt, \
             "Agent prompt should include reasoning guidance section header"
 
-    def test_reasoning_guidance_appears_before_output_format(self, mock_logger):
+    def test_reasoning_guidance_appears_before_output_format(self, mock_logger, test_config):
         """Test that reasoning guidance appears before OUTPUT FORMAT section."""
-        agent = ZorkAgent(logger=mock_logger)
+        agent = ZorkAgent(config=test_config, logger=mock_logger)
 
         guidance_pos = agent.system_prompt.find("USING YOUR PREVIOUS REASONING:")
         output_format_pos = agent.system_prompt.find("OUTPUT FORMAT")
@@ -44,9 +104,9 @@ class TestAgentPromptReasoningGuidance:
         assert guidance_pos < output_format_pos, \
             "Reasoning guidance should appear before OUTPUT FORMAT section"
 
-    def test_reasoning_guidance_includes_three_scenarios(self, mock_logger):
+    def test_reasoning_guidance_includes_three_scenarios(self, mock_logger, test_config):
         """Test that reasoning guidance includes three key scenarios."""
-        agent = ZorkAgent(logger=mock_logger)
+        agent = ZorkAgent(config=test_config, logger=mock_logger)
 
         # Find the guidance section
         guidance_start = agent.system_prompt.find("USING YOUR PREVIOUS REASONING:")
@@ -63,9 +123,9 @@ class TestAgentPromptReasoningGuidance:
         assert "Starting fresh?" in guidance_section, \
             "Guidance should mention starting new plans"
 
-    def test_reasoning_guidance_emphasizes_continuity(self, mock_logger):
+    def test_reasoning_guidance_emphasizes_continuity(self, mock_logger, test_config):
         """Test that reasoning guidance emphasizes building on previous thinking."""
-        agent = ZorkAgent(logger=mock_logger)
+        agent = ZorkAgent(config=test_config, logger=mock_logger)
 
         guidance_start = agent.system_prompt.find("USING YOUR PREVIOUS REASONING:")
         guidance_end = agent.system_prompt.find("OUTPUT FORMAT")
@@ -78,9 +138,9 @@ class TestAgentPromptReasoningGuidance:
         assert "previous thinking" in guidance_section.lower() or "previous reasoning" in guidance_section.lower(), \
             "Guidance should reference previous thinking/reasoning"
 
-    def test_reasoning_guidance_mentions_context_section(self, mock_logger):
+    def test_reasoning_guidance_mentions_context_section(self, mock_logger, test_config):
         """Test that guidance mentions the '## Previous Reasoning and Actions' context section."""
-        agent = ZorkAgent(logger=mock_logger)
+        agent = ZorkAgent(config=test_config, logger=mock_logger)
 
         guidance_start = agent.system_prompt.find("USING YOUR PREVIOUS REASONING:")
         guidance_end = agent.system_prompt.find("OUTPUT FORMAT")
@@ -90,9 +150,9 @@ class TestAgentPromptReasoningGuidance:
         assert "## Previous Reasoning and Actions" in guidance_section, \
             "Guidance should mention the '## Previous Reasoning and Actions' context section"
 
-    def test_reasoning_guidance_structure_is_clear(self, mock_logger):
+    def test_reasoning_guidance_structure_is_clear(self, mock_logger, test_config):
         """Test that reasoning guidance is structured clearly with numbered scenarios."""
-        agent = ZorkAgent(logger=mock_logger)
+        agent = ZorkAgent(config=test_config, logger=mock_logger)
 
         guidance_start = agent.system_prompt.find("USING YOUR PREVIOUS REASONING:")
         guidance_end = agent.system_prompt.find("OUTPUT FORMAT")
@@ -103,9 +163,9 @@ class TestAgentPromptReasoningGuidance:
         assert "2." in guidance_section, "Guidance should include numbered list item 2"
         assert "3." in guidance_section, "Guidance should include numbered list item 3"
 
-    def test_full_prompt_structure_intact(self, mock_logger):
+    def test_full_prompt_structure_intact(self, mock_logger, test_config):
         """Test that adding reasoning guidance didn't break existing prompt structure."""
-        agent = ZorkAgent(logger=mock_logger)
+        agent = ZorkAgent(config=test_config, logger=mock_logger)
 
         # Verify key existing sections are still present
         assert "CRITICAL RULES:" in agent.system_prompt, \
@@ -120,9 +180,9 @@ class TestAgentPromptReasoningGuidance:
         assert "OUTPUT FORMAT" in agent.system_prompt, \
             "OUTPUT FORMAT section should still be present"
 
-    def test_reasoning_guidance_placement_in_workflow(self, mock_logger):
+    def test_reasoning_guidance_placement_in_workflow(self, mock_logger, test_config):
         """Test that reasoning guidance is positioned logically in the prompt workflow."""
-        agent = ZorkAgent(logger=mock_logger)
+        agent = ZorkAgent(config=test_config, logger=mock_logger)
 
         # Find positions of key sections
         common_actions_pos = agent.system_prompt.find("COMMON ACTIONS:")
@@ -144,7 +204,7 @@ class TestAgentPromptReasoningGuidance:
 class TestReasoningGuidanceIntegration:
     """Test integration of reasoning guidance with context."""
 
-    def test_agent_receives_reasoning_in_context_and_guidance_in_prompt(self, mock_logger):
+    def test_agent_receives_reasoning_in_context_and_guidance_in_prompt(self, mock_logger, test_config):
         """
         Integration test: Verify the complete flow works together.
 
@@ -154,48 +214,6 @@ class TestReasoningGuidanceIntegration:
         """
         from managers.context_manager import ContextManager
         from session.game_state import GameState
-        from session.game_configuration import GameConfiguration
-
-        # Create test configuration
-        config = GameConfiguration(
-            max_turns_per_episode=1000,
-            turn_delay_seconds=0.0,
-            game_file_path="test.z5",
-            critic_rejection_threshold=0.5,
-            episode_log_file="test.log",
-            json_log_file="test.jsonl",
-            state_export_file="test_state.json",
-            zork_game_workdir="test",
-            client_base_url="http://localhost:1234",
-            client_api_key="test_key",
-            agent_model="test-agent",
-            critic_model="test-critic",
-            info_ext_model="test-extractor",
-            analysis_model="test-analysis",
-            memory_model="test-memory",
-            condensation_model="test-condensation",
-            knowledge_update_interval=100,
-            objective_update_interval=20,
-            enable_objective_refinement=True,
-            objective_refinement_interval=200,
-            max_objectives_before_forced_refinement=15,
-            refined_objectives_target_count=10,
-            max_context_tokens=100000,
-            context_overflow_threshold=0.8,
-            enable_state_export=True,
-            s3_bucket="test-bucket",
-            s3_key_prefix="test/",
-            simple_memory_file="Memories.md",
-            simple_memory_max_shown=10,
-            map_state_file="test_map.json",
-            knowledge_file="test_knowledgebase.md",
-            agent_sampling={},
-            critic_sampling={},
-            extractor_sampling={},
-            analysis_sampling={},
-            memory_sampling={},
-            condensation_sampling={},
-        )
 
         # Create game state with reasoning history
         game_state = GameState()
@@ -208,8 +226,8 @@ class TestReasoningGuidanceIntegration:
         game_state.action_history.append(("go north", "You enter a dark room."))
 
         # Create context manager and agent
-        context_manager = ContextManager(mock_logger, config, game_state)
-        agent = ZorkAgent(logger=mock_logger)
+        context_manager = ContextManager(mock_logger, test_config, game_state)
+        agent = ZorkAgent(config=test_config, logger=mock_logger)
 
         # Get context with reasoning
         context = context_manager.get_agent_context(

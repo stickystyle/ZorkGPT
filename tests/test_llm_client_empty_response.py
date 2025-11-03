@@ -9,13 +9,13 @@ from llm_client import LLMClient, EmptyResponseError, RetryableError, LLMRespons
 class TestEmptyResponseError:
     """Test EmptyResponseError exception class."""
 
-    def test_empty_response_error_inherits_from_retryable_error(self):
+    def test_empty_response_error_inherits_from_retryable_error(self, test_config):
         """Verify EmptyResponseError inherits from RetryableError."""
         error = EmptyResponseError("Test message")
         assert isinstance(error, RetryableError)
         assert isinstance(error, Exception)
 
-    def test_empty_response_error_message(self):
+    def test_empty_response_error_message(self, test_config):
         """Verify EmptyResponseError stores message correctly."""
         message = "Empty response from model gpt-4"
         error = EmptyResponseError(message)
@@ -94,9 +94,9 @@ class TestEmptyResponseDetection:
         }
         return mock_response
 
-    def test_empty_string_triggers_error(self, mock_http_response_empty):
+    def test_empty_string_triggers_error(self, test_config, mock_http_response_empty):
         """Verify empty string response triggers EmptyResponseError."""
-        client = LLMClient(base_url="http://test.com", api_key="test-key")
+        client = LLMClient(config=test_config, base_url="http://test.com", api_key="test-key")
 
         url = "http://test.com/chat/completions"
         headers = {"Content-Type": "application/json"}
@@ -109,9 +109,9 @@ class TestEmptyResponseDetection:
             assert "Empty response" in str(exc_info.value)
             assert "gpt-4" in str(exc_info.value)
 
-    def test_whitespace_only_triggers_error(self, mock_http_response_whitespace):
+    def test_whitespace_only_triggers_error(self, test_config, mock_http_response_whitespace):
         """Verify whitespace-only response triggers EmptyResponseError."""
-        client = LLMClient(base_url="http://test.com", api_key="test-key")
+        client = LLMClient(config=test_config, base_url="http://test.com", api_key="test-key")
 
         url = "http://test.com/chat/completions"
         headers = {"Content-Type": "application/json"}
@@ -124,9 +124,9 @@ class TestEmptyResponseDetection:
             assert "Empty response" in str(exc_info.value)
             assert "deepseek-r1" in str(exc_info.value)
 
-    def test_valid_response_does_not_trigger_error(self, mock_http_response_valid):
+    def test_valid_response_does_not_trigger_error(self, test_config, mock_http_response_valid):
         """Verify valid response does not trigger EmptyResponseError."""
-        client = LLMClient(base_url="http://test.com", api_key="test-key")
+        client = LLMClient(config=test_config, base_url="http://test.com", api_key="test-key")
 
         url = "http://test.com/chat/completions"
         headers = {"Content-Type": "application/json"}
@@ -139,9 +139,9 @@ class TestEmptyResponseDetection:
             assert result.content == "Valid response content"
             assert result.model == "gpt-4"
 
-    def test_error_message_includes_diagnostic_info(self, mock_http_response_empty):
+    def test_error_message_includes_diagnostic_info(self, test_config, mock_http_response_empty):
         """Verify error message includes diagnostic info (model, response keys)."""
-        client = LLMClient(base_url="http://test.com", api_key="test-key")
+        client = LLMClient(config=test_config, base_url="http://test.com", api_key="test-key")
 
         url = "http://test.com/chat/completions"
         headers = {"Content-Type": "application/json"}
@@ -189,12 +189,12 @@ class TestEmptyResponseRetryBehavior:
 
         return [mock_empty, mock_valid]
 
-    def test_retry_counter_increments_for_empty_responses(self, mock_http_empty_then_valid):
+    def test_retry_counter_increments_for_empty_responses(self, test_config, mock_http_empty_then_valid):
         """Verify retry counter increments when empty response is retried."""
-        client = LLMClient(base_url="http://test.com", api_key="test-key")
+        client = LLMClient(config=test_config, base_url="http://test.com", api_key="test-key")
 
         # Override retry config to ensure retries are enabled
-        client.retry_config.max_retries = 3
+        client.retry_config["max_retries"] = 3
 
         with patch('requests.post', side_effect=mock_http_empty_then_valid):
             # Should succeed on second attempt
@@ -205,12 +205,12 @@ class TestEmptyResponseRetryBehavior:
 
             assert result.content == "Valid response"
 
-    def test_max_retries_exhausted_raises_final_exception(self):
+    def test_max_retries_exhausted_raises_final_exception(self, test_config):
         """Verify max retries exhausted raises final EmptyResponseError."""
-        client = LLMClient(base_url="http://test.com", api_key="test-key")
+        client = LLMClient(config=test_config, base_url="http://test.com", api_key="test-key")
 
         # Override retry config to limit retries
-        client.retry_config.max_retries = 2
+        client.retry_config["max_retries"] = 2
 
         mock_empty = Mock()
         mock_empty.ok = True
@@ -235,12 +235,12 @@ class TestEmptyResponseRetryBehavior:
             # The final exception wraps the EmptyResponseError
             assert "failed after" in str(exc_info.value).lower()
 
-    def test_successful_retry_recovers_from_empty_response(self, mock_http_empty_then_valid):
+    def test_successful_retry_recovers_from_empty_response(self, test_config, mock_http_empty_then_valid):
         """Verify successful retry recovers from empty response."""
-        client = LLMClient(base_url="http://test.com", api_key="test-key")
+        client = LLMClient(config=test_config, base_url="http://test.com", api_key="test-key")
 
         # Override retry config to ensure retries are enabled
-        client.retry_config.max_retries = 3
+        client.retry_config["max_retries"] = 3
 
         with patch('requests.post', side_effect=mock_http_empty_then_valid):
             result = client.chat_completions_create(

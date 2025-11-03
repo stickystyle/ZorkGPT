@@ -6,6 +6,7 @@ Unit tests for inventory skipping during combat functionality.
 import unittest
 from zork_agent import ZorkAgent
 from hybrid_zork_extractor import ExtractorResponse
+from session.game_configuration import GameConfiguration
 
 
 class TestInventorySkip(unittest.TestCase):
@@ -13,7 +14,8 @@ class TestInventorySkip(unittest.TestCase):
 
     def setUp(self):
         """Set up ZorkAgent instance for testing."""
-        self.agent = ZorkAgent()
+        config = GameConfiguration.from_toml()
+        self.agent = ZorkAgent(config=config)
 
     def test_combat_inventory_skip_logic(self):
         """Test that the agent correctly skips inventory during combat."""

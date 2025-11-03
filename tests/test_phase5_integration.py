@@ -435,7 +435,7 @@ class TestPhase5EndToEndCritic:
     Z-machine object tree before making LLM calls.
     """
 
-    def test_critic_validates_invalid_take_action(self, game_interface, mock_logger):
+    def test_critic_validates_invalid_take_action(self, game_interface, mock_logger, game_config):
         """
         Verify critic rejects 'take' for non-existent or non-takeable objects.
 
@@ -445,6 +445,7 @@ class TestPhase5EndToEndCritic:
         # Create critic with mock LLM client (should NOT be called)
         mock_llm_client = Mock()
         critic = ZorkCritic(
+            config=game_config,
             logger=mock_logger,
             episode_id="test_episode",
             client=mock_llm_client,
@@ -470,7 +471,7 @@ class TestPhase5EndToEndCritic:
         mock_llm_client.chat.completions.create.assert_not_called()
 
     def test_critic_validates_invalid_take_non_takeable(
-        self, game_interface, mock_logger
+        self, game_interface, mock_logger, game_config
     ):
         """
         Verify critic rejects 'take' for non-takeable objects (like mailbox).
@@ -481,6 +482,7 @@ class TestPhase5EndToEndCritic:
         # Create critic with mock LLM client
         mock_llm_client = Mock()
         critic = ZorkCritic(
+            config=game_config,
             logger=mock_logger,
             episode_id="test_episode",
             client=mock_llm_client,
@@ -505,7 +507,7 @@ class TestPhase5EndToEndCritic:
         mock_llm_client.chat.completions.create.assert_not_called()
 
     def test_critic_validates_invalid_open_action(
-        self, game_interface, mock_logger
+        self, game_interface, mock_logger, game_config
     ):
         """
         Verify critic rejects 'open' for non-openable objects.
@@ -520,6 +522,7 @@ class TestPhase5EndToEndCritic:
         # Create critic with mock LLM client
         mock_llm_client = Mock()
         critic = ZorkCritic(
+            config=game_config,
             logger=mock_logger,
             episode_id="test_episode",
             client=mock_llm_client,
@@ -544,7 +547,7 @@ class TestPhase5EndToEndCritic:
         # LLM should NOT have been called
         mock_llm_client.chat.completions.create.assert_not_called()
 
-    def test_critic_allows_valid_take_action(self, game_interface, mock_logger):
+    def test_critic_allows_valid_take_action(self, game_interface, mock_logger, game_config):
         """
         Verify critic allows valid 'take' actions and falls back to LLM.
 
@@ -572,6 +575,7 @@ class TestPhase5EndToEndCritic:
         mock_llm_client.chat.completions.create.return_value = mock_response
 
         critic = ZorkCritic(
+            config=game_config,
             logger=mock_logger,
             episode_id="test_episode",
             client=mock_llm_client,
@@ -587,7 +591,7 @@ class TestPhase5EndToEndCritic:
         # LLM SHOULD have been called (single word commands bypass validation)
         mock_llm_client.chat.completions.create.assert_called_once()
 
-    def test_critic_graceful_degradation_no_jericho(self, mock_logger):
+    def test_critic_graceful_degradation_no_jericho(self, mock_logger, game_config):
         """
         Verify critic works without Jericho interface (graceful degradation).
 
@@ -603,6 +607,7 @@ class TestPhase5EndToEndCritic:
         mock_llm_client.chat.completions.create.return_value = mock_response
 
         critic = ZorkCritic(
+            config=game_config,
             logger=mock_logger,
             episode_id="test_episode",
             client=mock_llm_client,
@@ -618,7 +623,7 @@ class TestPhase5EndToEndCritic:
         # Should still work, just go straight to LLM
         mock_llm_client.chat.completions.create.assert_called_once()
 
-    def test_critic_validation_reduces_llm_calls(self, game_interface, mock_logger):
+    def test_critic_validation_reduces_llm_calls(self, game_interface, mock_logger, game_config):
         """
         Verify object tree validation reduces unnecessary LLM calls.
 
@@ -628,6 +633,7 @@ class TestPhase5EndToEndCritic:
         # Create critic with mock LLM client
         mock_llm_client = Mock()
         critic = ZorkCritic(
+            config=game_config,
             logger=mock_logger,
             episode_id="test_episode",
             client=mock_llm_client,
@@ -851,7 +857,7 @@ class TestPhase5OrchestratorIntegration:
         assert action_taken == 'open mailbox', \
             "Action should have been executed"
 
-    def test_phase5_reduces_llm_calls_in_practice(self, game_interface):
+    def test_phase5_reduces_llm_calls_in_practice(self, game_interface, game_config):
         """
         Integration test: verify Phase 5 actually reduces LLM calls.
 
@@ -879,6 +885,7 @@ class TestPhase5OrchestratorIntegration:
         # Create critic with tracking
         mock_logger = Mock()
         critic = ZorkCritic(
+            config=game_config,
             logger=mock_logger,
             episode_id="test_reduction",
             client=mock_llm_client,

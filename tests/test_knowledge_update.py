@@ -6,6 +6,7 @@ ABOUTME: Validates that long episodes can still receive knowledge updates.
 import pytest
 from unittest.mock import Mock
 from knowledge import AdaptiveKnowledgeManager
+from session.game_configuration import GameConfiguration
 
 
 class TestKnowledgeUpdateQuality:
@@ -21,7 +22,11 @@ class TestKnowledgeUpdateQuality:
         workdir = tmp_path / "game_files"
         workdir.mkdir(exist_ok=True)
 
+        # Create test configuration
+        config = GameConfiguration.from_toml()
+
         manager = AdaptiveKnowledgeManager(
+            config=config,
             log_file=str(log_file),
             output_file=str(output_file),
             logger=Mock(),
@@ -332,7 +337,11 @@ class TestRegressionScenarios:
         workdir = tmp_path / "game_files"
         workdir.mkdir(exist_ok=True)
 
+        # Create test configuration
+        config = GameConfiguration.from_toml()
+
         manager = AdaptiveKnowledgeManager(
+            config=config,
             log_file=str(log_file),
             output_file=str(output_file),
             logger=Mock(),

@@ -8,7 +8,7 @@ from typing import Optional, List, Tuple, Dict
 from pydantic import BaseModel
 from collections import Counter
 from llm_client import LLMClientWrapper
-from config import get_config, get_client_api_key
+from session.game_configuration import GameConfiguration
 
 # Import shared utilities
 from shared_utils import create_json_schema, strip_markdown_json_fences
@@ -46,7 +46,8 @@ class ValidationResult(BaseModel):
 class CriticTrustTracker:
     """Tracks critic performance and adjusts trust levels accordingly."""
 
-    def __init__(self):
+    def __init__(self, config: GameConfiguration):
+        self.config = config
         self.correct_rejections = 0  # Rejected actions that led to parser failures
         self.incorrect_rejections = 0  # Rejected actions that might have been good
         self.total_evaluations = 0
@@ -75,9 +76,8 @@ class CriticTrustTracker:
     def get_rejection_threshold(self, base_threshold: float = None) -> float:
         """Get adjusted rejection threshold based on current trust level."""
         if base_threshold is None:
-            # Use configuration or default to a more reasonable threshold
-            config = get_config()
-            base_threshold = config.gameplay.critic_rejection_threshold
+            # Use configuration threshold
+            base_threshold = self.config.critic_rejection_threshold
         return base_threshold * self.trust_level
 
     def should_be_conservative(self) -> bool:
@@ -522,6 +522,7 @@ class ZorkCritic:
 
     def __init__(
         self,
+        config: GameConfiguration,
         model: str = None,
         client: Optional[LLMClientWrapper] = None,
         max_tokens: int = None,
@@ -536,6 +537,7 @@ class ZorkCritic:
         Initialize the ZorkCritic.
 
         Args:
+            config: GameConfiguration instance
             model: Model name for critic evaluation
             client: OpenAI client instance (if None, creates new one)
             max_tokens: Maximum tokens for critic responses
@@ -546,28 +548,29 @@ class ZorkCritic:
             logger: Logger instance for tracking
             episode_id: Current episode ID for logging
         """
-        config = get_config()
+        self.config = config
 
-        self.model = model or config.llm.critic_model
+        self.model = model or self.config.critic_model
         self.max_tokens = (
-            max_tokens if max_tokens is not None else config.critic_sampling.max_tokens
+            max_tokens if max_tokens is not None else self.config.critic_sampling.get("max_tokens")
         )
         self.temperature = (
             temperature
             if temperature is not None
-            else config.critic_sampling.temperature
+            else self.config.critic_sampling.get("temperature")
         )
-        self.top_p = top_p if top_p is not None else config.critic_sampling.top_p
-        self.top_k = top_k if top_k is not None else config.critic_sampling.top_k
-        self.min_p = min_p if min_p is not None else config.critic_sampling.min_p
+        self.top_p = top_p if top_p is not None else self.config.critic_sampling.get("top_p")
+        self.top_k = top_k if top_k is not None else self.config.critic_sampling.get("top_k")
+        self.min_p = min_p if min_p is not None else self.config.critic_sampling.get("min_p")
         self.logger = logger
         self.episode_id = episode_id
 
         # Initialize LLM client if not provided
         if client is None:
             self.client = LLMClientWrapper(
-                base_url=config.llm.get_base_url_for_model("critic"),
-                api_key=get_client_api_key(),
+                config=self.config,
+                base_url=self.config.get_llm_base_url_for_model("critic"),
+                api_key=self.config.get_effective_api_key(),
             )
         else:
             self.client = client
@@ -576,7 +579,7 @@ class ZorkCritic:
         self._load_system_prompt()
 
         # Initialize trust and rejection systems
-        self.trust_tracker = CriticTrustTracker()
+        self.trust_tracker = CriticTrustTracker(config=self.config)
         self.rejection_system = ActionRejectionSystem()
 
     def _load_system_prompt(self) -> None:

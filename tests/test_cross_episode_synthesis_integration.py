@@ -7,6 +7,7 @@ import pytest
 import os
 from unittest.mock import Mock, patch, MagicMock
 from knowledge import AdaptiveKnowledgeManager
+from session.game_configuration import GameConfiguration
 
 
 class TestCrossEpisodeSynthesisIntegration:
@@ -26,7 +27,11 @@ class TestCrossEpisodeSynthesisIntegration:
                 '{"episode": 1, "turn": 1, "action": "north", "response": "You are in a forest."}\n'
             )
 
+        # Create test configuration
+        config = GameConfiguration.from_toml()
+
         manager = AdaptiveKnowledgeManager(
+            config=config,
             log_file=str(log_file),
             output_file=str(output_file),
             logger=Mock(),

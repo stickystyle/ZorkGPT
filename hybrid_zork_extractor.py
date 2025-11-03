@@ -15,7 +15,7 @@ from llm_client import LLMClientWrapper
 
 from game_interface.core.jericho_interface import JerichoInterface
 from shared_utils import create_json_schema, strip_markdown_json_fences
-from config import get_config, get_client_api_key
+from session.game_configuration import GameConfiguration
 
 try:
     from langfuse.decorators import observe
@@ -75,6 +75,7 @@ class HybridZorkExtractor:
     def __init__(
         self,
         jericho_interface: JerichoInterface,
+        config: GameConfiguration,
         model: str = None,
         client: Optional[LLMClientWrapper] = None,
         max_tokens: int = None,
@@ -90,6 +91,7 @@ class HybridZorkExtractor:
 
         Args:
             jericho_interface: JerichoInterface instance for accessing game state
+            config: GameConfiguration instance
             model: Model name for LLM extraction (when needed)
             client: OpenAI client instance (if None, creates new one)
             max_tokens: Maximum tokens for LLM extraction
@@ -100,31 +102,32 @@ class HybridZorkExtractor:
             logger: Logger instance for tracking
             episode_id: Current episode ID for logging
         """
-        config = get_config()
+        self.config = config
 
         self.jericho = jericho_interface
-        self.model = model or config.llm.info_ext_model
+        self.model = model or self.config.info_ext_model
         self.max_tokens = (
             max_tokens
             if max_tokens is not None
-            else config.extractor_sampling.max_tokens
+            else self.config.extractor_sampling.get("max_tokens")
         )
         self.temperature = (
             temperature
             if temperature is not None
-            else config.extractor_sampling.temperature
+            else self.config.extractor_sampling.get("temperature")
         )
-        self.top_p = top_p if top_p is not None else config.extractor_sampling.top_p
-        self.top_k = top_k if top_k is not None else config.extractor_sampling.top_k
-        self.min_p = min_p if min_p is not None else config.extractor_sampling.min_p
+        self.top_p = top_p if top_p is not None else self.config.extractor_sampling.get("top_p")
+        self.top_k = top_k if top_k is not None else self.config.extractor_sampling.get("top_k")
+        self.min_p = min_p if min_p is not None else self.config.extractor_sampling.get("min_p")
         self.logger = logger
         self.episode_id = episode_id
 
         # Initialize LLM client if not provided
         if client is None:
             self.client = LLMClientWrapper(
-                base_url=config.llm.get_base_url_for_model("info_ext"),
-                api_key=get_client_api_key(),
+                config=self.config,
+                base_url=self.config.get_llm_base_url_for_model("info_ext"),
+                api_key=self.config.get_effective_api_key(),
             )
         else:
             self.client = client

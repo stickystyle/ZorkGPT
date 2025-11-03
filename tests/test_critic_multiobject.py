@@ -18,9 +18,9 @@ class TestCriticMultiObjectValidation:
         interface.close()
 
     @pytest.fixture
-    def critic(self):
+    def critic(self, test_config):
         """Create a ZorkCritic for testing."""
-        return ZorkCritic()
+        return ZorkCritic(config=test_config)
 
     def test_single_object_take_valid(self, critic, jericho_interface):
         """Test validation of single object take command (valid object)."""

@@ -669,64 +669,6 @@ class MapGraph:
 
         return "--- Map Information ---\n" + "\n".join(context_parts)
 
-    def render_ascii(self) -> str:
-        """Render ASCII map using integer IDs."""
-        if not self.rooms:
-            return "-- Map is Empty --"
-
-        output_lines = ["\n--- ASCII Map State ---"]
-        output_lines.append("=======================")
-
-        # Sort room IDs for consistent output order
-        sorted_room_ids = sorted(self.rooms.keys())
-
-        for room_id in sorted_room_ids:
-            room_obj = self.rooms.get(room_id)
-            room_name = self.room_names.get(room_id, f"Room#{room_id}")
-            output_lines.append(f"\n[ {room_name} ]")
-
-            connections_exist = (
-                room_id in self.connections and self.connections[room_id]
-            )
-
-            if connections_exist:
-                # Sort exit actions for consistent output order
-                sorted_exit_actions = sorted(self.connections[room_id].keys())
-                for exit_action in sorted_exit_actions:
-                    destination_id = self.connections[room_id][exit_action]
-                    destination_name = self.room_names.get(destination_id, f"Room#{destination_id}")
-                    output_lines.append(
-                        f"  --({exit_action})--> [ {destination_name} ]"
-                    )
-
-            # Also list exits known to the Room object but not yet in connections (unmapped)
-            if room_obj and room_obj.exits:
-                unmapped_exits = []
-                for room_exit in sorted(list(room_obj.exits)):
-                    # Check if this room_exit is already covered by a connection display
-                    is_mapped = (
-                        connections_exist and room_exit in self.connections[room_id]
-                    )
-                    if not is_mapped:
-                        unmapped_exits.append(
-                            f"  --({room_exit})--> ??? (Destination Unknown)"
-                        )
-
-                if unmapped_exits:
-                    if (
-                        not connections_exist
-                    ):  # Avoid printing "Exits:" twice if no connections
-                        # No specific header needed if only unmapped exits, they stand alone
-                        pass
-                    output_lines.extend(unmapped_exits)
-
-            if not connections_exist and (not room_obj or not room_obj.exits):
-                output_lines.append("  (No exits known or mapped from this room)")
-
-        output_lines.append("\n=======================")
-        output_lines.append("--- End of Map State ---")
-        return "\n".join(output_lines)
-
     def render_mermaid(self) -> str:
         """
         Render the map as a Mermaid diagram using integer IDs.
@@ -918,35 +860,6 @@ class MapGraph:
             report.append("")
 
         return "\n".join(report)
-
-    def get_navigation_suggestions(self, current_room_id: int) -> List[Dict]:
-        """Get navigation suggestions based on confidence scores."""
-        suggestions = []
-
-        if current_room_id in self.connections:
-            for exit, destination_id in self.connections[current_room_id].items():
-                confidence = self.get_connection_confidence(current_room_id, exit)
-                verifications = self.connection_verifications.get(
-                    (current_room_id, exit), 0
-                )
-                destination_name = self.room_names.get(destination_id, f"Room#{destination_id}")
-
-                suggestions.append(
-                    {
-                        "exit": exit,
-                        "destination_id": destination_id,
-                        "destination_name": destination_name,
-                        "confidence": confidence,
-                        "verifications": verifications,
-                        "recommendation": self._get_recommendation(
-                            confidence, verifications
-                        ),
-                    }
-                )
-
-        # Sort by confidence (highest first)
-        suggestions.sort(key=lambda x: x["confidence"], reverse=True)
-        return suggestions
 
     def _get_recommendation(self, confidence: float, verifications: int) -> str:
         """Get a recommendation based on confidence and verification count."""

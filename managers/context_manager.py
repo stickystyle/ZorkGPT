@@ -104,7 +104,7 @@ class ContextManager(BaseManager):
         in_combat: bool = False,
         failed_actions: List[str] = None,
         discovered_objectives: List[str] = None,
-        jericho_interface: Optional[Any] = None,  # NEW: Optional JerichoInterface for structured data
+        jericho_interface: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """Assemble comprehensive context for agent action generation."""
         try:

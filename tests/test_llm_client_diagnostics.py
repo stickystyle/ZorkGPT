@@ -9,10 +9,10 @@ from llm_client import LLMClient
 class TestDiagnosticLoggingForEmptyResponses:
     """Test diagnostic logging when empty responses occur."""
 
-    def test_empty_response_logs_model_name(self):
+    def test_empty_response_logs_model_name(self, test_config):
         """Verify empty response logging includes model name."""
         mock_logger = Mock()
-        client = LLMClient(base_url="http://test.com", api_key="test-key", logger=mock_logger)
+        client = LLMClient(config=test_config, base_url="http://test.com", api_key="test-key", logger=mock_logger)
 
         mock_response = Mock()
         mock_response.ok = True
@@ -41,10 +41,10 @@ class TestDiagnosticLoggingForEmptyResponses:
             warning_call = mock_logger.warning.call_args
             assert "gpt-4" in str(warning_call)
 
-    def test_empty_response_logs_response_structure(self):
+    def test_empty_response_logs_response_structure(self, test_config):
         """Verify empty response logging includes response structure (keys)."""
         mock_logger = Mock()
-        client = LLMClient(base_url="http://test.com", api_key="test-key", logger=mock_logger)
+        client = LLMClient(config=test_config, base_url="http://test.com", api_key="test-key", logger=mock_logger)
 
         mock_response = Mock()
         mock_response.ok = True
@@ -74,10 +74,10 @@ class TestDiagnosticLoggingForEmptyResponses:
             assert 'response_keys' in warning_extras
             assert isinstance(warning_extras['response_keys'], list)
 
-    def test_empty_response_logs_token_usage(self):
+    def test_empty_response_logs_token_usage(self, test_config):
         """Verify empty response logging includes token usage."""
         mock_logger = Mock()
-        client = LLMClient(base_url="http://test.com", api_key="test-key", logger=mock_logger)
+        client = LLMClient(config=test_config, base_url="http://test.com", api_key="test-key", logger=mock_logger)
 
         mock_response = Mock()
         mock_response.ok = True
@@ -107,10 +107,10 @@ class TestDiagnosticLoggingForEmptyResponses:
             assert 'usage' in warning_extras
             assert warning_extras['usage']['prompt_tokens'] == 150
 
-    def test_empty_response_logs_event_type(self):
+    def test_empty_response_logs_event_type(self, test_config):
         """Verify empty response has proper event_type."""
         mock_logger = Mock()
-        client = LLMClient(base_url="http://test.com", api_key="test-key", logger=mock_logger)
+        client = LLMClient(config=test_config, base_url="http://test.com", api_key="test-key", logger=mock_logger)
 
         mock_response = Mock()
         mock_response.ok = True
@@ -143,11 +143,11 @@ class TestDiagnosticLoggingForEmptyResponses:
 class TestRetryDiagnosticLogging:
     """Test diagnostic logging during retry attempts."""
 
-    def test_retry_logs_include_empty_response_flag(self):
+    def test_retry_logs_include_empty_response_flag(self, test_config):
         """Verify retry logs include empty_response flag when applicable."""
         mock_logger = Mock()
-        client = LLMClient(base_url="http://test.com", api_key="test-key", logger=mock_logger)
-        client.retry_config.max_retries = 2
+        client = LLMClient(config=test_config, base_url="http://test.com", api_key="test-key", logger=mock_logger)
+        client.retry_config["max_retries"] = 2
 
         mock_empty = Mock()
         mock_empty.ok = True
@@ -185,11 +185,11 @@ class TestRetryDiagnosticLogging:
 
             assert len(warning_calls) > 0, "Should have retry warning logs"
 
-    def test_retry_logs_include_max_tokens_for_reasoning_models(self):
+    def test_retry_logs_include_max_tokens_for_reasoning_models(self, test_config):
         """Verify retry logs include max_tokens info for reasoning models."""
         mock_logger = Mock()
-        client = LLMClient(base_url="http://test.com", api_key="test-key", logger=mock_logger)
-        client.retry_config.max_retries = 2
+        client = LLMClient(config=test_config, base_url="http://test.com", api_key="test-key", logger=mock_logger)
+        client.retry_config["max_retries"] = 2
 
         mock_empty = Mock()
         mock_empty.ok = True
@@ -227,11 +227,11 @@ class TestRetryDiagnosticLogging:
                           if 'max_tokens' in str(call).lower()]
             assert len(debug_calls) > 0, "Should log max_tokens for reasoning models"
 
-    def test_successful_retry_logs_recovery(self):
+    def test_successful_retry_logs_recovery(self, test_config):
         """Verify successful retry logs recovery message."""
         mock_logger = Mock()
-        client = LLMClient(base_url="http://test.com", api_key="test-key", logger=mock_logger)
-        client.retry_config.max_retries = 3
+        client = LLMClient(config=test_config, base_url="http://test.com", api_key="test-key", logger=mock_logger)
+        client.retry_config["max_retries"] = 3
 
         mock_empty = Mock()
         mock_empty.ok = True
@@ -267,11 +267,11 @@ class TestRetryDiagnosticLogging:
             assert result.content == "Valid response"
             assert mock_logger.warning.called
 
-    def test_exhausted_retries_logs_cumulative_diagnostics(self):
+    def test_exhausted_retries_logs_cumulative_diagnostics(self, test_config):
         """Verify exhausted retries logs cumulative diagnostic info."""
         mock_logger = Mock()
-        client = LLMClient(base_url="http://test.com", api_key="test-key", logger=mock_logger)
-        client.retry_config.max_retries = 1
+        client = LLMClient(config=test_config, base_url="http://test.com", api_key="test-key", logger=mock_logger)
+        client.retry_config["max_retries"] = 1
 
         mock_empty = Mock()
         mock_empty.ok = True

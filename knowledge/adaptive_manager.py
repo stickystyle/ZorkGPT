@@ -14,7 +14,7 @@ from typing import Dict, Optional
 from pathlib import Path
 
 from llm_client import LLMClientWrapper
-from config import get_config, get_client_api_key
+from session.game_configuration import GameConfiguration
 
 from knowledge import quality_assessment
 from knowledge import turn_extraction
@@ -48,38 +48,40 @@ class AdaptiveKnowledgeManager:
 
     def __init__(
         self,
+        config: GameConfiguration,
         log_file: str = "zork_episode_log.jsonl",
         output_file: str = "knowledgebase.md",
         logger=None,
         workdir: str = "game_files",
     ):
+        self.config = config
         self.log_file = log_file
         self.output_file = output_file
         self.logger = logger
         self.workdir = workdir
 
-        # Initialize LLM client
-        config = get_config()
+        # Initialize LLM client using NEW config system
         self.client = LLMClientWrapper(
-            base_url=config.llm.get_base_url_for_model("analysis"),
-            api_key=get_client_api_key(),
+            config=self.config,
+            base_url=self.config.get_llm_base_url_for_model("analysis"),
+            api_key=self.config.get_effective_api_key(),
         )
 
         # Models for different tasks
-        self.analysis_model = config.llm.analysis_model
-        self.condensation_model = config.llm.condensation_model
+        self.analysis_model = self.config.analysis_model
+        self.condensation_model = self.config.condensation_model
 
         # Load sampling parameters from configuration
-        self.analysis_sampling = config.analysis_sampling
-        self.condensation_sampling = config.condensation_sampling
+        self.analysis_sampling = self.config.analysis_sampling
+        self.condensation_sampling = self.config.condensation_sampling
 
         # Turn-based configuration
-        self.turn_window_size = config.gameplay.turn_window_size
-        self.min_quality_threshold = config.gameplay.min_knowledge_quality
+        self.turn_window_size = self.config.turn_window_size
+        self.min_quality_threshold = self.config.min_knowledge_quality
 
         # Knowledge base condensation configuration
-        self.enable_condensation = config.gameplay.enable_knowledge_condensation
-        self.condensation_threshold = config.gameplay.knowledge_condensation_threshold
+        self.enable_condensation = self.config.enable_knowledge_condensation
+        self.condensation_threshold = self.config.knowledge_condensation_threshold
 
         # Load agent instructions to avoid duplication
         self.agent_instructions = self._load_agent_instructions()

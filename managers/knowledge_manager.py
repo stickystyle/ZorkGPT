@@ -50,7 +50,11 @@ class KnowledgeManager(BaseManager):
         # Initialize AdaptiveKnowledgeManager
         knowledge_file_path = str(Path(config.zork_game_workdir) / config.knowledge_file)
         self.adaptive_knowledge_manager = AdaptiveKnowledgeManager(
-            log_file=json_log_file, output_file=knowledge_file_path, logger=logger
+            config=config,
+            log_file=json_log_file,
+            output_file=knowledge_file_path,
+            logger=logger,
+            workdir=config.zork_game_workdir
         )
 
         # Knowledge update tracking

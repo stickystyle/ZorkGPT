@@ -10,7 +10,7 @@ from pathlib import Path
 from map_graph import MapGraph
 from hybrid_zork_extractor import ExtractorResponse
 from llm_client import LLMClientWrapper
-from config import get_config, get_client_api_key
+from session.game_configuration import GameConfiguration
 
 try:
     from langfuse.decorators import observe
@@ -31,6 +31,7 @@ class ZorkAgent:
 
     def __init__(
         self,
+        config: GameConfiguration,
         model: str = None,
         client: Optional[LLMClientWrapper] = None,
         max_tokens: Optional[int] = None,
@@ -45,6 +46,7 @@ class ZorkAgent:
         Initialize the ZorkAgent.
 
         Args:
+            config: GameConfiguration instance
             model: Model name for agent
             client: OpenAI client instance (if None, creates new one)
             max_tokens: Maximum tokens for agent responses
@@ -55,29 +57,30 @@ class ZorkAgent:
             logger: Logger instance for tracking
             episode_id: Current episode ID for logging
         """
-        config = get_config()
+        self.config = config
 
-        self.model = model or config.llm.agent_model
-        self.max_tokens = max_tokens or config.agent_sampling.max_tokens
+        self.model = model or self.config.agent_model
+        self.max_tokens = max_tokens or self.config.agent_sampling.get("max_tokens")
         self.temperature = (
             temperature
             if temperature is not None
-            else config.agent_sampling.temperature
+            else self.config.agent_sampling.get("temperature")
         )
-        self.top_p = top_p if top_p is not None else config.agent_sampling.top_p
-        self.top_k = top_k if top_k is not None else config.agent_sampling.top_k
-        self.min_p = min_p if min_p is not None else config.agent_sampling.min_p
+        self.top_p = top_p if top_p is not None else self.config.agent_sampling.get("top_p")
+        self.top_k = top_k if top_k is not None else self.config.agent_sampling.get("top_k")
+        self.min_p = min_p if min_p is not None else self.config.agent_sampling.get("min_p")
         self.logger = logger
         self.episode_id = episode_id
 
         # Create sampling params object for LLM calls
-        self.sampling_params = config.agent_sampling
+        self.sampling_params = self.config.agent_sampling
 
         # Initialize LLM client if not provided
         if client is None:
             self.client = LLMClientWrapper(
-                base_url=config.llm.get_base_url_for_model("agent"),
-                api_key=get_client_api_key(),
+                config=self.config,
+                base_url=self.config.get_llm_base_url_for_model("agent"),
+                api_key=self.config.get_effective_api_key(),
             )
         else:
             self.client = client
@@ -105,8 +108,7 @@ class ZorkAgent:
 
     def _enhance_prompt_with_knowledge(self, base_prompt: str) -> str:
         """Enhance the agent prompt with accumulated knowledge."""
-        config = get_config()
-        knowledge_file = Path(config.gameplay.zork_game_workdir) / config.files.knowledge_file
+        knowledge_file = Path(self.config.zork_game_workdir) / self.config.knowledge_file
 
         if not os.path.exists(knowledge_file):
             return base_prompt
@@ -158,135 +160,6 @@ The following strategic guide has been compiled from analyzing previous episodes
                     f"Could not load knowledge from {knowledge_file}: {e}"
                 )
             return base_prompt
-
-    def get_action(
-        self,
-        game_state_text: str,
-        previous_actions_and_responses: Optional[List[Tuple[str, str]]] = None,
-        action_counts: Optional[Counter] = None,
-        relevant_memories: Optional[str] = None,
-    ) -> str:
-        """
-        Gets an action from the Agent LM.
-
-        Args:
-            game_state_text: Current game state text
-            previous_actions_and_responses: List of (action, response) tuples for history
-            action_counts: Counter of how many times each action has been tried
-            relevant_memories: Formatted string of relevant memories
-
-        Returns:
-            The agent's chosen action as a string
-        """
-        if "o1" in self.model:
-            # Use user prompt for o1 models with caching
-            messages = [
-                {
-                    "role": "user",
-                    "content": self.system_prompt,
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ]
-        else:
-            messages = [
-                {
-                    "role": "system",
-                    "content": self.system_prompt,
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ]
-
-        # Add history if provided
-        if previous_actions_and_responses:
-            memory_context = "Here's what you've done so far:\n"
-
-            # Add the most recent actions and responses (last 5-8 is usually sufficient)
-            for i, (action, response) in enumerate(previous_actions_and_responses[-8:]):
-                memory_context += f"Command: {action}\nResult: {response.strip()}\n\n"
-
-            # Include information about repetitive actions
-            if action_counts:
-                repeated_actions = [
-                    act for act, count in action_counts.items() if count > 2
-                ]
-                if repeated_actions:
-                    memory_context += "\n**CRITICAL WARNING**: You've tried these actions multiple times with limited success: "
-                    memory_context += ", ".join(repeated_actions)
-                    memory_context += ". According to your instructions, you must AVOID repeating failed actions and try completely different approaches.\n"
-
-            if "o1" in self.model:
-                # o1 models use user role for all messages
-                messages.append({"role": "user", "content": memory_context})
-            else:
-                messages.append({"role": "system", "content": memory_context})
-
-        # Combine game state with relevant memories if available
-        user_content = game_state_text
-        if relevant_memories:
-            if user_content:
-                user_content = f"{user_content}\n\n{relevant_memories}"
-            else:
-                user_content = relevant_memories
-
-        messages.append({"role": "user", "content": user_content})
-
-        try:
-            llm_response = self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                name="Agent",
-                **self.sampling_params.model_dump(exclude_unset=True),
-            )
-            action_response = llm_response.content
-
-            # Log the response for debugging
-            self.logger.info(
-                f"Agent LLM response: {action_response}",
-                extra={
-                    "event_type": "agent_llm_response",
-                    "episode_id": self.episode_id,
-                    "llm_response": action_response,
-                    "model": self.model,
-                },
-            )
-
-            # Simple parsing: extract action and reasoning from response
-            action, reasoning = self._parse_action_response(action_response)
-
-            # Store the parsed response for evaluation
-            parsed_response = {"action": action, "reasoning": reasoning}
-
-            # Log the final parsed action
-            self.logger.info(
-                f"Agent action parsed: {action}",
-                extra={
-                    "event_type": "agent_action_parsed",
-                    "episode_id": self.episode_id,
-                    "action": action,
-                    "reasoning": reasoning,
-                },
-            )
-
-            # Store the full chain for token analysis
-            self.last_response_data = {
-                "messages": messages,
-                "response": action_response,
-                "parsed": parsed_response,
-            }
-
-            return parsed_response
-
-        except Exception as e:
-            self.logger.error(
-                f"Error getting agent action: {e}",
-                extra={
-                    "event_type": "agent_error",
-                    "episode_id": self.episode_id,
-                    "error": str(e),
-                },
-            )
-            # Return a fallback action - let the critic evaluate it
-            return {"action": "look", "reasoning": f"Error in action generation: {e}"}
 
     @observe(name="agent-generate-action")
     def get_action_with_reasoning(
@@ -507,166 +380,6 @@ The following strategic guide has been compiled from analyzing previous episodes
                 "reasoning": None,
                 "raw_response": None,
             }  # Default safe action on error
-
-    def get_relevant_memories_for_prompt(
-        self,
-        current_location_name_from_current_extraction: str,
-        memory_log_history: List[ExtractorResponse],
-        current_inventory: List[str],
-        game_map: MapGraph,
-        previous_room_name_for_map_context: Optional[str] = None,
-        action_taken_to_current_room: Optional[str] = None,
-        in_combat: bool = False,
-        failed_actions_by_location: Optional[dict] = None,
-    ) -> str:
-        """
-        Generate relevant memories and context for the agent prompt.
-
-        Args:
-            current_location_name_from_current_extraction: Current room name
-            memory_log_history: History of extracted information
-            current_inventory: Current inventory items
-            game_map: The game map object
-            previous_room_name_for_map_context: Previous room name
-            action_taken_to_current_room: Action that led to current room
-            in_combat: Whether currently in combat
-            failed_actions_by_location: Dict of failed actions by location
-
-        Returns:
-            Formatted string of relevant memories for the agent
-        """
-        # Check for loop situation - if agent has been in same location for multiple recent turns
-        recent_locations = []
-        if memory_log_history and len(memory_log_history) >= 3:
-            # Check last 5 turns for same location
-            for obs in memory_log_history[-5:]:
-                if obs.current_location_name:
-                    recent_locations.append(obs.current_location_name)
-
-        # Count how many of the recent turns were in current location
-        current_location_count = recent_locations.count(
-            current_location_name_from_current_extraction
-        )
-        is_stuck_in_loop = current_location_count >= 3
-
-        map_context_str = ""
-        if game_map:
-            map_info = game_map.get_context_for_prompt(
-                current_room_name=current_location_name_from_current_extraction,
-                previous_room_name=previous_room_name_for_map_context,
-                action_taken_to_current=action_taken_to_current_room,
-            )
-
-            # Add navigation suggestions to the map context
-            nav_suggestions = game_map.get_navigation_suggestions(
-                current_location_name_from_current_extraction
-            )
-            if nav_suggestions:
-                nav_text = "Available exits: " + ", ".join(
-                    [
-                        f"{suggestion['exit']} (to {suggestion['destination']})"
-                        for suggestion in nav_suggestions
-                    ]
-                )
-
-                # If stuck in loop, make navigation more prominent
-                if is_stuck_in_loop:
-                    nav_text = f"🚨 LOOP DETECTED - PRIORITIZE MOVEMENT! 🚨\n{nav_text}\n⚠️  You've been in {current_location_name_from_current_extraction} for {current_location_count} recent turns. Try these exits NOW!"
-
-                if map_info:
-                    map_info += f"\n{nav_text}"
-                else:
-                    map_info = f"--- Map Information ---\n{nav_text}"
-
-            if map_info:
-                map_context_str = map_info
-
-        other_memory_strings = []
-
-        # Add loop detection warning at the top of other memories
-        if is_stuck_in_loop:
-            other_memory_strings.append(
-                f"🔄 CRITICAL LOOP WARNING: You have been in '{current_location_name_from_current_extraction}' for {current_location_count} of your last 5 turns! STOP object interactions and try MOVEMENT commands immediately. Check the Available exits above and use basic directional commands like 'north', 'south', 'east', 'west'."
-            )
-
-        # Add combat status information
-        if in_combat:
-            other_memory_strings.append(
-                "- COMBAT SITUATION: You are currently in combat or facing an immediate threat! Be prepared to defend yourself or flee."
-            )
-
-        if current_inventory:
-            other_memory_strings.append(
-                f"- You are carrying: {', '.join(current_inventory)}."
-            )
-
-        # Add failed actions warning for current location
-        if (
-            failed_actions_by_location
-            and current_location_name_from_current_extraction
-            in failed_actions_by_location
-        ):
-            failed_actions = failed_actions_by_location[
-                current_location_name_from_current_extraction
-            ]
-            if failed_actions:
-                other_memory_strings.append(
-                    f"- FAILED ACTIONS in {current_location_name_from_current_extraction}: The following actions have already failed here and should NOT be repeated: {', '.join(sorted(failed_actions))}."
-                )
-
-        previous_observations_of_current_room = [
-            obs
-            for obs in reversed(memory_log_history[:-1])  # Exclude current observation
-            if obs.current_location_name
-            == current_location_name_from_current_extraction
-        ]
-
-        if previous_observations_of_current_room:
-            last_relevant_obs = previous_observations_of_current_room[0]
-            prev_objects = last_relevant_obs.visible_objects
-            if prev_objects:
-                other_memory_strings.append(
-                    f"- Previously noted objects in {current_location_name_from_current_extraction}: {', '.join(prev_objects)}."
-                )
-
-        if memory_log_history:
-            # Always use the most recent memory entry
-            # This contains the result from the last action taken
-            relevant_history_index = -1
-            last_turn_info = memory_log_history[relevant_history_index]
-            important_msgs = last_turn_info.important_messages
-            action_results = [
-                msg
-                for msg in important_msgs
-                if not msg.lower().startswith("you are")
-                and not msg.lower().startswith(
-                    current_location_name_from_current_extraction.lower()
-                )
-                and len(msg) < 100
-            ]
-            if action_results:
-                other_memory_strings.append(
-                    f"- Last action result/event: {' '.join(action_results)}."
-                )
-
-        final_output_parts = []
-        if map_context_str and map_context_str.strip():
-            content_part = map_context_str.replace(
-                "--- Map Information ---", ""
-            ).strip()
-            if content_part:  # Only add if there's more than just the header
-                final_output_parts.append(map_context_str)
-
-        if other_memory_strings:  # other_memory_strings is populated by existing logic
-            if final_output_parts:
-                final_output_parts.append("\n--- Other Relevant Memories ---")
-            else:
-                final_output_parts.append("--- Relevant Memories ---")
-            final_output_parts.extend(other_memory_strings)
-
-        if not final_output_parts:
-            return ""
-        return "\n".join(final_output_parts) + "\n"
 
     def update_episode_id(self, episode_id: str) -> None:
         """Update the episode ID for logging purposes."""

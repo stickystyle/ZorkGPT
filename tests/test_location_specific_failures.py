@@ -13,7 +13,7 @@ from zork_critic import (
     FailureDetectionResponse,
     CriticResponse,
 )
-from config import get_config
+from session.game_configuration import GameConfiguration
 
 
 class TestActionRejectionSystem:
@@ -150,19 +150,14 @@ class TestFailureDetection:
         self.mock_client = Mock()
         self.mock_logger = Mock()
 
-        # Create critic with mocked dependencies
-        with (
-            patch("zork_critic.get_config") as mock_config,
-            patch("zork_critic.get_client_api_key") as mock_api_key,
-        ):
-            mock_config.return_value = get_config()  # Use real config for structure
-            mock_api_key.return_value = "test-key"
-
-            self.critic = ZorkCritic(
-                client=self.mock_client,
-                logger=self.mock_logger,
-                episode_id="test_episode",
-            )
+        # Create critic with config
+        config = GameConfiguration.from_toml()
+        self.critic = ZorkCritic(
+            config=config,
+            client=self.mock_client,
+            logger=self.mock_logger,
+            episode_id="test_episode",
+        )
 
     def test_detect_parser_failure(self):
         """Test detection of parser failures."""
@@ -259,18 +254,14 @@ class TestEnhancedCriticEvaluation:
         self.mock_client = Mock()
         self.mock_logger = Mock()
 
-        with (
-            patch("zork_critic.get_config") as mock_config,
-            patch("zork_critic.get_client_api_key") as mock_api_key,
-        ):
-            mock_config.return_value = get_config()
-            mock_api_key.return_value = "test-key"
-
-            self.critic = ZorkCritic(
-                client=self.mock_client,
-                logger=self.mock_logger,
-                episode_id="test_episode",
-            )
+        # Create critic with config
+        config = GameConfiguration.from_toml()
+        self.critic = ZorkCritic(
+            config=config,
+            client=self.mock_client,
+            logger=self.mock_logger,
+            episode_id="test_episode",
+        )
 
     def test_location_specific_context_in_evaluation(self):
         """Test that location-specific failure context is included in critic evaluation."""

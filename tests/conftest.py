@@ -2,6 +2,7 @@
 # ABOUTME: Disables Langfuse tracing by default to prevent test data pollution
 
 import pytest
+from session.game_configuration import GameConfiguration
 
 
 @pytest.fixture(autouse=True)
@@ -23,3 +24,14 @@ def disable_langfuse_for_tests(monkeypatch):
     monkeypatch.delenv("LANGFUSE_PUBLIC_KEY", raising=False)
     monkeypatch.delenv("LANGFUSE_SECRET_KEY", raising=False)
     monkeypatch.delenv("LANGFUSE_HOST", raising=False)
+
+
+@pytest.fixture
+def test_config():
+    """
+    Provide a GameConfiguration instance for tests.
+
+    This fixture loads the real configuration from pyproject.toml,
+    which ensures tests use consistent settings with production code.
+    """
+    return GameConfiguration.from_toml()

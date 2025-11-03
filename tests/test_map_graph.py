@@ -231,33 +231,6 @@ class TestMapGraph(unittest.TestCase):
         self.assertGreaterEqual(metrics["average_confidence"], 0.0)
         self.assertLessEqual(metrics["average_confidence"], 1.0)
 
-    def test_navigation_suggestions(self):
-        """Test the navigation suggestions functionality."""
-        # Room ID mapping for test
-        HUB_ID = 1
-        NORTH_ROOM_ID = 2
-        SOUTH_ROOM_ID = 3
-
-        # Add some connections
-        self.map.add_room(HUB_ID, "Hub")
-        self.map.add_room(NORTH_ROOM_ID, "North Room")
-        self.map.add_room(SOUTH_ROOM_ID, "South Room")
-        self.map.add_connection(HUB_ID, "north", NORTH_ROOM_ID)
-        self.map.add_connection(HUB_ID, "south", SOUTH_ROOM_ID)
-
-        # Get navigation suggestions
-        suggestions = self.map.get_navigation_suggestions(HUB_ID)
-
-        # Check that suggestions are returned
-        self.assertIsInstance(suggestions, list)
-        self.assertGreater(len(suggestions), 0)
-
-        # Check suggestion structure
-        for suggestion in suggestions:
-            self.assertIn("exit", suggestion)
-            self.assertIn("destination_name", suggestion)
-            self.assertIn("confidence", suggestion)
-
     def test_non_directional_actions_preserved(self):
         """Test that non-directional actions are preserved separately."""
         # Room ID mapping for test

@@ -8,6 +8,7 @@ to avoid code duplication.
 from typing import Dict, Any, Type, Union, List, Optional
 from pydantic import BaseModel
 from pathlib import Path
+from session.game_configuration import GameConfiguration
 
 
 def create_json_schema(model: Type[BaseModel]) -> Dict[str, Any]:
@@ -146,6 +147,7 @@ def estimate_context_tokens(
     reasoning_history: List[Any] = None,
     knowledge_base_path: Optional[str] = None,
     additional_content: str = "",
+    config: Optional[GameConfiguration] = None,
 ) -> int:
     """
     Estimate total context tokens from various sources.
@@ -158,6 +160,7 @@ def estimate_context_tokens(
         reasoning_history: List of action reasoning entries
         knowledge_base_path: Path to knowledge base file (defaults to game_files/knowledgebase.md from config)
         additional_content: Any additional string content to include
+        config: Game configuration (required if knowledge_base_path is None)
 
     Returns:
         Total estimated tokens across all sources
@@ -177,9 +180,9 @@ def estimate_context_tokens(
     # Count knowledge base
     if knowledge_base_path is None:
         # Construct path from config if not provided
-        from config import get_config
-        config = get_config()
-        knowledge_base_path = str(Path(config.gameplay.zork_game_workdir) / config.files.knowledge_file)
+        if config is None:
+            raise ValueError("config parameter is required when knowledge_base_path is None")
+        knowledge_base_path = str(Path(config.zork_game_workdir) / config.knowledge_file)
 
     try:
         with open(knowledge_base_path, "r", encoding="utf-8") as f:

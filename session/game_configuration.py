@@ -5,16 +5,39 @@ This module provides a clean, typed interface to game configuration,
 loading directly from pyproject.toml and environment variables.
 """
 
-import os
 import tomllib
-from dataclasses import dataclass
 from typing import Optional
 from pathlib import Path
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from dotenv import load_dotenv
 
 
-@dataclass
-class GameConfiguration:
+def _default_retry_config() -> dict:
+    """
+    Provide default retry configuration values.
+
+    These defaults are used when retry config is not explicitly provided
+    (e.g., in tests or when creating GameConfiguration instances directly).
+    """
+    return {
+        "max_retries": 5,
+        "initial_delay": 1.0,
+        "max_delay": 60.0,
+        "exponential_base": 2.0,
+        "jitter_factor": 0.1,
+        "retry_on_timeout": True,
+        "retry_on_rate_limit": True,
+        "retry_on_server_error": True,
+        "timeout_seconds": 120.0,
+        "circuit_breaker_enabled": True,
+        "circuit_breaker_failure_threshold": 10,
+        "circuit_breaker_recovery_timeout": 300.0,
+        "circuit_breaker_success_threshold": 3,
+    }
+
+
+class GameConfiguration(BaseSettings):
     """
     Typed configuration object for ZorkGPT orchestration.
 
@@ -22,93 +45,211 @@ class GameConfiguration:
     All required values must be present in TOML or the application will crash.
     """
 
-    # Required fields (no defaults)
     # Core game settings
-    max_turns_per_episode: int
-    turn_delay_seconds: float
+    max_turns_per_episode: int = Field(
+        description="Maximum number of turns allowed per episode"
+    )
+    turn_delay_seconds: float = Field(
+        default=3.0, description="Delay in seconds between turns"
+    )
+    turn_window_size: int = Field(
+        default=100, description="Number of recent turns to consider for context"
+    )
 
     # File paths
-    episode_log_file: str
-    json_log_file: str
-    state_export_file: str
-    map_state_file: str
-    knowledge_file: str
-    zork_game_workdir: str
-    game_file_path: str
+    episode_log_file: str = Field(
+        default="zork_episode_log.txt", description="Path to episode log file"
+    )
+    json_log_file: str = Field(
+        default="zork_episode_log.jsonl", description="Path to JSON log file"
+    )
+    state_export_file: str = Field(
+        default="current_state.json", description="Path to state export file"
+    )
+    map_state_file: str = Field(
+        default="map_state.json", description="Path to map state file"
+    )
+    knowledge_file: str = Field(
+        default="knowledgebase.md", description="Path to knowledge base file"
+    )
+    zork_game_workdir: str = Field(
+        default="game_files", description="Working directory for game files"
+    )
+    game_file_path: str = Field(
+        default="jericho-game-suite/zork1.z5", description="Path to game ROM file"
+    )
 
     # LLM client settings
-    client_base_url: str
+    client_base_url: str = Field(
+        default="https://openrouter.ai/api/v1", description="Base URL for LLM client"
+    )
+    client_api_key: Optional[str] = Field(
+        default=None, description="API key for LLM client"
+    )
 
     # Model specifications
-    agent_model: str
-    critic_model: str
-    info_ext_model: str
-    analysis_model: str
-    memory_model: str
-    condensation_model: str
-
-    # Update intervals
-    knowledge_update_interval: int
-    objective_update_interval: int
-
-    # Objective refinement
-    enable_objective_refinement: bool
-    objective_refinement_interval: int
-    max_objectives_before_forced_refinement: int
-    refined_objectives_target_count: int
-
-    # Context management
-    max_context_tokens: int
-    context_overflow_threshold: float
-
-    # State export
-    enable_state_export: bool
-    s3_key_prefix: str
-
-    # Gameplay settings
-    critic_rejection_threshold: float
-
-    # Simple memory settings
-    simple_memory_file: str
-    simple_memory_max_shown: int
-
-    # Optional fields (with defaults)
-    # LLM client settings
-    client_api_key: Optional[str] = None
+    agent_model: str = Field(
+        default="deepseek/deepseek-r1-0528", description="Model name for agent"
+    )
+    critic_model: str = Field(
+        default="google/gemma-3-27b-it", description="Model name for critic"
+    )
+    info_ext_model: str = Field(
+        default="google/gemma-3-12b-it", description="Model name for information extractor"
+    )
+    analysis_model: str = Field(
+        default="deepseek/deepseek-r1-0528", description="Model name for analysis"
+    )
+    memory_model: str = Field(
+        default="qwen/qwq-32b", description="Model name for memory synthesis"
+    )
+    condensation_model: str = Field(
+        default="qwen/qwq-32b", description="Model name for knowledge condensation"
+    )
 
     # Per-model base URLs (optional)
-    agent_base_url: Optional[str] = None
-    info_ext_base_url: Optional[str] = None
-    critic_base_url: Optional[str] = None
-    analysis_base_url: Optional[str] = None
-    memory_base_url: Optional[str] = None
-    condensation_base_url: Optional[str] = None
+    agent_base_url: Optional[str] = Field(
+        default=None, description="Optional base URL for agent model"
+    )
+    info_ext_base_url: Optional[str] = Field(
+        default=None, description="Optional base URL for info extractor model"
+    )
+    critic_base_url: Optional[str] = Field(
+        default=None, description="Optional base URL for critic model"
+    )
+    analysis_base_url: Optional[str] = Field(
+        default=None, description="Optional base URL for analysis model"
+    )
+    memory_base_url: Optional[str] = Field(
+        default=None, description="Optional base URL for memory model"
+    )
+    condensation_base_url: Optional[str] = Field(
+        default=None, description="Optional base URL for condensation model"
+    )
+
+    # Retry configuration
+    retry: dict = Field(
+        default_factory=_default_retry_config,
+        description="Retry and exponential backoff configuration",
+    )
+
+    # Update intervals
+    knowledge_update_interval: int = Field(
+        default=100, description="Interval for knowledge base updates"
+    )
+    objective_update_interval: int = Field(
+        default=25, description="Interval for objective discovery updates"
+    )
+
+    # Objective refinement
+    enable_objective_refinement: bool = Field(
+        default=True, description="Enable objective refinement"
+    )
+    objective_refinement_interval: int = Field(
+        default=50, description="Interval for objective refinement"
+    )
+    max_objectives_before_forced_refinement: int = Field(
+        default=15, description="Maximum objectives before forced refinement"
+    )
+    refined_objectives_target_count: int = Field(
+        default=8, description="Target count for refined objectives"
+    )
+
+    # Context management
+    max_context_tokens: int = Field(
+        default=40000, description="Maximum context tokens for LLM calls"
+    )
+    context_overflow_threshold: float = Field(
+        default=0.6, description="Threshold for triggering context overflow handling"
+    )
 
     # State export
-    s3_bucket: Optional[str] = None
+    enable_state_export: bool = Field(
+        default=True, description="Enable state export functionality"
+    )
+    s3_bucket: Optional[str] = Field(
+        default=None, description="S3 bucket for state export"
+    )
+    s3_key_prefix: str = Field(
+        default="zorkgpt/", description="S3 key prefix for exports"
+    )
+
+    # Gameplay settings
+    critic_rejection_threshold: float = Field(
+        default=-0.2, description="Threshold for critic to reject actions"
+    )
+    min_knowledge_quality: float = Field(
+        default=6.0, description="Minimum quality score for knowledge entries"
+    )
+    enable_exit_pruning: bool = Field(
+        default=True, description="Enable pruning of failed exits from map"
+    )
+    exit_failure_threshold: int = Field(
+        default=2, description="Number of failures before pruning an exit"
+    )
+    enable_knowledge_condensation: bool = Field(
+        default=True, description="Enable knowledge base condensation"
+    )
+    knowledge_condensation_threshold: int = Field(
+        default=15000, description="Character count threshold for triggering condensation"
+    )
+    zork_save_filename_template: str = Field(
+        default="zorkgpt_save_{timestamp}", description="Template for save file names"
+    )
+
+    # Orchestrator settings
+    enable_inter_episode_synthesis: bool = Field(
+        default=True, description="Enable inter-episode wisdom synthesis"
+    )
+
+    # Simple memory settings
+    simple_memory_file: str = Field(
+        default="Memories.md", description="Path to simple memory file"
+    )
+    simple_memory_max_shown: int = Field(
+        default=10, description="Maximum number of memories to show"
+    )
 
     # Sampling parameters (loaded from TOML)
-    agent_sampling: dict = None
-    critic_sampling: dict = None
-    extractor_sampling: dict = None
-    analysis_sampling: dict = None
-    memory_sampling: dict = None
-    condensation_sampling: dict = None
+    agent_sampling: dict = Field(
+        default_factory=dict, description="Sampling parameters for agent"
+    )
+    critic_sampling: dict = Field(
+        default_factory=dict, description="Sampling parameters for critic"
+    )
+    extractor_sampling: dict = Field(
+        default_factory=dict, description="Sampling parameters for extractor"
+    )
+    analysis_sampling: dict = Field(
+        default_factory=dict, description="Sampling parameters for analysis"
+    )
+    memory_sampling: dict = Field(
+        default_factory=dict, description="Sampling parameters for memory"
+    )
+    condensation_sampling: dict = Field(
+        default_factory=dict, description="Sampling parameters for condensation"
+    )
 
-    def __post_init__(self):
-        """Load environment variables after initialization."""
-        # Load environment variables
-        load_dotenv()
+    model_config = SettingsConfigDict(
+        env_prefix="ZORKGPT_",
+        env_file=None,  # Don't auto-load .env to avoid validation errors from unrelated vars
+        case_sensitive=False,
+        extra="forbid",  # Catch typos in config early
+    )
 
-        # Override client_api_key from environment if not set
+    def model_post_init(self, __context) -> None:
+        """Ensure game working directory exists and handle legacy env vars."""
+        import os
+
+        # Backward compatibility: Fall back to old env var names
+        # Legacy infrastructure uses CLIENT_API_KEY and ZORK_S3_BUCKET
         if self.client_api_key is None:
             self.client_api_key = os.environ.get("CLIENT_API_KEY")
 
-        # Override s3_bucket from environment if not set
         if self.s3_bucket is None:
             self.s3_bucket = os.environ.get("ZORK_S3_BUCKET")
 
-        # Ensure game working directory exists
+        # Create workdir
         workdir = Path(self.zork_game_workdir)
         if not workdir.exists():
             workdir.mkdir(parents=True, exist_ok=True)
@@ -128,6 +269,9 @@ class GameConfiguration:
             FileNotFoundError: If config file doesn't exist
             KeyError: If required configuration sections are missing
         """
+        # Load .env file if it exists to populate environment variables
+        load_dotenv()
+
         config_file = config_file or Path("pyproject.toml")
 
         if not config_file.exists():
@@ -141,13 +285,14 @@ class GameConfiguration:
         except KeyError:
             raise KeyError("Missing [tool.zorkgpt] section in pyproject.toml")
 
-        # Extract configuration sections with validation
+        # Extract configuration sections
         llm_config = zorkgpt_config.get("llm", {})
         orchestrator_config = zorkgpt_config.get("orchestrator", {})
         files_config = zorkgpt_config.get("files", {})
         gameplay_config = zorkgpt_config.get("gameplay", {})
         aws_config = zorkgpt_config.get("aws", {})
         simple_memory_config = zorkgpt_config.get("simple_memory", {})
+        retry_config = zorkgpt_config.get("retry", {})
 
         # Extract sampling parameter sections
         agent_sampling = zorkgpt_config.get("agent_sampling", {})
@@ -157,101 +302,76 @@ class GameConfiguration:
         memory_sampling = zorkgpt_config.get("memory_sampling", {})
         condensation_sampling = zorkgpt_config.get("condensation_sampling", {})
 
-        def require_key(config_dict: dict, key: str, section: str) -> any:
-            """Helper to get required config values with clear error messages."""
-            if key not in config_dict:
-                raise KeyError(
-                    f"Missing required key '{key}' in [tool.zorkgpt.{section}] section"
-                )
-            return config_dict[key]
-
-        return cls(
+        # Build flat configuration dictionary for Pydantic validation
+        config_dict = {
             # Core game settings
-            max_turns_per_episode=require_key(
-                orchestrator_config, "max_turns_per_episode", "orchestrator"
-            ),
-            turn_delay_seconds=require_key(
-                gameplay_config, "turn_delay_seconds", "gameplay"
-            ),
+            "max_turns_per_episode": orchestrator_config.get("max_turns_per_episode"),
+            "turn_delay_seconds": gameplay_config.get("turn_delay_seconds"),
+            "turn_window_size": gameplay_config.get("turn_window_size"),
             # File paths
-            episode_log_file=require_key(files_config, "episode_log_file", "files"),
-            json_log_file=require_key(files_config, "json_log_file", "files"),
-            state_export_file=require_key(files_config, "state_export_file", "files"),
-            map_state_file=require_key(files_config, "map_state_file", "files"),
-            knowledge_file=require_key(files_config, "knowledge_file", "files"),
-            zork_game_workdir=require_key(
-                gameplay_config, "zork_game_workdir", "gameplay"
-            ),
-            game_file_path=files_config.get("game_file_path", "infrastructure/zork.z5"),
+            "episode_log_file": files_config.get("episode_log_file"),
+            "json_log_file": files_config.get("json_log_file"),
+            "state_export_file": files_config.get("state_export_file"),
+            "map_state_file": files_config.get("map_state_file"),
+            "knowledge_file": files_config.get("knowledge_file"),
+            "zork_game_workdir": gameplay_config.get("zork_game_workdir"),
+            "game_file_path": files_config.get("game_file_path"),
             # LLM client settings
-            client_base_url=require_key(llm_config, "client_base_url", "llm"),
+            "client_base_url": llm_config.get("client_base_url"),
             # Model specifications
-            agent_model=require_key(llm_config, "agent_model", "llm"),
-            critic_model=require_key(llm_config, "critic_model", "llm"),
-            info_ext_model=require_key(llm_config, "info_ext_model", "llm"),
-            analysis_model=require_key(llm_config, "analysis_model", "llm"),
-            memory_model=require_key(llm_config, "memory_model", "llm"),
-            condensation_model=require_key(llm_config, "condensation_model", "llm"),
+            "agent_model": llm_config.get("agent_model"),
+            "critic_model": llm_config.get("critic_model"),
+            "info_ext_model": llm_config.get("info_ext_model"),
+            "analysis_model": llm_config.get("analysis_model"),
+            "memory_model": llm_config.get("memory_model"),
+            "condensation_model": llm_config.get("condensation_model"),
             # Per-model base URLs (optional)
-            agent_base_url=llm_config.get("agent_base_url"),
-            info_ext_base_url=llm_config.get("info_ext_base_url"),
-            critic_base_url=llm_config.get("critic_base_url"),
-            analysis_base_url=llm_config.get("analysis_base_url"),
-            memory_base_url=llm_config.get("memory_base_url"),
-            condensation_base_url=llm_config.get("condensation_base_url"),
+            "agent_base_url": llm_config.get("agent_base_url"),
+            "info_ext_base_url": llm_config.get("info_ext_base_url"),
+            "critic_base_url": llm_config.get("critic_base_url"),
+            "analysis_base_url": llm_config.get("analysis_base_url"),
+            "memory_base_url": llm_config.get("memory_base_url"),
+            "condensation_base_url": llm_config.get("condensation_base_url"),
+            # Retry configuration
+            "retry": retry_config,
             # Update intervals
-            knowledge_update_interval=require_key(
-                orchestrator_config, "knowledge_update_interval", "orchestrator"
-            ),
-            objective_update_interval=require_key(
-                orchestrator_config, "objective_update_interval", "orchestrator"
-            ),
+            "knowledge_update_interval": orchestrator_config.get("knowledge_update_interval"),
+            "objective_update_interval": orchestrator_config.get("objective_update_interval"),
             # Objective refinement
-            enable_objective_refinement=require_key(
-                orchestrator_config, "enable_objective_refinement", "orchestrator"
-            ),
-            objective_refinement_interval=require_key(
-                orchestrator_config, "objective_refinement_interval", "orchestrator"
-            ),
-            max_objectives_before_forced_refinement=require_key(
-                orchestrator_config,
-                "max_objectives_before_forced_refinement",
-                "orchestrator",
-            ),
-            refined_objectives_target_count=require_key(
-                orchestrator_config, "refined_objectives_target_count", "orchestrator"
-            ),
+            "enable_objective_refinement": orchestrator_config.get("enable_objective_refinement"),
+            "objective_refinement_interval": orchestrator_config.get("objective_refinement_interval"),
+            "max_objectives_before_forced_refinement": orchestrator_config.get("max_objectives_before_forced_refinement"),
+            "refined_objectives_target_count": orchestrator_config.get("refined_objectives_target_count"),
             # Context management
-            max_context_tokens=require_key(
-                orchestrator_config, "max_context_tokens", "orchestrator"
-            ),
-            context_overflow_threshold=require_key(
-                orchestrator_config, "context_overflow_threshold", "orchestrator"
-            ),
+            "max_context_tokens": orchestrator_config.get("max_context_tokens"),
+            "context_overflow_threshold": orchestrator_config.get("context_overflow_threshold"),
             # State export
-            enable_state_export=require_key(
-                orchestrator_config, "enable_state_export", "orchestrator"
-            ),
-            s3_key_prefix=require_key(aws_config, "s3_key_prefix", "aws"),
+            "enable_state_export": orchestrator_config.get("enable_state_export"),
+            "s3_key_prefix": aws_config.get("s3_key_prefix"),
             # Gameplay settings
-            critic_rejection_threshold=require_key(
-                gameplay_config, "critic_rejection_threshold", "gameplay"
-            ),
+            "critic_rejection_threshold": gameplay_config.get("critic_rejection_threshold"),
+            "min_knowledge_quality": gameplay_config.get("min_knowledge_quality"),
+            "enable_exit_pruning": gameplay_config.get("enable_exit_pruning"),
+            "exit_failure_threshold": gameplay_config.get("exit_failure_threshold"),
+            "enable_knowledge_condensation": gameplay_config.get("enable_knowledge_condensation"),
+            "knowledge_condensation_threshold": gameplay_config.get("knowledge_condensation_threshold"),
+            "zork_save_filename_template": gameplay_config.get("zork_save_filename_template"),
+            # Orchestrator settings
+            "enable_inter_episode_synthesis": orchestrator_config.get("enable_inter_episode_synthesis"),
             # Simple memory settings
-            simple_memory_file=require_key(
-                simple_memory_config, "memory_file", "simple_memory"
-            ),
-            simple_memory_max_shown=require_key(
-                simple_memory_config, "max_memories_shown", "simple_memory"
-            ),
+            "simple_memory_file": simple_memory_config.get("memory_file"),
+            "simple_memory_max_shown": simple_memory_config.get("max_memories_shown"),
             # Sampling parameters
-            agent_sampling=agent_sampling,
-            critic_sampling=critic_sampling,
-            extractor_sampling=extractor_sampling,
-            analysis_sampling=analysis_sampling,
-            memory_sampling=memory_sampling,
-            condensation_sampling=condensation_sampling,
-        )
+            "agent_sampling": agent_sampling,
+            "critic_sampling": critic_sampling,
+            "extractor_sampling": extractor_sampling,
+            "analysis_sampling": analysis_sampling,
+            "memory_sampling": memory_sampling,
+            "condensation_sampling": condensation_sampling,
+        }
+
+        # Use Pydantic's model_validate to create the instance
+        return cls.model_validate(config_dict)
 
     def get_effective_api_key(self) -> Optional[str]:
         """Get the effective API key from environment or instance."""
