@@ -26,7 +26,7 @@ The research contribution lies in demonstrating that LLMs can develop authentic 
 # Prerequisites: Python 3.11+, uv installed
 
 # 1. Clone and setup
-git clone https://github.com/yourusername/ZorkGPT
+git clone https://github.com/stickystyle/ZorkGPT
 cd ZorkGPT
 uv sync
 
