@@ -83,16 +83,25 @@ class MemorySynthesisResponse(BaseModel):
 
 class SimpleMemoryManager(BaseManager):
     """
-    Manages location-based memory system for ZorkGPT.
+    Manages location-based memory system for ZorkGPT with multi-step synthesis.
 
     Responsibilities:
     - Parse Memories.md file format on initialization
     - Maintain in-memory cache of memories per location ID
+    - Synthesize memories with multi-step procedure detection (prerequisites, delayed consequences)
+    - Manage memory status lifecycle (ACTIVE, TENTATIVE, SUPERSEDED)
+    - Handle supersession when new evidence contradicts old memories
     - Gracefully handle missing, empty, or corrupted files
-    - Provide memory retrieval interface (Phase 2)
+    - Provide memory retrieval interface with status filtering
 
     Cache Structure:
     - memory_cache: Dict[int, List[Memory]] - location ID to list of memories
+
+    Multi-Step Synthesis:
+    - Retrieves recent action and reasoning history (configurable window, default: 3 turns)
+    - LLM detects procedures spanning multiple turns (e.g., "open window → enter window")
+    - Stores memories at SOURCE location (where action taken) for cross-episode learning
+    - Supports TENTATIVE memories that can be superseded by later evidence
     """
 
     # Regex patterns for parsing Memories.md format
@@ -1121,17 +1130,33 @@ EXISTING MEMORIES AT THIS LOCATION:
             else:
                 existing_section = "\nEXISTING MEMORIES: None (first memory for this location)\n"
 
-            # Retrieve recent history for multi-step procedure detection
+            # ================================================================
+            # Phase 3: Multi-Step Procedure Detection - History Retrieval
+            # ================================================================
+            # Original system was turn-atomic: LLM only saw current action/response pair.
+            # This prevented capturing procedures spanning multiple turns:
+            # - Prerequisites: "open window" (turn N) → "enter window" (turn N+1)
+            # - Delayed consequences: "give lunch to troll" → troll attacks later
+            # - Progressive discovery: "examine door" → "unlock" → "open"
+            #
+            # Solution: Retrieve recent action and reasoning history, inject into synthesis prompt.
+            # This gives LLM temporal context to recognize multi-step patterns.
+
+            # Get configurable history window (default: 3 turns, validated >= 1)
             window_size = self.config.get_memory_history_window()
 
-            # Get recent actions (from game_state)
+            # Retrieve recent actions from shared game state (action, response) tuples
+            # Uses sliding window: if window_size=3, gets last 3 entries from action_history
             recent_actions = self.game_state.action_history[-window_size:] if self.game_state.action_history else []
             current_turn = self.game_state.turn_count
 
-            # Get recent reasoning (from game_state)
+            # Retrieve recent reasoning from shared game state (reasoning history entries)
+            # Each entry: {"turn": int, "reasoning": str, "action": str, "timestamp": str}
             recent_reasoning = self.game_state.action_reasoning_history[-window_size:] if self.game_state.action_reasoning_history else []
 
-            # Format using Phase 2 helpers
+            # Format using dedicated helpers (matches ContextManager conventions for consistency)
+            # _format_recent_actions: Creates "Turn N: action\nResponse: response" format
+            # _format_recent_reasoning: Adds agent reasoning with response lookup via reverse iteration
             start_turn = max(1, current_turn - len(recent_actions) + 1)
             actions_formatted = self._format_recent_actions(recent_actions, start_turn)
             reasoning_formatted = self._format_recent_reasoning(recent_reasoning, self.game_state.action_history)
@@ -1453,7 +1478,8 @@ Example valid response for remembering:
             episode=episode,
             turns=str(self.game_state.turn_count),
             score_change=z_machine_context.get('score_delta'),
-            text=synthesis.memory_text
+            text=synthesis.memory_text,
+            status=synthesis.status  # Include status from synthesis response
         )
 
         # Write to file and update cache
@@ -1529,14 +1555,17 @@ Example valid response for remembering:
         start_turn: int
     ) -> str:
         """
-        Format recent action/response pairs into markdown.
+        Format recent action/response pairs into markdown for multi-step synthesis.
+
+        Part of Phase 2 helpers used by Phase 3's multi-step procedure detection.
+        Matches ContextManager formatting conventions for consistency across systems.
 
         Args:
-            actions: List of (action, response) tuples
+            actions: List of (action, response) tuples from game_state.action_history
             start_turn: Turn number of the first action in the list
 
         Returns:
-            Formatted markdown string with turn context
+            Formatted markdown string with turn context, empty string if no actions
 
         Example output:
             Turn 47: go north
@@ -1544,6 +1573,10 @@ Example valid response for remembering:
 
             Turn 48: examine trees
             Response: The trees are ordinary pine trees.
+
+        Usage:
+            Injected into synthesis prompt's "RECENT ACTION SEQUENCE" section to give
+            LLM temporal context for detecting prerequisites and delayed consequences.
         """
         # Handle empty list
         if not actions:
@@ -1566,15 +1599,20 @@ Example valid response for remembering:
         action_history: Optional[List[Tuple[str, str]]] = None
     ) -> str:
         """
-        Format recent reasoning history into markdown.
+        Format recent reasoning history into markdown for multi-step synthesis.
+
+        Part of Phase 2 helpers used by Phase 3's multi-step procedure detection.
+        Matches ContextManager formatting conventions (Turn → Reasoning → Action → Response).
+        Uses reverse iteration through action_history to match actions to responses.
 
         Args:
-            reasoning_entries: List of reasoning history dicts
+            reasoning_entries: List of reasoning history dicts from game_state.action_reasoning_history
                 Each dict has: turn, reasoning, action, timestamp
             action_history: Optional list of (action, response) tuples for response lookup
+                Uses reverse iteration to handle duplicate actions correctly
 
         Returns:
-            Formatted markdown string similar to ContextManager style
+            Formatted markdown string with reasoning context, empty string if no entries
 
         Example output:
             Turn 47:
@@ -1586,6 +1624,10 @@ Example valid response for remembering:
             Reasoning: Will examine objects before moving on.
             Action: examine trees
             Response: The trees are ordinary pine trees.
+
+        Usage:
+            Injected into synthesis prompt's "AGENT'S REASONING" section to help LLM
+            understand strategic intent behind multi-step procedures.
         """
         # Handle empty list
         if not reasoning_entries:

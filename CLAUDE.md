@@ -415,6 +415,314 @@ Response: You are in a meadow.
 - Integration tests: `tests/test_phase3_reasoning_guidance.py` (9 tests)
 - Coverage: Data structures, formatting, edge cases, prompt integration
 
+### Multi-Step Memory Synthesis
+
+**Problem Solved**: Original memory synthesis was turn-atomic, only seeing single action/response pairs. This prevented capturing procedural knowledge that spans multiple turns (e.g., "open window, then enter window" or "troll accepts gift → attacks later").
+
+**Solution**: SimpleMemoryManager now includes recent action and reasoning history in synthesis context, enabling LLM to detect multi-step procedures, delayed consequences, and progressive discoveries.
+
+#### Architecture
+
+**Configuration** (`pyproject.toml`):
+```toml
+[tool.zorkgpt.memory_sampling]
+temperature = 0.3
+max_tokens = 1000
+memory_history_window = 3  # Number of recent turns for multi-step detection
+```
+
+**Data Retrieval** (`managers/simple_memory_manager.py:1134-1162`):
+- Retrieves last N actions from `game_state.action_history`
+- Retrieves last N reasoning entries from `game_state.action_reasoning_history`
+- Window size controlled by `config.get_memory_history_window()` (default: 3)
+- Gracefully handles empty history (early turns)
+
+**Formatting Helpers** (`managers/simple_memory_manager.py:1552-1671`):
+- `_format_recent_actions()`: Formats action/response pairs into markdown
+- `_format_recent_reasoning()`: Formats reasoning entries with response matching
+- Both match ContextManager conventions for consistency
+
+**Synthesis Prompt Enhancement** (`managers/simple_memory_manager.py:1164-1294`):
+- Adds "RECENT ACTION SEQUENCE" section before current action analysis
+- Includes formatted actions and agent reasoning
+- Provides explicit multi-step procedure detection guidance
+- Positioned to give LLM full temporal context
+
+#### Multi-Step Patterns Detected
+
+**1. Prerequisites** (action B requires action A first):
+```
+Turn 47: examine window
+Response: The window is slightly ajar. Perhaps you could open it further.
+
+Turn 48: open window
+Response: With some effort, you open the window wide enough to pass through.
+
+Turn 49: enter window
+Response: You climb through the window. Kitchen: You are in a small kitchen.
+
+→ Memory: "To enter kitchen from behind house: (1) examine window to confirm it's usable, (2) open window to make it passable, (3) enter window to reach kitchen. Window requires opening before entry is possible."
+→ Status: ACTIVE
+→ Location: 79 (Behind House - where sequence started)
+```
+
+**2. Delayed Consequences** (action seemed successful but had delayed effect):
+```
+Turn 12: give lunch to troll
+Response: The troll graciously accepts the lunch and eats it hungrily.
+
+→ Memory (Turn 12): "Troll accepts lunch gift"
+→ Status: TENTATIVE (outcome unclear)
+→ Location: 152 (Troll Room)
+
+Turn 13: go north
+Response: The troll frowns and blocks your path, snarling. The troll swings his axe and cleaves you in twain!
+
+→ Memory (Turn 13): "Troll attacks after accepting gift - gift strategy fails"
+→ Status: ACTIVE (confirmed by death)
+→ Supersedes: ["Troll accepts lunch gift"]
+→ Location: 152 (Troll Room)
+```
+
+**3. Progressive Discovery** (understanding deepens over multiple turns):
+```
+Turn 20: examine door
+Response: The door is locked.
+
+Turn 21: unlock door with rusty key
+Response: The key doesn't fit this lock.
+
+Turn 22: unlock door with brass key
+Response: The brass key turns smoothly in the lock. *Click*
+
+Turn 23: open door
+Response: The door swings open, revealing a dimly lit chamber.
+
+→ Memory: "Stone door in hallway requires brass key (not rusty key) to unlock before opening. Multi-step: unlock with brass key, then open door."
+→ Status: ACTIVE
+→ Location: 134 (Hallway)
+```
+
+#### Memory Status Types
+
+**ACTIVE**: Confirmed knowledge, high confidence
+- Used for verified procedures, confirmed facts
+- Replaces previous TENTATIVE memories when confirmed
+- Example: "To enter kitchen: (1) open window, (2) enter window"
+
+**TENTATIVE**: Uncertain outcome, awaiting confirmation
+- Used when action succeeds but consequences unclear
+- Should be superseded or confirmed by later evidence
+- Example: "Troll accepts lunch gift" (before seeing if it works)
+
+**SUPERSEDED**: Contradicted by later evidence
+- Old memory marked when new evidence contradicts it
+- Preserved for learning but not used for decision-making
+- Metadata includes: `[Superseded at T<turn> by "<new_memory_title>"]`
+- Example: TENTATIVE memory superseded when troll attacks
+
+#### Source Location Storage Principle
+
+**Critical Rule**: Memories are ALWAYS stored at the SOURCE location (where action was taken), NOT the destination.
+
+**Rationale**:
+- Destination storage: "At Kitchen, I know window entry works" → Useless (already there)
+- Source storage: "At Behind House, I know 'enter window' leads to Kitchen" → Useful for next visit
+
+**Implementation** (`orchestration/zork_orchestrator_v2.py:889-893, 963-964`):
+```python
+# Capture location BEFORE action
+location_name_before = location_before.name if location_before else "Unknown"
+
+# Store memory at SOURCE location (where action was taken)
+self.simple_memory.record_action_outcome(
+    location_id=location_id_before,      # SOURCE, not destination
+    location_name=location_name_before,  # SOURCE, not destination
+    action=action_to_take,
+    response=clean_response,
+    z_machine_context=z_machine_context
+)
+```
+
+**Impact**: Episode 2 agent benefits from Episode 1 discoveries when returning to same locations.
+
+#### Supersession Workflow
+
+When LLM detects contradiction in synthesis:
+
+1. **LLM Response**:
+```json
+{
+  "should_remember": true,
+  "category": "DANGER",
+  "memory_title": "Troll attacks after accepting gift",
+  "memory_text": "Troll accepts lunch gift but then becomes hostile...",
+  "status": "ACTIVE",
+  "supersedes_memory_titles": ["Troll accepts lunch gift"],
+  "reasoning": "This contradicts the previous TENTATIVE memory..."
+}
+```
+
+2. **SimpleMemoryManager Processing** (`managers/simple_memory_manager.py:1440-1475`):
+   - Creates new ACTIVE memory
+   - Searches memory file for titles in `supersedes_memory_titles`
+   - Marks old memories as SUPERSEDED with metadata
+   - Atomic file write with backup creation (thread-safe)
+
+3. **Memory File Result**:
+```markdown
+**[DANGER] Troll attacks after accepting gift** *(Epep_01, T13, +0)*
+The troll accepts lunch gift but becomes hostile and attacks. Gift strategy fails.
+
+**[NOTE - SUPERSEDED] Troll accepts lunch gift** *(Epep_01, T12, +0)*
+[Superseded at T13 by "Troll attacks after accepting gift"]
+Troll accepts lunch offering graciously. Reaction to gift unclear.
+```
+
+#### Configuration Details
+
+**Window Size** (`pyproject.toml`):
+- Default: 3 actions (recommended range: 3-8)
+- Minimum: 1 (validated by `GameConfiguration.get_memory_history_window()`)
+- Warning if > 10 (excessive context usage)
+
+**Validation** (`session/game_configuration.py:get_memory_history_window()`):
+```python
+def get_memory_history_window(self) -> int:
+    """Get number of recent turns for multi-step detection."""
+    window = self.memory_sampling.get("memory_history_window", 3)
+
+    if window < 1:
+        warnings.warn("memory_history_window must be >= 1, using default: 3")
+        return 3
+
+    if window > 10:
+        warnings.warn("memory_history_window = {window} may use excessive context. Recommended: 3-8")
+
+    return window
+```
+
+#### Testing Coverage
+
+**Integration Tests**:
+- `tests/test_multi_step_window_sequence.py` (6 tests): Window entry prerequisite scenario
+- `tests/test_multi_step_delayed_consequence.py` (5 tests): Troll attack delayed consequence + supersession
+- `tests/simple_memory/test_movement_memory_location.py` (7 tests): Source location storage verification
+- `tests/simple_memory/test_simple_memory_formatting.py` (18 tests): History formatting helpers
+
+**Test Scenarios**:
+1. **Window sequence captures full procedure**: Validates multi-step memory includes all prerequisite actions
+2. **Without history misses procedure**: Control test proving Phase 3's value
+3. **History formatting matches ContextManager**: Ensures consistency across systems
+4. **Partial history (window size = 2)**: Tests sliding window behavior
+5. **First turn no history**: Edge case with empty history
+6. **Score delta calculation**: Metadata validation
+7. **TENTATIVE → SUPERSEDED flow**: Validates status transitions
+8. **Supersession with death**: Death event triggers supersession
+9. **No supersession without history**: Control test for history requirement
+10. **Response field lookup**: Validates reverse iteration matching
+
+**Test Results**: 36 new multi-step memory tests passing across 4 test files
+
+#### Example Synthesis Prompts
+
+**Turn 49 (Multi-step window entry)**:
+```markdown
+RECENT ACTION SEQUENCE:
+═══════════════════════════════════════════════════════════════
+
+Turn 47: examine window
+Response: The window is slightly ajar. Perhaps you could open it further.
+
+Turn 48: open window
+Response: With some effort, you open the window wide enough to pass through.
+
+Turn 49: enter window
+Response: You climb through the window.
+
+AGENT'S REASONING:
+Turn 47:
+Reasoning: Need to find entry to kitchen. Will examine window first.
+Action: examine window
+Response: The window is slightly ajar. Perhaps you could open it further.
+
+Turn 48:
+Reasoning: Window seems openable. Will try opening before entering.
+Action: open window
+Response: With some effort, you open the window wide enough to pass through.
+
+Turn 49:
+Reasoning: Window is now open. Attempting entry.
+Action: enter window
+Response: You climb through the window.
+
+═══════════════════════════════════════════════════════════════
+
+MULTI-STEP PROCEDURE DETECTION:
+Review the RECENT ACTION SEQUENCE above. Does the current outcome depend on previous actions?
+
+**Look for these patterns:**
+
+1. **Prerequisites** (action B requires action A first):
+   Example: "open window" (turn N) → "enter window" (turn N+1) → success
+   Memory: "To enter kitchen: (1) open window, (2) enter window"
+```
+
+**Turn 13 (Delayed consequence with death)**:
+```markdown
+RECENT ACTION SEQUENCE:
+═══════════════════════════════════════════════════════════════
+
+Turn 12: give lunch to troll
+Response: The troll graciously accepts the lunch and eats it hungrily.
+
+Turn 13: go north
+Response: The troll frowns and blocks your path, snarling. The troll swings his axe and cleaves you in twain!
+
+AGENT'S REASONING:
+Turn 12:
+Reasoning: Maybe I can pacify the troll with food. Worth trying.
+Action: give lunch to troll
+Response: The troll graciously accepts the lunch and eats it hungrily.
+
+Turn 13:
+Reasoning: Troll accepted gift, seems calm. Will try moving north.
+Action: go north
+Response: The troll frowns and blocks your path, snarling. The troll swings his axe and cleaves you in twain!
+
+═══════════════════════════════════════════════════════════════
+
+MULTI-STEP PROCEDURE DETECTION:
+
+2. **Delayed Consequences** (action seemed successful but had delayed effect):
+   Example: "give lunch to troll" (turn N, seemed ok) → troll attacks (turn N+1)
+   Memory: "Troll attacks after accepting gift - gift strategy fails"
+   Action: Mark previous TENTATIVE memory as SUPERSEDED
+```
+
+#### Benefits
+
+1. **Cross-Turn Learning**: Captures procedures spanning 2-5 actions
+2. **Delayed Feedback**: Recognizes when initial success leads to later failure
+3. **Adaptive Memory**: TENTATIVE → ACTIVE or SUPERSEDED based on evidence
+4. **Location-Specific**: Memories stored at source for contextual relevance
+5. **Cross-Episode Transfer**: Episode 2 benefits from Episode 1 multi-step discoveries
+
+#### Common Pitfalls
+
+**Don't:**
+- Store memories at destination location (breaks cross-episode learning)
+- Use window size > 10 (excessive context, diminishing returns)
+- Ignore status field in Memory creation (critical bug - all memories default to ACTIVE)
+- Parse action history manually (use `_format_recent_actions()` helper)
+
+**Do:**
+- Always capture `location_id_before` and `location_name_before` in orchestrator
+- Pass `status=synthesis.status` when creating Memory objects
+- Use dedicated formatting helpers for consistency
+- Test with multi-step integration scenarios (not just unit tests)
+- Monitor TENTATIVE memory accumulation (should be superseded or confirmed)
+
 ### Knowledge Base Structure
 
 The ZorkGPT knowledge base (`knowledgebase.md`) is a consolidated document containing:

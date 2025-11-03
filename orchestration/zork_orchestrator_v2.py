@@ -874,7 +874,18 @@ class ZorkOrchestratorV2:
             },
         )
 
-        # Capture state before action for memory system
+        # ================================================================
+        # Phase 0: Capture state BEFORE action for source location storage
+        # ================================================================
+        # CRITICAL: Memories must be stored at SOURCE location (where action taken),
+        # NOT destination location (where agent ends up after action).
+        #
+        # Rationale:
+        # - Destination storage: "At Kitchen, I know window entry works" → Useless (already there)
+        # - Source storage: "At Behind House, I know 'enter window' leads to Kitchen" → Useful for next visit
+        #
+        # This enables cross-episode learning: Episode 2 benefits from Episode 1 discoveries
+        # when agent returns to same locations with prior knowledge.
         score_before, _ = self.jericho_interface.get_score()
         location_before = self.jericho_interface.get_location_structured()
         location_id_before = location_before.num if location_before else 0
@@ -946,9 +957,11 @@ class ZorkOrchestratorV2:
         }
 
         # Record action outcome for memory synthesis
+        # CRITICAL: Use location_id_before and location_name_before (SOURCE location)
+        # NOT current location (destination). See Phase 0 comments above for rationale.
         self.simple_memory.record_action_outcome(
-            location_id=location_id_before,
-            location_name=location_name_before,
+            location_id=location_id_before,      # SOURCE location (where action was taken)
+            location_name=location_name_before,  # SOURCE location name
             action=action_to_take,
             response=clean_response,
             z_machine_context=z_machine_context

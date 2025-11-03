@@ -145,7 +145,7 @@ zork_game_workdir = "game_files"
 
 [tool.zorkgpt.orchestrator]
 # Orchestrator Configuration
-max_turns_per_episode = 5000
+max_turns_per_episode = 500
 knowledge_update_interval = 100
 objective_update_interval = 25
 enable_state_export = true
