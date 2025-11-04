@@ -671,7 +671,7 @@ class MapGraph:
 
     def render_mermaid(self) -> str:
         """
-        Render the map as a Mermaid diagram using integer IDs.
+        Render the map as a Mermaid diagram using actual location IDs.
 
         Returns:
             Mermaid diagram syntax as a string
@@ -683,12 +683,11 @@ class MapGraph:
 
         # Create node definitions with sanitized IDs
         room_id_to_node = {}
-        node_counter = 1
 
-        # First pass: create node IDs and definitions
+        # First pass: create node IDs and definitions using actual location IDs
         sorted_room_ids = sorted(self.rooms.keys())
         for room_id in sorted_room_ids:
-            node_id = f"R{node_counter}"
+            node_id = f"L{room_id}"  # Use actual location ID
             room_id_to_node[room_id] = node_id
             room_name = self.room_names.get(room_id, f"Room#{room_id}")
             # Sanitize room name for Mermaid (escape special characters)
@@ -696,7 +695,7 @@ class MapGraph:
                 room_name.replace('"', '\\"').replace("[", "\\[").replace("]", "\\]")
             )
             lines.append(f'    {node_id}["{sanitized_name}"]')
-            node_counter += 1
+
 
         # Second pass: create connections
         connection_lines = []
@@ -715,8 +714,8 @@ class MapGraph:
                             f'    {from_id} -->|"{sanitized_action}"| {to_id}'
                         )
                     else:
-                        # Create a temporary node for unknown destinations
-                        unknown_id = f"U{node_counter}"
+                        # Create a temporary node for unknown destinations using actual location ID
+                        unknown_id = f"L{destination_id}"
                         dest_name = self.room_names.get(destination_id, f"Room#{destination_id}")
                         sanitized_dest = (
                             dest_name.replace('"', '\\"')
@@ -728,7 +727,6 @@ class MapGraph:
                         connection_lines.append(
                             f'    {from_id} -->|"{sanitized_action}"| {unknown_id}'
                         )
-                        node_counter += 1
 
         # Add all connections
         lines.extend(connection_lines)
