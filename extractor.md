@@ -92,6 +92,48 @@ Combat is a **persistent state** that continues across multiple turns until expl
 
 **Key Principle**: If previous context indicates combat and current response is ambiguous, **maintain the combat state** rather than defaulting to false.
 
+## Room Description Detection
+
+Set `is_room_description` to `true` if the game text contains a full room description.
+
+**Room descriptions typically:**
+- Occur after movement commands (north, south, enter, etc.)
+- Occur after "look" or "l" commands
+- Describe the location's architecture, layout, or environment
+- Are multi-sentence (2+ sentences typically)
+- Start with room name (title/caps) or "You are..."
+- Mention objects, exits, or features present in the room
+
+**NOT room descriptions:**
+- Short action results: "Taken.", "Opened.", "Nothing happens.", "I don't understand."
+- Reading text content from objects: Signs, leaflets, books, inscriptions
+- Single-line feedback messages
+- Error messages: "You can't do that.", "I don't see that here."
+- Combat messages
+- Inventory listings
+- Score displays
+
+**Examples:**
+
+Room description (is_room_description = true):
+```
+West of House
+You are standing in an open field west of a white house, with a boarded
+front door. There is a small mailbox here.
+```
+
+NOT a room description (is_room_description = false):
+```
+Taken.
+```
+
+NOT a room description (is_room_description = false):
+```
+Opening the small mailbox reveals a leaflet.
+```
+
+**Key Principle:** If the text primarily describes the physical location/room itself (not just an action result), set to true. When in doubt, prefer false.
+
 ## SPECIAL LOCATION CASES
 
 **No Location Change Situations:**
@@ -118,7 +160,8 @@ Provide a JSON object with exactly these fields:
   "visible_objects": ["significant", "objects"],
   "visible_characters": ["any", "characters"],
   "important_messages": ["key", "messages", "from", "game"],
-  "in_combat": false
+  "in_combat": false,
+  "is_room_description": false
 }
 ```
 
@@ -136,7 +179,8 @@ Output:
   "visible_objects": ["small mailbox", "white house", "boarded front door"],
   "visible_characters": [],
   "important_messages": ["You are in an open field west of a big white house with a boarded front door.", "There is a small mailbox here."],
-  "in_combat": false
+  "in_combat": false,
+  "is_room_description": true
 }
 ```
 
@@ -151,7 +195,8 @@ Output:
   "visible_objects": ["white house", "window", "path"],
   "visible_characters": [],
   "important_messages": ["You are behind the white house.", "In one corner of the house there is a window which is slightly ajar.", "To the north is a path leading into the forest."],
-  "in_combat": false
+  "in_combat": false,
+  "is_room_description": true
 }
 ```
 
@@ -166,7 +211,8 @@ Output:
   "visible_objects": [],
   "visible_characters": [],
   "important_messages": ["Taken."],
-  "in_combat": false
+  "in_combat": false,
+  "is_room_description": false
 }
 ```
 
@@ -181,7 +227,8 @@ Output:
   "visible_objects": ["wooden ladder", "small window", "loose floorboard", "garden"],
   "visible_characters": [],
   "important_messages": ["You are in a dusty attic.", "There is a wooden ladder leading down to the kitchen.", "A small window overlooks the garden to the east.", "In the corner, you notice a loose floorboard."],
-  "in_combat": false
+  "in_combat": false,
+  "is_room_description": true
 }
 ```
 

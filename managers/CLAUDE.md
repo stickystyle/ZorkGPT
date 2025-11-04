@@ -311,6 +311,121 @@ Response: The trees are ordinary pine trees.
 - Location: `context_manager.py:505` (`num_turns=3` parameter)
 - Positioned after game state, before objectives (strategic context flow)
 
+## Room Description Extraction
+
+**Problem Solved**: The "look" command consumes a precious game turn (~385 turn lantern lifespan in Zork), yet agents need room descriptions for spatial context and decision making.
+
+**Solution**: LLM extractor flags game text as room descriptions (boolean field), orchestrator stores the original text, and ContextManager includes it in agent/critic prompts when recent and location-matched.
+
+### How It Works
+
+**1. Detection (Extractor)**
+- LLM sets `is_room_description: true/false` in extraction response
+- Boolean flag minimizes hallucination risk and token cost
+- Example: Game outputs "West of House\nYou are standing in an open field..." → Extractor flags `is_room_description: true`
+
+**2. Storage (Orchestrator)**
+- Stores original game text (no LLM paraphrasing)
+- Tracks location ID and turn number
+- Stored in `GameState` (episode-scoped, cleared on reset)
+
+**3. Context Integration (ContextManager)**
+- Includes description in agent/critic contexts when:
+  - Description is for current location (ID match)
+  - Description is recent (within configured aging window)
+- Prompt format: `ROOM DESCRIPTION (N turns ago):` with age indicator
+- Age 0 shows as `ROOM DESCRIPTION:` (no age indicator)
+
+### Configuration
+
+**In `pyproject.toml` or `GameConfiguration`:**
+```python
+room_description_age_window = 10  # Number of turns before descriptions age out (default: 10)
+```
+
+**Recommended values:**
+- Default: 10 turns (balances freshness with availability)
+- Minimum: 1 turn (very conservative, descriptions age quickly)
+- Maximum: 20 turns (liberal, may include stale descriptions)
+
+**Custom configuration example:**
+```python
+config = GameConfiguration(
+    max_turns_per_episode=500,
+    room_description_age_window=15  # Custom 15-turn window
+)
+```
+
+### Why This Matters
+
+**Turn Economy:**
+- "look" command costs 1 turn each use
+- ~385 total turns available (lantern lifespan constraint)
+- Room descriptions provide critical spatial context without turn cost
+
+**Decision Making:**
+- Agents need spatial context for navigation and object interaction
+- Room descriptions reveal exits, objects, and environmental details
+- Context enables better action selection without "looking" repeatedly
+
+**Architecture Benefits:**
+- Original game text preserved (no LLM interpretation layer)
+- Boolean flag extraction (low hallucination risk)
+- Location ID validation (prevents stale/wrong descriptions)
+- Configurable aging window (balances freshness vs availability)
+
+### Integration Points
+
+**GameState Fields:**
+```python
+last_room_description: str = ""
+last_room_description_turn: int = 0
+last_room_description_location_id: Optional[int] = None
+```
+
+**Orchestrator Storage:**
+```python
+# After extracting info with is_room_description=True
+if extracted_info.is_room_description:
+    current_location = jericho_interface.get_location_structured()
+    location_id = current_location.num if current_location else None
+
+    game_state.last_room_description = clean_response
+    game_state.last_room_description_turn = game_state.turn_count
+    game_state.last_room_description_location_id = location_id
+```
+
+**ContextManager Integration:**
+```python
+# In get_agent_context() and get_critic_context()
+room_desc = self._get_room_description_for_context(location_id)
+if room_desc:
+    context["room_description"] = room_desc["text"]
+    context["room_description_age"] = room_desc["turns_ago"]
+```
+
+### Testing
+
+**Test Coverage:** 24 tests in `tests/test_room_description_extraction.py`
+- Schema validation (2 tests): ExtractorResponse field
+- Detection (3 tests): LLM flagging room descriptions vs action results
+- Storage (6 tests): GameState fields, orchestrator logic, logging
+- Context integration (10 tests): ContextManager inclusion in agent/critic prompts
+- Configuration (3 tests): Default window, custom window, boundary conditions
+
+**Key test patterns:**
+```python
+# Test default aging window
+config = GameConfiguration(max_turns_per_episode=500)
+assert config.room_description_age_window == 10
+
+# Test custom aging window
+config = GameConfiguration(max_turns_per_episode=500, room_description_age_window=15)
+context_manager = ContextManager(logger, config, game_state)
+# Description available at 11 turns ago (within 15-turn window)
+# Description None at 16 turns ago (exceeds 15-turn window)
+```
+
 ## Common Pitfalls
 
 **Don't:**

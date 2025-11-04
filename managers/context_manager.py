@@ -34,6 +34,7 @@ class ContextManager(BaseManager):
     def __init__(self, logger, config: GameConfiguration, game_state: GameState):
         super().__init__(logger, config, game_state, "context_manager")
         self.simple_memory = None  # Injected by orchestrator
+        self.room_description_age_window = config.room_description_age_window if config else 10
 
     def reset_episode(self) -> None:
         """Reset context manager state for a new episode."""
@@ -194,6 +195,12 @@ class ContextManager(BaseManager):
                         details=f"Location ID: {location_id}"
                     )
 
+            # Add room description if available and recent
+            room_desc = self._get_room_description_for_context(location_id)
+            if room_desc:
+                context["room_description"] = room_desc["text"]
+                context["room_description_age"] = room_desc["turns_ago"]
+
             # Add current map as mermaid diagram
             if game_map and hasattr(game_map, "render_mermaid"):
                 try:
@@ -225,6 +232,7 @@ class ContextManager(BaseManager):
         current_state: str,
         proposed_action: str,
         location: str,
+        location_id: int = None,
         available_exits: List[str] = None,
         failed_actions: List[str] = None,
     ) -> Dict[str, Any]:
@@ -241,6 +249,12 @@ class ContextManager(BaseManager):
                 "inventory": self.game_state.current_inventory,
                 "score": self.game_state.previous_zork_score,
             }
+
+            # Add room description if available and recent
+            room_desc = self._get_room_description_for_context(location_id)
+            if room_desc:
+                context["room_description"] = room_desc["text"]
+                context["room_description_age"] = room_desc["turns_ago"]
 
             self.log_debug(
                 f"Assembled critic context for action: {proposed_action[:50]}...",
@@ -453,6 +467,41 @@ class ContextManager(BaseManager):
         except Exception:
             return True  # Default to success if analysis fails
 
+    def _get_room_description_for_context(
+        self,
+        current_location_id: Optional[int]
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Get room description for current location if recent and valid.
+
+        Args:
+            current_location_id: Current Z-machine location ID
+
+        Returns:
+            Dict with 'text' and 'turns_ago', or None if not available
+        """
+        # No description stored
+        if not self.game_state.last_room_description:
+            return None
+
+        # Check if description matches current location
+        if (self.game_state.last_room_description_location_id is not None and
+            current_location_id is not None and
+            self.game_state.last_room_description_location_id != current_location_id):
+            # Description is for a different room - don't use it
+            return None
+
+        # Check if description is recent (within configured window)
+        turns_ago = self.game_state.turn_count - self.game_state.last_room_description_turn
+        if turns_ago > self.room_description_age_window:
+            # Description is too old - may be stale
+            return None
+
+        return {
+            "text": self.game_state.last_room_description,
+            "turns_ago": turns_ago
+        }
+
     def update_location_context(
         self, from_room: str, to_room: str, action: str
     ) -> None:
@@ -483,6 +532,17 @@ class ContextManager(BaseManager):
             formatted_parts.append(
                 f"CURRENT LOCATION: {context.get('current_location', 'Unknown')}"
             )
+
+            # Add room description if available
+            room_description = context.get("room_description")
+            if room_description:
+                age = context.get("room_description_age", 0)
+                if age == 0:
+                    formatted_parts.append("\nROOM DESCRIPTION:")
+                else:
+                    formatted_parts.append(f"\nROOM DESCRIPTION ({age} turn{'s' if age != 1 else ''} ago):")
+                formatted_parts.append(room_description)
+                formatted_parts.append("")  # Blank line after description
 
             # Show simple inventory if we don't have structured Jericho data
             # (when Jericho data is available, INVENTORY DETAILS section is used instead)

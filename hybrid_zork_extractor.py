@@ -54,6 +54,7 @@ class ExtractorResponse(BaseModel):
     in_combat: bool
     score: Optional[int] = None
     moves: Optional[int] = None
+    is_room_description: bool = False
 
 
 class HybridZorkExtractor:
@@ -193,6 +194,7 @@ Extract key information from the game text and return it as JSON with these fiel
                 in_combat=llm_extracted.get("in_combat", False),
                 score=score,
                 moves=moves,
+                is_room_description=llm_extracted.get("is_room_description", False),
             )
 
             # Log successful extraction
@@ -371,6 +373,7 @@ Extract key information from the game text and return it as JSON with these fiel
                 exits: List[str]
                 important_messages: List[str]
                 in_combat: bool
+                is_room_description: bool = False
 
             llm_response = self.client.chat.completions.create(
                 model=self.model,
@@ -385,7 +388,7 @@ Extract key information from the game text and return it as JSON with these fiel
             )
 
             if not llm_response:
-                return {"exits": [], "important_messages": [], "in_combat": False}
+                return {"exits": [], "important_messages": [], "in_combat": False, "is_room_description": False}
 
             # Extract content from the response
             response_content = (
@@ -408,6 +411,7 @@ Extract key information from the game text and return it as JSON with these fiel
                 "exits": [],
                 "important_messages": [],
                 "in_combat": self.previous_combat_state,
+                "is_room_description": False,
             }
 
     def _build_llm_extraction_prompt(
@@ -450,6 +454,7 @@ Extract key information from the game text and return it as JSON with these fiel
                 "exits": parsed_data.get("exits", []),
                 "important_messages": parsed_data.get("important_messages", []),
                 "in_combat": parsed_data.get("in_combat", False),
+                "is_room_description": parsed_data.get("is_room_description", False),
             }
 
         except Exception as e:
@@ -462,6 +467,7 @@ Extract key information from the game text and return it as JSON with these fiel
                 "exits": [],
                 "important_messages": [],
                 "in_combat": self.previous_combat_state,
+                "is_room_description": False,
             }
 
     def _create_fallback_response(
@@ -485,6 +491,7 @@ Extract key information from the game text and return it as JSON with these fiel
             in_combat=self.previous_combat_state,
             score=None,
             moves=None,
+            is_room_description=False,
         )
 
     def update_episode_id(self, episode_id: str) -> None:

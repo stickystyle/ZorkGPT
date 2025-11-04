@@ -30,6 +30,11 @@ class GameState:
     previous_zork_score: int = 0
     game_over_flag: bool = False
 
+    # Room description tracking (for agent context)
+    last_room_description: str = ""
+    last_room_description_turn: int = 0
+    last_room_description_location_id: Optional[int] = None
+
     # Navigation and movement state
     prev_room_for_prompt_context: Optional[str] = None
     action_leading_to_current_room_for_prompt_context: Optional[str] = None
@@ -124,6 +129,11 @@ class GameState:
         # Knowledge and learning state
         self.last_knowledge_update_turn = 0
         self.last_map_update_turn = 0
+
+        # Room description tracking
+        self.last_room_description = ""
+        self.last_room_description_turn = 0
+        self.last_room_description_location_id = None
 
         # Note: death_count is NOT reset - it persists across episodes
 

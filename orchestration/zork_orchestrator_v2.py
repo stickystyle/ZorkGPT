@@ -465,6 +465,7 @@ class ZorkOrchestratorV2:
             current_state=current_state,
             proposed_action=proposed_action,
             location=self.game_state.current_room_name_for_map,
+            location_id=self.game_state.current_room_id,
             available_exits=self.jericho_interface.get_valid_exits(),  # Ground truth for validation
             failed_actions=self.game_state.failed_actions_by_location.get(
                 self.game_state.current_room_name_for_map, []
@@ -933,6 +934,25 @@ class ZorkOrchestratorV2:
         # Extract information from response
         extracted_info = self.extractor.extract_info(next_game_state)
         self._process_extraction(extracted_info, action_to_take, next_game_state)
+
+        # Store room description if extractor flagged it
+        if extracted_info.is_room_description:
+            current_location = self.jericho_interface.get_location_structured()
+            location_id = current_location.num if current_location else None
+
+            self.game_state.last_room_description = clean_response
+            self.game_state.last_room_description_turn = self.game_state.turn_count
+            self.game_state.last_room_description_location_id = location_id
+
+            self.logger.info(
+                "Room description captured",
+                extra={
+                    "event_type": "room_description_captured",
+                    "turn": self.game_state.turn_count,
+                    "location_id": location_id,
+                    "text_length": len(clean_response),
+                }
+            )
 
         # Capture state after action for memory system
         score_after, _ = self.jericho_interface.get_score()

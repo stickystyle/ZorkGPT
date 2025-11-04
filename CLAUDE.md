@@ -166,6 +166,9 @@ A: See `game_interface/CLAUDE.md` for Z-machine data access patterns.
 **Q: How does the knowledge system work?**
 A: See `knowledge/CLAUDE.md` for knowledge base structure and synthesis.
 
+**Q: How does room description extraction work?**
+A: See `managers/CLAUDE.md` (Room Description Extraction section) for full details. Brief: Extractor flags room descriptions (boolean), orchestrator stores original text, ContextManager adds to prompts when recent and location-matched. Configurable aging window (default: 10 turns).
+
 ---
 
 **Remember**: Each subsystem's CLAUDE.md contains detailed patterns, examples, and common pitfalls. This file is your routing hub - consult the specific subsystem documentation when working in that area.

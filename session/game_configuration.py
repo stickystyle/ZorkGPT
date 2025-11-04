@@ -211,6 +211,11 @@ class GameConfiguration(BaseSettings):
         default=10, description="Maximum number of memories to show"
     )
 
+    # Room description settings
+    room_description_age_window: int = Field(
+        default=10, description="Number of turns before room descriptions age out of context"
+    )
+
     # Sampling parameters (loaded from TOML)
     agent_sampling: dict = Field(
         default_factory=dict, description="Sampling parameters for agent"

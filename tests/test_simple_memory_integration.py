@@ -61,6 +61,7 @@ def mock_config(tmp_path):
     config.max_turns_per_episode = 1000
     config.get_memory_history_window = Mock(return_value=3)  # Default window size for Phase 3
     config.memory_sampling = {"temperature": 0.3, "max_tokens": 1000}  # Default sampling params
+    config.room_description_age_window = 10  # Age window for room description freshness
     return config
 
 
