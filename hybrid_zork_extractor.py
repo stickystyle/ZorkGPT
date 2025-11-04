@@ -437,8 +437,9 @@ Extract key information from the game text and return it as JSON with these fiel
             "Extract ONLY the following information from the game text:\n"
             "1. exits: List of available directions (north, south, east, west, up, down, etc.)\n"
             "2. important_messages: List of significant gameplay events (not flavor text)\n"
-            "3. in_combat: Boolean indicating if the player is currently in combat\n\n"
-            "Return as JSON with these three fields."
+            "3. in_combat: Boolean indicating if the player is currently in combat\n"
+            "4. is_room_description: Boolean indicating if text is a room description (see system prompt for criteria)\n\n"
+            "Return as JSON with these four fields."
         )
 
         return "\n\n".join(prompt_parts)
