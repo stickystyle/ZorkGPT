@@ -684,8 +684,6 @@ class ZorkOrchestratorV2:
                 # Get new action with rejection context
                 agent_result = self.agent.get_action_with_reasoning(
                     game_state_text=current_state + rejection_feedback,
-                    previous_actions_and_responses=agent_context.get("recent_actions", []),
-                    action_counts=agent_context.get("action_counts"),
                     relevant_memories=formatted_context,
                 )
 
@@ -817,8 +815,6 @@ class ZorkOrchestratorV2:
         # Get agent action (game_state_text no longer needed separately since it's in formatted_context)
         agent_result = self.agent.get_action_with_reasoning(
             game_state_text="",  # Empty since game response is now in formatted_context
-            previous_actions_and_responses=agent_context.get("recent_actions", []),
-            action_counts=agent_context.get("action_counts"),
             relevant_memories=formatted_context,
         )
 

@@ -165,8 +165,6 @@ The following strategic guide has been compiled from analyzing previous episodes
     def get_action_with_reasoning(
         self,
         game_state_text: str,
-        previous_actions_and_responses: Optional[List[Tuple[str, str]]] = None,
-        action_counts: Optional[Counter] = None,
         relevant_memories: Optional[str] = None,
     ) -> Dict[str, str]:
         """
@@ -174,9 +172,7 @@ The following strategic guide has been compiled from analyzing previous episodes
 
         Args:
             game_state_text: Current game state text
-            previous_actions_and_responses: List of (action, response) tuples for history
-            action_counts: Counter of how many times each action has been tried
-            relevant_memories: Formatted string of relevant memories
+            relevant_memories: Formatted string of relevant memories (includes reasoning history)
 
         Returns:
             Dict with 'action' (cleaned) and 'reasoning' (raw thinking/reasoning)
@@ -198,30 +194,6 @@ The following strategic guide has been compiled from analyzing previous episodes
                     "cache_control": {"type": "ephemeral"},
                 }
             ]
-
-        # Add history if provided
-        if previous_actions_and_responses:
-            memory_context = "Here's what you've done so far:\n"
-
-            # Add the most recent actions and responses (last 5-8 is usually sufficient)
-            for i, (action, response) in enumerate(previous_actions_and_responses[-8:]):
-                memory_context += f"Command: {action}\nResult: {response.strip()}\n\n"
-
-            # Include information about repetitive actions
-            if action_counts:
-                repeated_actions = [
-                    act for act, count in action_counts.items() if count > 2
-                ]
-                if repeated_actions:
-                    memory_context += "\n**CRITICAL WARNING**: You've tried these actions multiple times with limited success: "
-                    memory_context += ", ".join(repeated_actions)
-                    memory_context += ". According to your instructions, you must AVOID repeating failed actions and try completely different approaches.\n"
-
-            if "o1" in self.model:
-                # o1 models use user role for all messages
-                messages.append({"role": "user", "content": memory_context})
-            else:
-                messages.append({"role": "system", "content": memory_context})
 
         # Combine game state with relevant memories if available
         user_content = game_state_text

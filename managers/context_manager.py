@@ -119,7 +119,6 @@ class ContextManager(BaseManager):
                 "recent_reasoning": self.get_recent_reasoning(3),
                 "failed_actions_here": failed_actions or [],
                 "discovered_objectives": discovered_objectives or [],
-                "action_counts": dict(self.game_state.action_counts),
             }
 
             # Add map context if available
