@@ -224,6 +224,194 @@ self.simple_memory.record_action_outcome(
 
 **Impact**: Episode 2 agent benefits from Episode 1 discoveries when returning to same locations.
 
+## Standalone Memory Invalidation
+
+**Problem Solved**: Original memory system could only mark memories as wrong by creating replacement memories (supersession). This required always having a "better" version even when the key insight is simply "this was false."
+
+**Solution**: SimpleMemoryManager supports standalone invalidation - marking memories as SUPERSEDED without creating a replacement, using INVALIDATION_MARKER as a sentinel value.
+
+### When to Use Invalidation vs Supersession
+
+**Use INVALIDATION when:**
+- Memory proven false without specific replacement needed
+- Multiple unrelated memories all wrong due to core false assumption
+- Death invalidates speculative/TENTATIVE memories
+- Evidence shows memory is incorrect but correct approach isn't yet known
+
+**Use SUPERSESSION when:**
+- Old memory was close but needs refinement
+- Better understanding of same situation
+- Specific correction or update to existing memory
+
+### Public API Methods
+
+#### Single Invalidation
+```python
+success = manager.invalidate_memory(
+    location_id=152,
+    memory_title="Troll is friendly",
+    reason="Proven false by death",
+    turn=25  # Optional, defaults to current turn
+)
+```
+
+#### Batch Invalidation
+```python
+results = manager.invalidate_memories(
+    location_id=152,
+    memory_titles=["Troll is friendly", "Troll accepts gifts"],
+    reason="Both proven false by troll attack"
+)
+# Returns: {'Troll is friendly': True, 'Troll accepts gifts': True}
+```
+
+### LLM-Driven Invalidation
+
+The LLM synthesis workflow supports standalone invalidation via MemorySynthesisResponse:
+
+```python
+# Invalidate without creating new memory
+{
+  "should_remember": false,
+  "invalidate_memory_titles": ["Old assumption"],
+  "invalidation_reason": "Proven false by evidence",
+  "reasoning": "Death proves speculation wrong, no new memory needed"
+}
+
+# Create new memory AND invalidate unrelated wrong assumptions
+{
+  "should_remember": true,
+  "memory_title": "Correct approach",
+  "memory_text": "Detailed correct information",
+  "category": "NOTE",
+  "supersedes_memory_titles": ["Close but incomplete"],
+  "invalidate_memory_titles": ["Unrelated wrong assumption"],
+  "invalidation_reason": "Proven false separately",
+  "reasoning": "Superseding one memory while invalidating another"
+}
+```
+
+### File Format
+
+**Superseded Memory (Traditional):**
+```markdown
+**[DANGER - SUPERSEDED] Old approach** *(Ep01, T23, +0)*
+[Superseded at T50 by "Better approach"]
+~~Troll accepts lunch gift graciously.~~
+```
+
+**Invalidated Memory (Standalone):**
+```markdown
+**[DANGER - SUPERSEDED] Troll is friendly** *(Ep01, T23, +0)*
+[Invalidated at T25: "Proven false by death"]
+~~Troll seems friendly when approached slowly.~~
+```
+
+### Memory Status Lifecycle
+
+Both supersession and standalone invalidation use the same `SUPERSEDED` status:
+
+1. **ACTIVE**: Confirmed reliable memory (default)
+2. **TENTATIVE**: Appears true but may be invalidated by future evidence
+3. **SUPERSEDED**: Proven wrong, either:
+   - Replaced by better memory (`superseded_by` = new memory title)
+   - Standalone invalidation (`superseded_by` = INVALIDATION_MARKER, `invalidation_reason` = explanation)
+
+### Implementation Details
+
+**Data Model:**
+- `Memory.invalidation_reason: Optional[str]` - Reason for standalone invalidation
+- `INVALIDATION_MARKER: str = "INVALIDATED"` - Sentinel value for `superseded_by` field
+- `MemorySynthesisResponse.invalidate_memory_titles: Set[str]` - LLM can request invalidation
+- `MemorySynthesisResponse.invalidation_reason: Optional[str]` - Shared reason for all invalidations
+
+**Core Logic:**
+- `_update_memory_status()` handles both supersession and invalidation
+- Conditional reference line generation based on `invalidation_reason` presence
+- File format: `[Invalidated at T{turn}: "{reason}"]` vs `[Superseded at T{turn} by "{title}"]`
+
+**Processing Flow:**
+1. LLM synthesis detects contradiction or false memory
+2. Decides: supersession (replacement) or invalidation (standalone)
+3. `record_action_outcome()` processes both supersessions and invalidations
+4. File and cache updated atomically with file locking
+
+### Example Scenarios
+
+**Scenario 1: Death Invalidates Speculation**
+```
+Turn 20: Agent assumes "Troll might be friendly" (TENTATIVE)
+Turn 25: Agent dies from troll attack
+→ Invalidate "Troll might be friendly", reason: "Proven false by death"
+→ Create DANGER memory: "Troll attacks unprovoked"
+```
+
+**Scenario 2: Multiple Related Assumptions Wrong**
+```
+Turn 10: Agent believes "Troll accepts gifts", "Troll is pacified by food"
+Turn 15: Troll attacks after accepting food
+→ Invalidate both memories, reason: "Troll hostile regardless of gifts"
+→ Create DANGER memory: "Troll attacks immediately after accepting food"
+```
+
+**Scenario 3: Core Assumption Disproven**
+```
+Turn 30: Agent believes "Door is unlocked", "Safe to enter"
+Turn 35: Door was locked, entering triggers trap
+→ Invalidate both memories, reason: "Door was locked, not unlocked"
+→ Create DANGER memory: "Door locked, entering triggers trap"
+```
+
+### Configuration
+
+No additional configuration needed. The feature uses existing memory system configuration:
+- `memory_model`: Model for synthesis (default: configured in pyproject.toml)
+- `memory_sampling`: Temperature and max_tokens for synthesis
+- `memory_history_window`: Number of turns for multi-step detection (default: 3)
+
+### Testing
+
+**Test Coverage:**
+- `test_phase3_public_invalidation_api.py`: 11 tests for public API
+- `test_phase4_llm_integration.py`: 8 tests for LLM synthesis integration
+- `test_validation_mutual_exclusivity.py`: 12 tests for Pydantic validation
+- Total: 168 simple_memory tests passing
+
+**Key Test Patterns:**
+```python
+# Test standalone invalidation
+def test_invalidate_without_replacement(manager):
+    manager.invalidate_memory(
+        location_id=152,
+        memory_title="Wrong assumption",
+        reason="Proven false",
+        turn=25
+    )
+    # Verify memory marked SUPERSEDED with INVALIDATION_MARKER
+
+# Test LLM-driven invalidation
+def test_llm_invalidation_workflow(manager):
+    synthesis = MemorySynthesisResponse(
+        should_remember=False,
+        invalidate_memory_titles={"Old memory"},
+        invalidation_reason="Proven false"
+    )
+    # Verify record_action_outcome processes correctly
+```
+
+### Common Pitfalls for Invalidation
+
+**Don't:**
+- Use invalidation when you have a specific replacement (use supersession instead)
+- Create redundant memories after invalidation (e.g., "I died" is already known)
+- Invalidate memories at destination location (use source location where action was taken)
+
+**Do:**
+- Invalidate TENTATIVE memories when proven false
+- Batch invalidate related memories with shared reason
+- Create new DANGER/NOTE memories after invalidation if new information discovered
+- Use clear invalidation reasons explaining why memory was wrong
+
 ### Supersession Workflow
 
 When LLM detects contradiction in synthesis:

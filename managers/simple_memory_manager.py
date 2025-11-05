@@ -41,10 +41,32 @@ class MemoryStatus:
     TENTATIVE: MemoryStatusType = "TENTATIVE"
     SUPERSEDED: MemoryStatusType = "SUPERSEDED"
 
+# Invalidation marker (not a status, used in superseded_by field)
+INVALIDATION_MARKER: str = "INVALIDATED"  # Used in superseded_by when memory invalidated without replacement
+
 
 @dataclass
 class Memory:
-    """Represents a single location memory entry."""
+    """
+    Represents a single location memory entry.
+
+    Usage patterns:
+    1. Active/Tentative memories (not superseded):
+       - status = ACTIVE or TENTATIVE
+       - superseded_by = None, superseded_at_turn = None, invalidation_reason = None
+
+    2. Supersession (memory replaced by better version):
+       - status = SUPERSEDED
+       - superseded_by = <new_memory_title>
+       - superseded_at_turn = <turn>
+       - invalidation_reason = None
+
+    3. Standalone invalidation (memory proven wrong, no replacement):
+       - status = SUPERSEDED
+       - superseded_by = INVALIDATION_MARKER
+       - superseded_at_turn = <turn>
+       - invalidation_reason = <explanation>
+    """
     category: str              # SUCCESS, FAILURE, DISCOVERY, DANGER, NOTE
     title: str                 # Short title of the memory
     episode: int               # Episode number
@@ -52,8 +74,9 @@ class Memory:
     score_change: Optional[int]  # Score change (+5, +0, None if not specified)
     text: str                  # 1-2 sentence synthesized insight
     status: MemoryStatusType = MemoryStatus.ACTIVE  # Memory status
-    superseded_by: Optional[str] = None  # Title of memory that superseded this
-    superseded_at_turn: Optional[int] = None  # Turn when superseded
+    superseded_by: Optional[str] = None  # Title of superseding memory or INVALIDATION_MARKER
+    superseded_at_turn: Optional[int] = None  # Turn when superseded or invalidated
+    invalidation_reason: Optional[str] = None  # Reason for standalone invalidation (only with INVALIDATION_MARKER)
 
 
 class MemorySynthesisResponse(BaseModel):
@@ -66,6 +89,8 @@ class MemorySynthesisResponse(BaseModel):
     memory_text: Optional[str] = None  # Only required if should_remember=true
     status: MemoryStatusType = Field(default=MemoryStatus.ACTIVE)  # Default to ACTIVE
     supersedes_memory_titles: Set[str] = Field(default_factory=set)  # Titles to mark as superseded
+    invalidate_memory_titles: Set[str] = Field(default_factory=set)  # Titles to invalidate without replacement
+    invalidation_reason: Optional[str] = None  # Reason for invalidation
     reasoning: str = ""  # Optional reasoning for debugging
 
     @model_validator(mode='after')
@@ -78,6 +103,20 @@ class MemorySynthesisResponse(BaseModel):
                 raise ValueError("memory_title is required when should_remember=true")
             if not self.memory_text:
                 raise ValueError("memory_text is required when should_remember=true")
+
+        # Validate invalidation fields
+        if self.invalidate_memory_titles:
+            if not self.invalidation_reason or not self.invalidation_reason.strip():
+                raise ValueError("invalidation_reason must be non-empty when invalidate_memory_titles is not empty")
+
+        # Validate mutual exclusivity of supersession and invalidation for same titles
+        if self.supersedes_memory_titles and self.invalidate_memory_titles:
+            overlap = self.supersedes_memory_titles & self.invalidate_memory_titles
+            if overlap:
+                raise ValueError(
+                    f"Memory titles cannot be both superseded and invalidated: {overlap}"
+                )
+
         return self
 
 
@@ -108,6 +147,9 @@ class SimpleMemoryManager(BaseManager):
     LOCATION_HEADER_PATTERN = re.compile(r"^## Location (\d+): (.+)$")
     # Matches: **[CATEGORY] Title** or **[CATEGORY - STATUS] Title**
     MEMORY_ENTRY_PATTERN = re.compile(r"^\*\*\[(\w+)(?: - (\w+))?\] (.+?)\*\* \*\((.*?)\)\*$")
+    # Matches: [Invalidated at T<turn>: "<reason>"]
+    # Use negated character class to exclude quotes from capture
+    INVALIDATION_REF_PATTERN = re.compile(r'^\[Invalidated at T(\d+): "([^"]*)"\]$')
 
     def __init__(self, logger, config: GameConfiguration, game_state: GameState, llm_client=None):
         super().__init__(logger, config, game_state, "simple_memory")
@@ -217,6 +259,10 @@ class SimpleMemoryManager(BaseManager):
         **[SUCCESS] Title** *(Ep1, T23-24, +0)*
         Memory text content here.
 
+        **[DANGER - SUPERSEDED] Bad Title** *(Ep1, T50)*
+        [Invalidated at T55: "Proven false by death"]
+        ~~Memory text content here.~~
+
         Args:
             content: Full text content of Memories.md file
         """
@@ -224,6 +270,7 @@ class SimpleMemoryManager(BaseManager):
         current_location_id: Optional[int] = None
         current_memory_header: Optional[tuple] = None  # (category, title, metadata)
         current_memory_text_lines: List[str] = []
+        current_invalidation_info: Optional[tuple] = None  # (turn, reason)
 
         for line in lines:
             line = line.rstrip()
@@ -237,10 +284,12 @@ class SimpleMemoryManager(BaseManager):
                     self._add_memory_to_cache(
                         current_location_id,
                         current_memory_header,
-                        current_memory_text_lines
+                        current_memory_text_lines,
+                        current_invalidation_info
                     )
                     current_memory_header = None
                     current_memory_text_lines = []
+                    current_invalidation_info = None
 
                 if location_match:
                     # Valid location header - parse it
@@ -285,8 +334,10 @@ class SimpleMemoryManager(BaseManager):
                     self._add_memory_to_cache(
                         current_location_id,
                         current_memory_header,
-                        current_memory_text_lines
+                        current_memory_text_lines,
+                        current_invalidation_info
                     )
+                    current_invalidation_info = None  # Reset for next memory
 
                 # Only parse new memory header if we have a valid location
                 if current_location_id is not None:
@@ -331,10 +382,12 @@ class SimpleMemoryManager(BaseManager):
                     self._add_memory_to_cache(
                         current_location_id,
                         current_memory_header,
-                        current_memory_text_lines
+                        current_memory_text_lines,
+                        current_invalidation_info
                     )
                     current_memory_header = None
                     current_memory_text_lines = []
+                    current_invalidation_info = None
 
                 # Log and skip malformed entry
                 self.log_warning(
@@ -357,6 +410,14 @@ class SimpleMemoryManager(BaseManager):
                 # Skip supersession reference lines (strict validation)
                 if line.strip().startswith("[Superseded at") and 'by "' in line and line.strip().endswith('"]'):
                     continue  # Don't include in memory text
+                # Detect and skip invalidation reference lines
+                if line.strip().startswith("[Invalidated at") and ': "' in line and line.strip().endswith('"]'):
+                    invalidation_match = self.INVALIDATION_REF_PATTERN.match(line.strip())
+                    if invalidation_match:
+                        turn = int(invalidation_match.group(1))
+                        reason = invalidation_match.group(2)
+                        current_invalidation_info = (turn, reason)
+                    continue  # Don't include in memory text
 
                 current_memory_text_lines.append(line.strip())
 
@@ -365,14 +426,16 @@ class SimpleMemoryManager(BaseManager):
             self._add_memory_to_cache(
                 current_location_id,
                 current_memory_header,
-                current_memory_text_lines
+                current_memory_text_lines,
+                current_invalidation_info
             )
 
     def _add_memory_to_cache(
         self,
         location_id: int,
         memory_header: tuple,
-        text_lines: List[str]
+        text_lines: List[str],
+        invalidation_info: Optional[tuple] = None
     ) -> None:
         """
         Add a parsed memory entry to the cache.
@@ -381,6 +444,7 @@ class SimpleMemoryManager(BaseManager):
             location_id: Integer location ID
             memory_header: Tuple of (category, status, title, metadata)
             text_lines: List of text lines for memory content
+            invalidation_info: Optional tuple of (turn, reason) for invalidated memories
         """
         category, status, title, metadata = memory_header  # Unpack 4 values now
 
@@ -398,6 +462,11 @@ class SimpleMemoryManager(BaseManager):
                 if text.startswith("~~") and text.endswith("~~"):
                     text = text[2:-2]  # Remove wrapping strikethrough markers only
 
+            # Extract invalidation details if present
+            invalidation_reason = None
+            if invalidation_info:
+                _, invalidation_reason = invalidation_info
+
             # Create Memory object with status
             memory = Memory(
                 category=category,
@@ -406,7 +475,9 @@ class SimpleMemoryManager(BaseManager):
                 turns=turns,
                 score_change=score_change,
                 text=text,
-                status=status  # Add status field
+                status=status,
+                superseded_by=INVALIDATION_MARKER if invalidation_reason else None,
+                invalidation_reason=invalidation_reason
             )
 
             # Add to cache
@@ -540,6 +611,152 @@ class SimpleMemoryManager(BaseManager):
                 error=str(e)
             )
             return False
+
+    def invalidate_memory(
+        self,
+        location_id: int,
+        memory_title: str,
+        reason: str,
+        turn: Optional[int] = None
+    ) -> bool:
+        """
+        Invalidate a single memory without creating a replacement.
+
+        This method marks a memory as SUPERSEDED with INVALIDATION_MARKER,
+        indicating it was proven false without a specific replacement memory.
+
+        Args:
+            location_id: Integer location ID from Z-machine
+            memory_title: Title of memory to invalidate (exact or substring match)
+            reason: Explanation for why memory is invalid (e.g., "Proven false by death")
+            turn: Optional turn number when invalidated (defaults to current turn)
+
+        Returns:
+            True if successful, False if operation failed
+
+        Example:
+            >>> manager.invalidate_memory(
+            ...     location_id=152,
+            ...     memory_title="Troll is friendly",
+            ...     reason="Proven false by death at turn 25",
+            ...     turn=25
+            ... )
+            True
+        """
+        # Default to current turn if not provided
+        if turn is None:
+            turn = self.game_state.turn_count
+
+        # Validate inputs
+        if not reason or not reason.strip():
+            self.log_error(
+                "Invalidation reason cannot be empty",
+                location_id=location_id,
+                memory_title=memory_title
+            )
+            return False
+
+        # Call internal update method
+        success = self._update_memory_status(
+            location_id=location_id,
+            memory_title=memory_title,
+            new_status=MemoryStatus.SUPERSEDED,
+            superseded_by=None,
+            superseded_at_turn=turn,
+            invalidation_reason=reason
+        )
+
+        if success:
+            self.log_info(
+                f"Invalidated memory: '{memory_title}' at location {location_id}",
+                location_id=location_id,
+                memory_title=memory_title,
+                reason=reason,
+                turn=turn
+            )
+        else:
+            self.log_warning(
+                f"Failed to invalidate memory: '{memory_title}'",
+                location_id=location_id,
+                memory_title=memory_title
+            )
+
+        return success
+
+    def invalidate_memories(
+        self,
+        location_id: int,
+        memory_titles: List[str],
+        reason: str,
+        turn: Optional[int] = None
+    ) -> Dict[str, bool]:
+        """
+        Invalidate multiple memories at once (batch operation).
+
+        All memories are invalidated with the same reason. Useful for invalidating
+        related memories when a core assumption is proven false.
+
+        Args:
+            location_id: Integer location ID from Z-machine
+            memory_titles: List of memory titles to invalidate
+            reason: Shared explanation for invalidation
+            turn: Optional turn number when invalidated (defaults to current turn)
+
+        Returns:
+            Dictionary mapping memory titles to success/failure (True/False)
+
+        Example:
+            >>> results = manager.invalidate_memories(
+            ...     location_id=152,
+            ...     memory_titles=["Troll is friendly", "Troll accepts gifts"],
+            ...     reason="Both proven false by troll attack",
+            ...     turn=25
+            ... )
+            >>> results
+            {'Troll is friendly': True, 'Troll accepts gifts': True}
+        """
+        # Default to current turn if not provided
+        if turn is None:
+            turn = self.game_state.turn_count
+
+        # Validate inputs
+        if not memory_titles:
+            self.log_warning(
+                "No memory titles provided for batch invalidation",
+                location_id=location_id
+            )
+            return {}
+
+        if not reason or not reason.strip():
+            self.log_error(
+                "Invalidation reason cannot be empty",
+                location_id=location_id,
+                num_memories=len(memory_titles)
+            )
+            return {title: False for title in memory_titles}
+
+        # Process each memory
+        results = {}
+        for memory_title in memory_titles:
+            success = self.invalidate_memory(
+                location_id=location_id,
+                memory_title=memory_title,
+                reason=reason,
+                turn=turn
+            )
+            results[memory_title] = success
+
+        # Log summary
+        successful = sum(1 for v in results.values() if v)
+        self.log_info(
+            f"Batch invalidation: {successful}/{len(memory_titles)} succeeded",
+            location_id=location_id,
+            successful=successful,
+            total=len(memory_titles),
+            reason=reason
+        )
+
+        return results
 
     def _create_backup(self, memories_path: Path) -> None:
         """
@@ -795,9 +1012,14 @@ class SimpleMemoryManager(BaseManager):
         # Build lines
         lines = [header]
 
-        # Add supersession reference if applicable
-        if memory.status == MemoryStatus.SUPERSEDED and memory.superseded_by:
-            lines.append(f"[Superseded at T{memory.superseded_at_turn} by \"{memory.superseded_by}\"]")
+        # Add reference line if applicable (supersession or invalidation)
+        if memory.status == MemoryStatus.SUPERSEDED:
+            if memory.invalidation_reason:
+                # Standalone invalidation
+                lines.append(f"[Invalidated at T{memory.superseded_at_turn}: \"{memory.invalidation_reason}\"]")
+            elif memory.superseded_by:
+                # Traditional supersession
+                lines.append(f"[Superseded at T{memory.superseded_at_turn} by \"{memory.superseded_by}\"]")
 
         lines.append(text)
 
@@ -808,17 +1030,22 @@ class SimpleMemoryManager(BaseManager):
         location_id: int,
         memory_title: str,
         new_status: str,
-        superseded_by: str,
-        superseded_at_turn: int
+        superseded_by: Optional[str] = None,
+        superseded_at_turn: Optional[int] = None,
+        invalidation_reason: Optional[str] = None
     ) -> bool:
         """
         Update the status of an existing memory in file and cache.
+
+        Supports two workflows:
+        1. Supersession: New memory replaces old memory (superseded_by provided)
+        2. Standalone Invalidation: Memory proven false (invalidation_reason provided)
 
         This method:
         1. Reads entire Memories.md file
         2. Finds memory by title at specific location
         3. Updates status in header (**[CATEGORY - STATUS] Title**)
-        4. Adds supersession reference line
+        4. Adds reference line (supersession or invalidation)
         5. Wraps text in strikethrough if SUPERSEDED
         6. Writes back to file atomically
         7. Updates cache
@@ -827,14 +1054,59 @@ class SimpleMemoryManager(BaseManager):
             location_id: Location where memory exists
             memory_title: Title of memory to update (exact match or substring)
             new_status: New status (typically MemoryStatus.SUPERSEDED)
-            superseded_by: Title of new memory that superseded this one
-            superseded_at_turn: Turn number when superseded
+            superseded_by: Optional title of new memory that superseded this one
+            superseded_at_turn: Turn number when superseded/invalidated
+            invalidation_reason: Optional reason for standalone invalidation
 
         Returns:
             True if successful, False if memory not found or update failed
+
+        Raises:
+            ValueError: If neither superseded_by nor invalidation_reason provided
         """
         memories_path = Path(self.config.zork_game_workdir) / "Memories.md"
         lock_path = str(memories_path) + ".lock"
+
+        # Validate that exactly one of superseded_by or invalidation_reason is provided
+        if not superseded_by and not invalidation_reason:
+            self.log_error("Either superseded_by or invalidation_reason must be provided")
+            return False
+        if superseded_by and invalidation_reason:
+            self.log_error("Cannot provide both superseded_by and invalidation_reason")
+            return False
+
+        # Validate non-empty strings
+        if superseded_by is not None and not superseded_by.strip():
+            self.log_error(
+                "superseded_by cannot be empty or whitespace",
+                location_id=location_id,
+                memory_title=memory_title
+            )
+            return False
+        if invalidation_reason is not None and not invalidation_reason.strip():
+            self.log_error(
+                "invalidation_reason cannot be empty or whitespace",
+                location_id=location_id,
+                memory_title=memory_title
+            )
+            return False
+
+        # Validate turn number when superseding
+        if new_status == MemoryStatus.SUPERSEDED:
+            if superseded_at_turn is None:
+                self.log_error(
+                    "superseded_at_turn is required when new_status is SUPERSEDED",
+                    location_id=location_id,
+                    memory_title=memory_title
+                )
+                return False
+            if superseded_at_turn < 1:
+                self.log_error(
+                    f"superseded_at_turn must be >= 1, got {superseded_at_turn}",
+                    location_id=location_id,
+                    memory_title=memory_title
+                )
+                return False
 
         try:
             # Acquire lock
@@ -849,6 +1121,14 @@ class SimpleMemoryManager(BaseManager):
 
                 content = memories_path.read_text(encoding="utf-8")
                 lines = content.split("\n")
+
+                # Determine reference line format based on workflow
+                if invalidation_reason:
+                    # Standalone invalidation
+                    reference_line = f'[Invalidated at T{superseded_at_turn}: "{invalidation_reason}"]'
+                else:
+                    # Traditional supersession
+                    reference_line = f'[Superseded at T{superseded_at_turn} by "{superseded_by}"]'
 
                 # Find the memory entry and update it
                 updated_lines = []
@@ -889,9 +1169,8 @@ class SimpleMemoryManager(BaseManager):
                                 updated_header = f"**[{category} - {new_status}] {title}** *({metadata})*"
                                 updated_lines.append(updated_header)
 
-                                # Add supersession reference on next line
-                                supersession_ref = f'[Superseded at T{superseded_at_turn} by "{superseded_by}"]'
-                                updated_lines.append(supersession_ref)
+                                # Add reference line (supersession or invalidation)
+                                updated_lines.append(reference_line)
 
                                 i += 1
 
@@ -906,8 +1185,8 @@ class SimpleMemoryManager(BaseManager):
                                         in_target_memory = False
                                         break
 
-                                    # Skip existing supersession references
-                                    if text_line.strip().startswith("[Superseded at"):
+                                    # Skip existing supersession/invalidation references
+                                    if text_line.strip().startswith("[Superseded at") or text_line.strip().startswith("[Invalidated at"):
                                         i += 1
                                         continue
 
@@ -946,16 +1225,29 @@ class SimpleMemoryManager(BaseManager):
                     for memory in self.memory_cache[location_id]:
                         if memory_title in memory.title or memory.title in memory_title:
                             memory.status = new_status
-                            memory.superseded_by = superseded_by
+                            # Set superseded_by based on workflow
+                            if invalidation_reason:
+                                memory.superseded_by = INVALIDATION_MARKER
+                            else:
+                                memory.superseded_by = superseded_by
                             memory.superseded_at_turn = superseded_at_turn
+                            memory.invalidation_reason = invalidation_reason
                             break
+
+                # Log with appropriate context
+                log_context = {
+                    "location_id": location_id,
+                    "memory_title": memory_title,
+                    "new_status": new_status,
+                }
+                if superseded_by:
+                    log_context["superseded_by"] = superseded_by
+                if invalidation_reason:
+                    log_context["invalidation_reason"] = invalidation_reason
 
                 self.log_info(
                     f"Updated memory status: '{memory_title}' → {new_status}",
-                    location_id=location_id,
-                    memory_title=memory_title,
-                    new_status=new_status,
-                    superseded_by=superseded_by
+                    **log_context
                 )
 
                 return True
@@ -1197,6 +1489,59 @@ If contradicting multiple memories: list ALL relevant titles.
 Use EXACT titles from existing memories above. If title is long, unique substring is sufficient.
 ═══════════════════════════════════════════════════════════════
 
+INVALIDATION CHECK (without replacement):
+═══════════════════════════════════════════════════════════════
+Can you DISPROVE an existing memory without creating a specific replacement?
+
+Use INVALIDATION when:
+✓ Memory proven false but no specific replacement needed
+✓ Multiple memories all wrong due to core false assumption
+✓ Evidence shows memory is incorrect but don't need to explain what's correct
+
+Examples:
+
+1. **Death invalidates TENTATIVE assumptions:**
+   Existing: [TENTATIVE] "Troll might be friendly"
+   Outcome: Agent died from troll attack
+   → **INVALIDATE** "Troll might be friendly", reason: "Proven false by death"
+   → Don't create redundant memory (agent already knows it died)
+   → BUT: Do create DANGER memory about troll behavior ("Troll attacks unprovoked")
+
+2. **Core assumption proven false:**
+   Existing: [NOTE] "Door is unlocked", [NOTE] "Safe to enter"
+   Outcome: Door was actually locked, entering caused trap
+   → **INVALIDATE** both memories, reason: "Door was locked, not unlocked"
+   → **CREATE** new memory: [DANGER] "Door locked, entering triggers trap"
+
+   WHY CREATE HERE: The trap mechanism is new information worth remembering.
+   In example 1, death itself is already known (don't duplicate death fact).
+
+3. **Multiple related memories wrong:**
+   Existing: "Troll accepts gifts", "Troll is pacified by food"
+   Outcome: Troll attacks after accepting food
+   → **INVALIDATE** both, reason: "Troll hostile regardless of gifts"
+   → **CREATE** new memory: [DANGER] "Troll attacks immediately after accepting food"
+
+**When to use invalidate_memory_titles vs supersedes_memory_titles:**
+
+INVALIDATE (standalone):
+- Multiple unrelated memories all wrong
+- Memory proven false, no specific replacement
+- Death invalidates speculative memories
+- Don't want to explain the correct approach
+
+SUPERSEDE (with replacement):
+- Old memory was close but needs refinement
+- Better understanding of same situation
+- Specific correction or update
+
+**Both are allowed in same response** if you're creating a new memory that supersedes
+one old memory AND invalidating other unrelated wrong memories.
+
+If invalidating: populate invalidate_memory_titles + invalidation_reason
+If superseding: populate supersedes_memory_titles (and create new memory)
+═══════════════════════════════════════════════════════════════
+
 MEMORY STATUS DECISION:
 ═══════════════════════════════════════════════════════════════
 WORKFLOW: First check duplicates → Then check contradictions → Then determine status
@@ -1322,6 +1667,8 @@ If should_remember=true (new actionable insight):
   "memory_text": "1-2 sentences, actionable insight",
   "status": "ACTIVE"|"TENTATIVE",
   "supersedes_memory_titles": ["Title1", "Title2"],
+  "invalidate_memory_titles": ["Title3", "Title4"],
+  "invalidation_reason": "explanation for why invalidated memories are wrong",
   "reasoning": "explain semantic comparison, contradiction detection, status choice"
 }}
 
@@ -1340,6 +1687,27 @@ Example valid response for remembering:
   "status": "ACTIVE",
   "supersedes_memory_titles": ["Troll accepts lunch gift"],
   "reasoning": "Contradicts previous tentative memory - troll is not pacified by gifts"
+}}
+
+Example valid response for invalidating without new memory:
+{{
+  "should_remember": false,
+  "invalidate_memory_titles": ["Troll is friendly", "Troll accepts gifts peacefully"],
+  "invalidation_reason": "Both proven false by troll attack resulting in death",
+  "reasoning": "Death proves both TENTATIVE assumptions were wrong, no new memory needed"
+}}
+
+Example valid response for creating new memory AND invalidating others:
+{{
+  "should_remember": true,
+  "category": "DANGER",
+  "memory_title": "Troll attacks after accepting gift",
+  "memory_text": "Troll accepts gift but then attacks immediately. Gift strategy fails.",
+  "status": "ACTIVE",
+  "supersedes_memory_titles": ["Troll accepts lunch gift"],
+  "invalidate_memory_titles": ["Troll is friendly"],
+  "invalidation_reason": "Proven false by attack",
+  "reasoning": "Superseding the direct memory about gift, invalidating unrelated assumption"
 }}"""
 
             # Call LLM with structured output
@@ -1445,7 +1813,8 @@ Example valid response for remembering:
                     memory_title=old_memory_title,
                     new_status=MemoryStatus.SUPERSEDED,
                     superseded_by=synthesis.memory_title,
-                    superseded_at_turn=self.game_state.turn_count
+                    superseded_at_turn=self.game_state.turn_count,
+                    invalidation_reason=None
                 )
 
                 if not success:
@@ -1455,6 +1824,40 @@ Example valid response for remembering:
                         old_title=old_memory_title,
                         new_title=synthesis.memory_title
                     )
+
+        # Process standalone invalidations (no new memory created)
+        if synthesis.invalidate_memory_titles:
+            self.log_info(
+                f"Invalidating {len(synthesis.invalidate_memory_titles)} memories",
+                location_id=location_id,
+                titles=list(synthesis.invalidate_memory_titles),
+                reason=synthesis.invalidation_reason
+            )
+
+            for memory_title in synthesis.invalidate_memory_titles:
+                success = self.invalidate_memory(
+                    location_id=location_id,
+                    memory_title=memory_title,
+                    reason=synthesis.invalidation_reason,
+                    turn=self.game_state.turn_count
+                )
+
+                if not success:
+                    self.log_warning(
+                        f"Failed to invalidate memory: '{memory_title}'",
+                        location_id=location_id,
+                        memory_title=memory_title
+                    )
+
+        # If LLM decided to create new memory, add it
+        if not synthesis.should_remember:
+            # No new memory to create, but may have invalidated existing ones
+            self.log_debug(
+                "LLM decided not to create new memory",
+                location_id=location_id,
+                invalidated_count=len(synthesis.invalidate_memory_titles) if synthesis.invalidate_memory_titles else 0
+            )
+            return
 
         # Extract episode number from game_state.episode_id
         # episode_id format: "ep_001" -> extract 1
