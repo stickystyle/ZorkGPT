@@ -9,7 +9,7 @@ import tomllib
 import warnings
 from typing import Optional
 from pathlib import Path
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from dotenv import load_dotenv
 
@@ -216,6 +216,62 @@ class GameConfiguration(BaseSettings):
         default=10, description="Number of turns before room descriptions age out of context"
     )
 
+    # Progress Velocity Detection
+    max_turns_stuck: int = Field(
+        default=40,
+        description="Maximum turns without score change before terminating episode",
+        ge=1,  # Must be at least 1
+        le=1000  # Sanity check upper bound
+    )
+    stuck_check_interval: int = Field(
+        default=10,
+        description="Check for stuck behavior every N turns",
+        ge=1,  # Must be at least 1
+        le=100  # Sanity check
+    )
+
+    # Location Revisit Penalty (Anti-Loop)
+    enable_location_penalty: bool = Field(
+        default=True,
+        description="Enable location revisit penalty to discourage loops"
+    )
+    location_revisit_penalty: float = Field(
+        default=-0.2,
+        description="Penalty applied per recent revisit to same location",
+        ge=-1.0,  # Can't reduce score below 0
+        le=0.0    # Must be negative (it's a penalty)
+    )
+    location_revisit_window: int = Field(
+        default=5,
+        description="Number of recent locations to check for revisits",
+        ge=2,  # Need at least 2 to detect revisit
+        le=20  # Max history window
+    )
+
+    # Exploration Context Guidance
+    enable_exploration_hints: bool = Field(
+        default=True,
+        description="Enable context hints for action novelty and unexplored exits"
+    )
+    action_novelty_window: int = Field(
+        default=15,
+        description="Number of recent actions to check for novelty",
+        ge=5,
+        le=50
+    )
+
+    # Stuck Countdown Warnings
+    enable_stuck_warnings: bool = Field(
+        default=True,
+        description="Enable countdown warnings when score stagnates"
+    )
+    stuck_warning_threshold: int = Field(
+        default=20,
+        description="Turns stuck before warnings start (should be < max_turns_stuck)",
+        ge=5,
+        le=100
+    )
+
     # Sampling parameters (loaded from TOML)
     agent_sampling: dict = Field(
         default_factory=dict, description="Sampling parameters for agent"
@@ -242,6 +298,26 @@ class GameConfiguration(BaseSettings):
         case_sensitive=False,
         extra="forbid",  # Catch typos in config early
     )
+
+    @model_validator(mode='after')
+    def validate_stuck_detection(self) -> 'GameConfiguration':
+        """Validate stuck detection configuration."""
+        if self.max_turns_stuck < self.stuck_check_interval:
+            raise ValueError(
+                f"max_turns_stuck ({self.max_turns_stuck}) must be >= "
+                f"stuck_check_interval ({self.stuck_check_interval})"
+            )
+        return self
+
+    @model_validator(mode='after')
+    def validate_warning_threshold(self) -> 'GameConfiguration':
+        """Ensure warning threshold is less than termination threshold."""
+        if self.stuck_warning_threshold >= self.max_turns_stuck:
+            raise ValueError(
+                f"stuck_warning_threshold ({self.stuck_warning_threshold}) must be < "
+                f"max_turns_stuck ({self.max_turns_stuck})"
+            )
+        return self
 
     def model_post_init(self, __context) -> None:
         """Ensure game working directory exists and handle legacy env vars."""
@@ -299,6 +375,7 @@ class GameConfiguration(BaseSettings):
         aws_config = zorkgpt_config.get("aws", {})
         simple_memory_config = zorkgpt_config.get("simple_memory", {})
         retry_config = zorkgpt_config.get("retry", {})
+        loop_break_config = zorkgpt_config.get("loop_break", {})
 
         # Extract sampling parameter sections
         agent_sampling = zorkgpt_config.get("agent_sampling", {})
@@ -375,6 +452,32 @@ class GameConfiguration(BaseSettings):
             "memory_sampling": memory_sampling,
             "condensation_sampling": condensation_sampling,
         }
+
+        # Add optional progress velocity detection settings (only if present in TOML)
+        if loop_break_config.get("max_turns_stuck") is not None:
+            config_dict["max_turns_stuck"] = loop_break_config.get("max_turns_stuck")
+        if loop_break_config.get("stuck_check_interval") is not None:
+            config_dict["stuck_check_interval"] = loop_break_config.get("stuck_check_interval")
+
+        # Add optional location revisit penalty settings (only if present in TOML)
+        if loop_break_config.get("enable_location_penalty") is not None:
+            config_dict["enable_location_penalty"] = loop_break_config.get("enable_location_penalty")
+        if loop_break_config.get("location_revisit_penalty") is not None:
+            config_dict["location_revisit_penalty"] = loop_break_config.get("location_revisit_penalty")
+        if loop_break_config.get("location_revisit_window") is not None:
+            config_dict["location_revisit_window"] = loop_break_config.get("location_revisit_window")
+
+        # Add optional exploration context guidance settings (only if present in TOML)
+        if loop_break_config.get("enable_exploration_hints") is not None:
+            config_dict["enable_exploration_hints"] = loop_break_config.get("enable_exploration_hints")
+        if loop_break_config.get("action_novelty_window") is not None:
+            config_dict["action_novelty_window"] = loop_break_config.get("action_novelty_window")
+
+        # Add optional stuck countdown warning settings (only if present in TOML)
+        if loop_break_config.get("enable_stuck_warnings") is not None:
+            config_dict["enable_stuck_warnings"] = loop_break_config.get("enable_stuck_warnings")
+        if loop_break_config.get("stuck_warning_threshold") is not None:
+            config_dict["stuck_warning_threshold"] = loop_break_config.get("stuck_warning_threshold")
 
         # Use Pydantic's model_validate to create the instance
         return cls.model_validate(config_dict)

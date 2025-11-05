@@ -174,6 +174,24 @@ map_state_file = "map_state.json"
 knowledge_file = "knowledgebase.md"
 game_file_path = "jericho-game-suite/zork1.z5"
 
+[tool.zorkgpt.loop_break]
+# Progress velocity detection
+max_turns_stuck = 40              # Conservative threshold
+stuck_check_interval = 10         # Check every 10 turns
+
+# Location revisit penalty (programmatic)
+enable_location_penalty = true
+location_revisit_penalty = -0.2
+location_revisit_window = 5       # Check last 5 locations
+
+# Exploration guidance (context-based)
+enable_exploration_hints = true
+action_novelty_window = 15        # Check last 15 actions
+
+# Stuck countdown warnings
+enable_stuck_warnings = true
+stuck_warning_threshold = 20      # Start warnings at 20 turns stuck
+
 [tool.zorkgpt.aws]
 # AWS Configuration (optional)
 s3_key_prefix = "zorkgpt/"

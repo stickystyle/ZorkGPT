@@ -1,6 +1,7 @@
 
 import time
 import logging
+from collections import deque
 from contextlib import nullcontext
 from typing import Dict, Any, List, Tuple, Optional
 
@@ -315,9 +316,8 @@ class ZorkOrchestratorV2:
                         }
                     )
 
-            # Close Jericho interface
-            self.jericho_interface.close()
-
+            # Note: Jericho close() is handled in finally block to ensure cleanup
+            # in all exit paths (success, exception, early return)
             return final_score
 
         except Exception as e:
@@ -345,6 +345,328 @@ class ZorkOrchestratorV2:
                         }
                     )
 
+    def _track_score_for_progress_detection(self) -> None:
+        """Track score changes for progress detection.
+
+        Initializes tracking on first call with current turn and score.
+        Detects both score increases and decreases, resetting the stuck
+        counter on any change.
+
+        Note: Works correctly even if game starts with non-zero score
+        (e.g., restored save state or non-standard game start).
+
+        Note: Stuck detection checks occur every N turns (stuck_check_interval),
+        so there may be a delay of up to 1 turn between score change and
+        detection of unstuck behavior.
+        """
+        if not hasattr(self, '_last_score_change_turn'):
+            self._last_score_change_turn = 0
+            self._last_tracked_score = self.game_state.previous_zork_score
+            return
+
+        current_score = self.game_state.previous_zork_score
+
+        # Detect any score change (increase or decrease)
+        # Note: Death/penalty resets counter because it represents discovery/learning,
+        # even if progress is negative. This prevents premature termination during
+        # dangerous exploration or combat sequences.
+        if current_score != self._last_tracked_score:
+            self._last_score_change_turn = self.game_state.turn_count
+
+            self.logger.info(
+                f"Score changed: {self._last_tracked_score} → {current_score}",
+                extra={
+                    "event_type": "score_change",
+                    "turn": self.game_state.turn_count,
+                    "old_score": self._last_tracked_score,
+                    "new_score": current_score,
+                }
+            )
+
+            self._last_tracked_score = current_score
+
+    def _get_turns_since_score_change(self) -> int:
+        """Calculate turns since last score change."""
+        if not hasattr(self, '_last_score_change_turn'):
+            return self.game_state.turn_count
+
+        return self.game_state.turn_count - self._last_score_change_turn
+
+    def _track_action_history(self, action: str) -> None:
+        """Track actions for novelty detection.
+
+        Maintains a sliding window of recent actions to detect repeated behaviors.
+        """
+        if not hasattr(self, '_action_history'):
+            max_window = max(self.config.action_novelty_window, 20)
+            self._action_history = deque(maxlen=max_window)
+
+        self._action_history.append(action.strip().lower())
+
+    def _detect_action_novelty(self, proposed_action: str) -> dict:
+        """Detect if proposed action is novel (not recently tried).
+
+        Returns:
+            dict with keys:
+            - is_novel (bool): True if action not in recent history
+            - recent_actions (int): Number of actions in history
+            - window_size (int): Configured window size
+        """
+        if not hasattr(self, '_action_history'):
+            return {"is_novel": True, "recent_actions": 0, "window_size": 0}
+
+        window = min(self.config.action_novelty_window, len(self._action_history))
+        # Convert deque to list for slicing
+        recent = list(self._action_history)[-window:] if window > 0 else []
+
+        action_normalized = proposed_action.strip().lower()
+        is_novel = action_normalized not in recent
+
+        return {
+            "is_novel": is_novel,
+            "recent_actions": len(recent),
+            "window_size": window
+        }
+
+    def _detect_unexplored_exits(self) -> dict:
+        """Detect unexplored exits from current location.
+
+        Returns:
+            dict with keys:
+            - has_unexplored (bool): True if unexplored exits exist
+            - unexplored_exits (list): List of direction strings
+            - all_exits (list): All known exits from room
+        """
+        current_location_id = self.game_state.current_room_id
+
+        # Get room from map
+        if current_location_id not in self.map_manager.game_map.rooms:
+            return {
+                "has_unexplored": False,
+                "unexplored_exits": [],
+                "all_exits": []
+            }
+
+        # Get connections for this room
+        if current_location_id not in self.map_manager.game_map.connections:
+            return {
+                "has_unexplored": False,
+                "unexplored_exits": [],
+                "all_exits": []
+            }
+
+        room_connections = self.map_manager.game_map.connections[current_location_id]
+        all_exits = list(room_connections.keys())
+
+        # Check which exits lead to unexplored rooms (destination_id not in map)
+        unexplored = []
+        for direction, destination_id in room_connections.items():
+            if destination_id not in self.map_manager.game_map.rooms:
+                unexplored.append(direction)
+
+        return {
+            "has_unexplored": len(unexplored) > 0,
+            "unexplored_exits": unexplored,
+            "all_exits": all_exits
+        }
+
+    def _build_stuck_countdown_warning(self) -> str:
+        """Build urgent countdown warning when agent is stuck.
+
+        Returns escalating warnings based on how close to termination.
+        Implements Ryan's requirement for explicit countdown messaging.
+        """
+        if not self.config.enable_stuck_warnings:
+            return ""
+
+        turns_stuck = self._get_turns_since_score_change()
+
+        # Don't warn until threshold reached
+        if turns_stuck < self.config.stuck_warning_threshold:
+            return ""
+
+        turns_until_death = self.config.max_turns_stuck - turns_stuck
+
+        # Escalating urgency levels
+        if turns_until_death <= 5:
+            urgency = "🚨 CRITICAL EMERGENCY"
+            tone = "IMMEDIATE"
+        elif turns_until_death <= 10:
+            urgency = "⚠️ URGENT WARNING"
+            tone = "URGENT"
+        else:
+            urgency = "⚠️ SCORE STAGNATION DETECTED"
+            tone = "IMPORTANT"
+
+        warning = f"""
+{'='*70}
+{urgency}
+{'='*70}
+
+Your PRIMARY GOAL is to INCREASE YOUR SCORE.
+
+You have made NO SCORE PROGRESS for {turns_stuck} turns.
+
+If you do not increase your score, you will DIE in {turns_until_death} turns.
+
+SUGGESTED STRATEGIES TO BREAK FREE:
+• Try a completely different location (move 3+ rooms away)
+• Attempt a different puzzle approach
+• Explore unexplored exits
+• Consider abandoning your current strategy
+
+SURVIVAL DEPENDS ON SCORE INCREASE.
+{'='*70}
+"""
+        return warning
+
+    def _build_exploration_hints(
+        self,
+        proposed_action: str,
+        novelty_info: dict,
+        unexplored_info: dict
+    ) -> str:
+        """Build context hints for exploration.
+
+        Returns informational guidance (not penalties) about:
+        - Action novelty
+        - Unexplored exits
+        """
+        if not self.config.enable_exploration_hints:
+            return ""
+
+        hints = []
+
+        # Action novelty hint
+        if not novelty_info["is_novel"] and novelty_info["recent_actions"] > 0:
+            hints.append(
+                f"Note: You recently tried '{proposed_action}' "
+                f"in the last {novelty_info['window_size']} actions. "
+                f"Consider trying something different."
+            )
+
+        # Unexplored exits hint
+        if unexplored_info["has_unexplored"]:
+            exits_str = ", ".join(unexplored_info["unexplored_exits"])
+            hints.append(
+                f"Exploration opportunity: This location has unexplored exits: {exits_str}"
+            )
+
+        if not hints:
+            return ""
+
+        return "\n\n" + "\n".join(hints) + "\n"
+
+    def _track_location_history(self) -> None:
+        """Track location at each turn for loop detection.
+
+        Uses Z-machine location IDs (integers) - NOT room names.
+        This is architecturally required for stability across episodes.
+
+        Maintains a sliding window of the last 20 locations.
+        """
+        if not hasattr(self, '_location_id_history'):
+            self._location_id_history = deque(maxlen=20)
+
+        # Use Z-machine location ID (integer) - NOT room names
+        location_obj = self.jericho_interface.get_location_structured()
+        current_location_id = location_obj.num if location_obj else 0
+        self._location_id_history.append(current_location_id)
+
+    def _detect_location_revisit(self) -> dict:
+        """Detect if current location was recently visited.
+
+        Returns:
+            dict with keys:
+            - detected (bool): Whether revisit found
+            - location_id (int): Current location ID
+            - recent_visits (int): Number of times seen in window
+            - window_size (int): Number of locations examined
+        """
+        if not hasattr(self, '_location_id_history'):
+            return {
+                "detected": False,
+                "location_id": None,
+                "recent_visits": 0,
+                "window_size": 0
+            }
+
+        if len(self._location_id_history) == 0:
+            return {
+                "detected": False,
+                "location_id": None,
+                "recent_visits": 0,
+                "window_size": 0
+            }
+
+        current_location_id = self._location_id_history[-1]
+
+        # Check recent history (excluding current location)
+        window_size = min(
+            self.config.location_revisit_window,
+            len(self._location_id_history) - 1  # Exclude current
+        )
+
+        if window_size < 1:
+            return {
+                "detected": False,
+                "location_id": current_location_id,
+                "recent_visits": 0,
+                "window_size": 0
+            }
+
+        # Convert deque to list for slicing
+        history_list = list(self._location_id_history)
+        recent_history = history_list[-(window_size + 1):-1]
+        recent_visits = recent_history.count(current_location_id)
+
+        return {
+            "detected": recent_visits > 0,
+            "location_id": current_location_id,
+            "recent_visits": recent_visits,
+            "window_size": window_size
+        }
+
+    def _apply_location_revisit_penalty(
+        self,
+        base_score: float,
+        revisit_info: dict
+    ) -> Tuple[float, str]:
+        """Apply programmatic penalty for location revisits.
+
+        Args:
+            base_score: Critic's original confidence score
+            revisit_info: Dict from _detect_location_revisit()
+
+        Returns:
+            (adjusted_score, reason_string)
+        """
+        if not self.config.enable_location_penalty:
+            return base_score, ""
+
+        if not revisit_info["detected"]:
+            return base_score, ""
+
+        # Calculate penalty: -0.2 per revisit
+        penalty = self.config.location_revisit_penalty * revisit_info["recent_visits"]
+        adjusted_score = base_score + penalty
+
+        # Clamp to [0.0, 1.0]
+        adjusted_score = max(0.0, min(1.0, adjusted_score))
+
+        # Get location name for logging
+        location_name = "Unknown"
+        location_id = revisit_info["location_id"]
+        if location_id in self.map_manager.game_map.rooms:
+            location_name = self.map_manager.game_map.rooms[location_id].name
+
+        reason = (
+            f"Location revisit penalty {penalty:.2f} "
+            f"({revisit_info['recent_visits']}x return to {location_name})"
+        )
+
+        return adjusted_score, reason
+
     def _run_game_loop(self, initial_state: str) -> int:
         """Run the main game loop."""
         current_game_state = initial_state
@@ -364,6 +686,29 @@ class ZorkOrchestratorV2:
 
             if next_game_state:
                 current_game_state = next_game_state
+
+            # Track score for progress detection
+            self._track_score_for_progress_detection()
+
+            # Check for stuck behavior (every N turns)
+            if self.game_state.turn_count % self.config.stuck_check_interval == 0:
+                turns_stuck = self._get_turns_since_score_change()
+
+                if turns_stuck >= self.config.max_turns_stuck:
+                    self.logger.warning(
+                        f"Terminating episode: no progress for {turns_stuck} turns "
+                        f"(score stuck at {self.game_state.previous_zork_score})",
+                        extra={
+                            "event_type": "stuck_termination",
+                            "episode_id": self.game_state.episode_id,
+                            "turn": self.game_state.turn_count,
+                            "score": self.game_state.previous_zork_score,
+                            "turns_stuck": turns_stuck,
+                        }
+                    )
+                    self.game_state.game_over_flag = True
+                    self.game_state.termination_reason = "stuck_no_progress"
+                    return self.game_state.previous_zork_score
 
             # Check periodic updates for managers
             self._check_periodic_updates()
@@ -497,9 +842,28 @@ class ZorkOrchestratorV2:
             attempt_details = None
 
         with tracing_context as critic_span:
-            # Initial critic evaluation
+            # NEW: Detect action novelty and unexplored exits
+            novelty_info = self._detect_action_novelty(proposed_action)
+            unexplored_info = self._detect_unexplored_exits()
+
+            # NEW: Build exploration hints for critic
+            exploration_hints = self._build_exploration_hints(
+                proposed_action,
+                novelty_info,
+                unexplored_info
+            )
+
+            # NEW: Add hints to critic context if present
+            enhanced_critic_context = critic_context
+            if exploration_hints:
+                # Append hints to the current_state shown to critic
+                enhanced_current_state = current_state + exploration_hints
+            else:
+                enhanced_current_state = current_state
+
+            # Initial critic evaluation (with exploration hints influencing evaluation)
             critic_result = self.critic.evaluate_action(
-                game_state_text=current_state,
+                game_state_text=enhanced_current_state,
                 proposed_action=proposed_action,
                 available_exits=critic_context.get("available_exits", []),
                 action_counts=self.game_state.action_counts,
@@ -520,6 +884,36 @@ class ZorkOrchestratorV2:
                     "confidence": critic_result.confidence,
                     "object_tree_validation_used": "[Object Tree Validation]" in critic_result.justification,
                 })
+
+            # NEW: Track location for revisit detection
+            self._track_location_history()
+
+            # NEW: Detect location revisit
+            revisit_info = self._detect_location_revisit()
+
+            # NEW: Apply programmatic penalty for location revisits
+            base_confidence = critic_result.confidence
+            adjusted_confidence, penalty_reason = self._apply_location_revisit_penalty(
+                base_score=base_confidence,
+                revisit_info=revisit_info
+            )
+
+            # NEW: Update critic result with adjusted confidence if penalty applied
+            if penalty_reason:
+                critic_result.confidence = adjusted_confidence
+
+                self.logger.info(
+                    f"Applied location penalty: {base_confidence:.2f} → {adjusted_confidence:.2f}",
+                    extra={
+                        "event_type": "location_penalty_applied",
+                        "turn": self.game_state.turn_count,
+                        "base_confidence": base_confidence,
+                        "adjusted_confidence": adjusted_confidence,
+                        "reason": penalty_reason,
+                        "location_id": revisit_info["location_id"],
+                        "recent_visits": revisit_info["recent_visits"],
+                    }
+                )
 
             # Start new turn for rejection tracking
             self.rejection_manager.start_new_turn()
@@ -699,9 +1093,26 @@ class ZorkOrchestratorV2:
                         "reasoning": agent_reasoning,
                     })
 
-                # Re-evaluate new action
+                # NEW: Re-detect novelty and unexplored exits for new action
+                novelty_info = self._detect_action_novelty(action_to_take)
+                unexplored_info = self._detect_unexplored_exits()
+
+                # NEW: Build exploration hints for new action
+                exploration_hints = self._build_exploration_hints(
+                    action_to_take,
+                    novelty_info,
+                    unexplored_info
+                )
+
+                # NEW: Apply hints to critic context
+                if exploration_hints:
+                    enhanced_current_state = current_state + exploration_hints
+                else:
+                    enhanced_current_state = current_state
+
+                # Re-evaluate new action (with exploration hints)
                 critic_result = self.critic.evaluate_action(
-                    game_state_text=current_state,
+                    game_state_text=enhanced_current_state,
                     proposed_action=action_to_take,
                     available_exits=critic_context.get("available_exits", []),
                     action_counts=self.game_state.action_counts,
@@ -812,6 +1223,11 @@ class ZorkOrchestratorV2:
             game_state_text=current_state
         )
 
+        # CRITICAL: Add stuck countdown warning (highest priority)
+        stuck_warning = self._build_stuck_countdown_warning()
+        if stuck_warning:
+            formatted_context = stuck_warning + "\n" + formatted_context
+
         # Get agent action (game_state_text no longer needed separately since it's in formatted_context)
         agent_result = self.agent.get_action_with_reasoning(
             game_state_text="",  # Empty since game response is now in formatted_context
@@ -891,6 +1307,9 @@ class ZorkOrchestratorV2:
 
         # Execute action using Jericho
         next_game_state = self.jericho_interface.send_command(action_to_take)
+
+        # Track action after execution (for novelty detection)
+        self._track_action_history(action_to_take)
 
         # Check for game over
         is_game_over, game_over_reason = self.jericho_interface.is_game_over(

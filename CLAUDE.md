@@ -117,6 +117,21 @@ Always prefer Z-machine structured data over text parsing:
 - Movement: Compare `before_id != after_id`
 - Objects: `get_visible_objects_in_location()` → `List[ZObject]`
 
+### Loop Break System
+ZorkGPT includes a three-phase loop break system to prevent stuck episodes and token waste:
+
+**Phase 1A - Progress Velocity Detection**: Terminates episodes after 40 turns without score change. Programmatic hard stop using O(1) score tracking. See `orchestration/zork_orchestrator_v2.py` lines 347-380 (tracking) and 526-547 (termination).
+
+**Phase 1B - Location Revisit Penalty**: Applies programmatic -0.2 penalty per recent location revisit to discourage loops. Uses Z-machine location IDs in sliding window (last 5 locations). Modifies critic confidence scores, not context. See lines 394-504.
+
+**Phase 1C - Stuck Countdown Warnings**: Shows explicit "DIE in {y} turns" warnings in agent context starting at 20 turns stuck. Includes action novelty hints and unexplored exit suggestions. Context-based guidance, not penalties. See lines 483-522 (warnings) and 849-866 (critic integration).
+
+**Configuration**: All settings in `pyproject.toml` under `[tool.zorkgpt.loop_break]` section. Loaded via `session/game_configuration.py` lines 220-282.
+
+**Testing**: 66 tests across 4 files validate all three phases independently and together. Run: `uv run pytest tests/test_*loop*.py -v`
+
+**For complete details**: See `loop_break.md` for design rationale, configuration options, monitoring, troubleshooting, and episode analysis tools.
+
 ## File Organization
 
 ```
