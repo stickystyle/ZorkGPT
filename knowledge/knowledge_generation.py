@@ -172,8 +172,9 @@ def generate_knowledge_directly(
     # Construct comprehensive prompt
     prompt = f"""Analyze this Zork gameplay data and create/update the knowledge base.
 
-NOTE: Item locations, room connections, and object properties are now tracked in a separate structured memory system.
-This knowledge base should focus on STRATEGIC insights, patterns, and lessons learned from gameplay.
+NOTE: Item locations, room connections, object properties, AND command syntax are now tracked
+in separate systems. This knowledge base should focus on STRATEGIC insights, patterns, and
+lessons learned from gameplay.
 
 {formatted_data}
 
@@ -211,13 +212,6 @@ Identify patterns from this gameplay session:
 
 ## DEATH & DANGER ANALYSIS
 {format_death_analysis_section(turn_data) if turn_data.get("death_events") else "No deaths occurred in this session."}
-
-## COMMAND SYNTAX
-List exact commands that worked (focus on non-obvious or puzzle-specific commands):
-- **Puzzle Commands**: Commands that solved specific puzzles
-- **Special Interactions**: Unusual but effective command patterns
-- **Combat**: Any combat-related commands
-- **Syntax Discoveries**: Command formats that worked when standard approaches failed
 
 ## LESSONS LEARNED
 Specific insights from this session:

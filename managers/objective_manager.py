@@ -215,7 +215,30 @@ class ObjectiveManager(BaseManager):
             )
 
             # Create prompt for objective discovery/updating
-            prompt = f"""Analyze the recent Zork gameplay to discover and maintain the agent's objectives.
+            prompt = f"""Analyze recent gameplay and identify concrete GAME OBJECTIVES, not meta-strategies.
+
+**CORRECT OBJECTIVES (what to achieve):**
+✓ "Acquire painting from Gallery to increase score"
+✓ "Find rope for climbing vertical obstacles"
+✓ "Explore East Chasm for hidden treasures"
+✓ "Solve window puzzle to access kitchen"
+✓ "Defeat troll to access eastern passages"
+✓ "Take brass lantern from living room"
+✓ "Unlock basement door with rusty key"
+
+**INCORRECT OBJECTIVES (how to play):**
+✗ "Manage inventory capacity to avoid hazards"
+✗ "Apply strategic item drop hierarchy"
+✗ "Navigate efficiently between locations"
+✗ "Avoid repeating failed take actions"
+✗ "Track rejections systematically"
+
+**Focus on:**
+- **Specific items to acquire**: Treasures, tools, keys, weapons
+- **Locations to explore**: Unmapped exits, new areas, hidden rooms
+- **Puzzles to solve**: Doors, barriers, mechanisms, locked containers
+- **Score-increasing actions**: Achievements to unlock, treasures to collect
+- **NPCs to interact with**: Quest givers, traders, enemies to defeat
 
 CURRENT DISCOVERED OBJECTIVES:
 {self.game_state.discovered_objectives if self.game_state.discovered_objectives else "None discovered yet"}
@@ -230,27 +253,8 @@ CURRENT SCORE: {self.game_state.previous_zork_score}
 CURRENT LOCATION: {self.game_state.current_room_name_for_map}
 CURRENT INVENTORY: {self.game_state.current_inventory}
 
-Based on this gameplay, identify the agent's discovered objectives. Look for:
-1. **Score-increasing activities** (these reveal important objectives)
-2. **Recurring patterns** in the agent's behavior that suggest goals
-3. **Environmental clues** about what the agent should be doing
-4. **Items or locations** that seem significant to the agent's progress
-5. **Puzzles or challenges** the agent is actively working on
-
-**IMPORTANT - COORDINATE WITH DISCOVERED OBJECTIVES SYSTEM**: 
-The agent has a separate real-time objective tracking system that maintains current goals every 20 turns. Your knowledge base should COMPLEMENT this system by focusing on LONG-TERM strategic insights rather than current objectives.
-
-Provide insights in these categories focused on strategic patterns and game world knowledge:
-
-**AVOID (Handled by Objectives System)**:
-- Specific current objectives or immediate tactical goals
-- Real-time action prioritization advice
-- "What should I do next" guidance
-- Current situation analysis
-
-Focus on actionable insights that help the agent become better at recognizing opportunities, avoiding dangers, and understanding the game world. Be specific about locations, items, commands, and game mechanics discovered through actual gameplay experience.
-
-Focus on objectives the agent has actually discovered through gameplay patterns or its own novel reasoning, not general Zork knowledge.
+**Task:** Identify the top 3-5 concrete game objectives based on recent gameplay.
+Focus on WHAT to achieve, not HOW to play.
 
 **CRITICAL - OUTPUT FORMAT:**
 YOU MUST respond with ONLY a valid JSON object. Do not include any text before or after the JSON. Do not include thinking tags or reasoning outside the JSON structure.

@@ -517,102 +517,122 @@ class ContextManager(BaseManager):
         except Exception as e:
             self.log_error(f"Failed to update location context: {e}")
 
-    def get_formatted_agent_prompt_context(self, context: Dict[str, Any], game_state_text: str = None) -> str:
-        """Format agent context into a readable prompt format."""
-        try:
-            formatted_parts = []
+    def get_formatted_agent_prompt_context(
+        self,
+        context: Dict,
+        game_state_text: str = ""
+    ) -> str:
+        """
+        Format agent prompt context with information ordered by urgency.
+        Most urgent information appears LAST to leverage recency bias.
 
-            # Game response from previous action (if provided)
-            if game_state_text:
-                formatted_parts.append(f"GAME RESPONSE: {game_state_text.strip()}")
-                formatted_parts.append("")  # Add blank line for readability
+        Args:
+            context: Context dictionary from get_agent_context()
+            game_state_text: Current game state text (most urgent)
 
-            # Current situation
-            formatted_parts.append(
-                f"CURRENT LOCATION: {context.get('current_location', 'Unknown')}"
+        Returns:
+            Formatted prompt string with proper information hierarchy
+        """
+        sections = []
+
+        # REFERENCE LAYER (lowest priority - for planning)
+        if context.get("current_map"):
+            sections.append(
+                "CURRENT WORLD MAP:\n"
+                "(Note: This shows only locations you have discovered so far. "
+                "There may be other rooms and exits yet undiscovered.)\n"
+                f"```mermaid\n{context['current_map']}\n```"
             )
 
-            # Add room description if available
-            room_description = context.get("room_description")
-            if room_description:
-                age = context.get("room_description_age", 0)
-                if age == 0:
-                    formatted_parts.append("\nROOM DESCRIPTION:")
-                else:
-                    formatted_parts.append(f"\nROOM DESCRIPTION ({age} turn{'s' if age != 1 else ''} ago):")
-                formatted_parts.append(room_description)
-                formatted_parts.append("")  # Blank line after description
+        # STRATEGIC LAYER (location-specific knowledge)
+        if context.get("location_memory"):
+            sections.append(f"LOCATION MEMORY:\n{context['location_memory']}")
 
-            # Show simple inventory if we don't have structured Jericho data
-            # (when Jericho data is available, INVENTORY DETAILS section is used instead)
-            inventory_objects = context.get("inventory_objects", [])
-            if not inventory_objects:
-                formatted_parts.append(
-                    f"INVENTORY: {', '.join(context.get('inventory', [])) or 'empty'}"
-                )
+        # HISTORICAL LAYER (recent reasoning for continuity)
+        recent_reasoning = self.get_recent_reasoning_formatted(num_turns=3)
+        if recent_reasoning:
+            sections.append(f"## Previous Reasoning and Actions\n\n{recent_reasoning}")
 
-            formatted_parts.append(f"SCORE: {self.game_state.previous_zork_score}")
-
-            if context.get("in_combat"):
-                formatted_parts.append("STATUS: IN COMBAT")
-
-            # Previous reasoning and actions (includes action + response + reasoning)
-            recent_reasoning = self.get_recent_reasoning_formatted(num_turns=3)
-            if recent_reasoning:  # Only include if we have reasoning history
-                formatted_parts.append("\n## Previous Reasoning and Actions\n")
-                formatted_parts.append(recent_reasoning)
-
-            # Failed actions at this location
-            failed_actions = context.get("failed_actions_here", [])
-            if failed_actions:
-                formatted_parts.append(
-                    f"\nFAILED ACTIONS HERE: {', '.join(failed_actions)}"
-                )
-
-            # Available exits
-            exits = context.get("available_exits", [])
-            if exits:
-                formatted_parts.append(f"\nAVAILABLE EXITS: {', '.join(exits)}")
-
-            # Objectives
-            objectives = context.get("discovered_objectives", [])
+        # OBJECTIVE LAYER (goals to achieve)
+        if context.get("discovered_objectives"):
+            objectives = context["discovered_objectives"][:5]
             if objectives:
-                formatted_parts.append("\nCURRENT OBJECTIVES:")
-                for obj in objectives[:5]:  # Limit to top 5
-                    formatted_parts.append(f"  - {obj}")
+                sections.append(
+                    "CURRENT OBJECTIVES:\n" +
+                    "\n".join(f"  - {obj}" for obj in objectives)
+                )
 
-            # Structured object data (if available - already retrieved above)
-            if inventory_objects:
-                formatted_parts.append("\nINVENTORY DETAILS:")
-                for obj in inventory_objects:
-                    formatted_parts.append(f"  - {obj['name']}")
+        # CONSTRAINT LAYER (known failures)
+        failed_actions = context.get("failed_actions_here", [])
+        if failed_actions:
+            sections.append(f"FAILED ACTIONS HERE: {', '.join(failed_actions)}")
 
-            visible_objects = context.get("visible_objects", [])
-            if visible_objects:
-                formatted_parts.append("\nVISIBLE OBJECTS:")
-                for obj in visible_objects:
-                    formatted_parts.append(f"  - {obj['name']}")
+        # RESOURCE LAYER (what you have)
+        if context.get("inventory_objects"):
+            inventory_lines = []
+            for obj in context["inventory_objects"]:
+                attrs = obj.get("attributes", {})
+                attr_str = ", ".join([k for k, v in attrs.items() if v])
+                inventory_lines.append(f"  - {obj['name']} (ID:{obj['id']}, {attr_str})")
+            if inventory_lines:
+                sections.append(
+                    "INVENTORY DETAILS:\n" +
+                    "\n".join(inventory_lines)
+                )
+        elif context.get("inventory"):
+            if context["inventory"]:
+                sections.append(f"INVENTORY: {', '.join(context['inventory'])}")
 
-            # Location memory from simple memory system
-            location_memory = context.get("location_memory")
-            if location_memory:
-                formatted_parts.append("\nLOCATION MEMORY:")
-                formatted_parts.append(location_memory)
+        # ENVIRONMENT LAYER (objects in room)
+        visible_objects = context.get("visible_objects", [])
+        if visible_objects:
+            visible_lines = []
+            for obj in visible_objects:
+                attrs = obj.get("attributes", {})
+                attr_str = ", ".join([k for k, v in attrs.items() if v])
+                visible_lines.append(f"  - {obj['name']} (ID:{obj['id']}, {attr_str})")
+            sections.append(
+                "VISIBLE OBJECTS:\n" +
+                "\n".join(visible_lines)
+            )
 
-            # Current world map (mermaid diagram)
-            current_map = context.get("current_map")
-            if current_map:
-                formatted_parts.append("\nCURRENT WORLD MAP:")
-                formatted_parts.append("(Note: This shows only locations you have discovered so far. There may be other rooms and exits yet undiscovered.)")
-                formatted_parts.append("```mermaid")
-                formatted_parts.append(current_map)
-                formatted_parts.append("```")
+        # ACTION LAYER (available verbs)
+        vocab = context.get("action_vocabulary", [])
+        if vocab:
+            sections.append(f"VALID ACTIONS: {len(vocab)} verbs available")
 
-            return "\n".join(formatted_parts)
+        # PROGRESS LAYER (score tracking)
+        sections.append(f"SCORE: {self.game_state.previous_zork_score}")
 
-        except Exception as e:
-            self.log_error(f"Failed to format agent prompt context: {e}")
-            return str(context)  # Fallback to string representation
+        # OBSERVATION LAYER (recent room description)
+        if context.get("room_description"):
+            age = context.get("room_description_age", 0)
+            if age == 0:
+                sections.append(f"ROOM DESCRIPTION:\n{context['room_description']}")
+            else:
+                sections.append(
+                    f"ROOM DESCRIPTION ({age} turn{'s' if age != 1 else ''} ago):\n"
+                    f"{context['room_description']}"
+                )
+
+        # NAVIGATION LAYER (movement options)
+        exits = context.get("available_exits", [])
+        if exits:
+            sections.append(f"AVAILABLE EXITS: {', '.join(exits)}")
+
+        # POSITION LAYER (current location)
+        if context.get("current_location"):
+            sections.append(f"CURRENT LOCATION: {context['current_location']}")
+
+        # COMBAT LAYER (immediate danger)
+        if context.get("in_combat"):
+            sections.append("STATUS: IN COMBAT")
+
+        # MOST URGENT LAYER (immediate game response)
+        if game_state_text:
+            sections.append(f"GAME RESPONSE: {game_state_text}")
+
+        return "\n\n".join(sections)
 
     def get_context_summary_for_export(self) -> Dict[str, Any]:
         """Get context summary for state export."""

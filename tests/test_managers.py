@@ -646,7 +646,8 @@ class TestContextManager(TestBaseManagerSetup):
             game_state_text="You are in a dark room."
         )
         assert "GAME RESPONSE: You are in a dark room." in formatted_with
-        assert formatted_with.startswith("GAME RESPONSE:")
+        # GAME RESPONSE should be last (most urgent) in urgency-based ordering
+        assert formatted_with.endswith("GAME RESPONSE: You are in a dark room.")
 
         # With empty string (should not show label)
         formatted_empty = context_manager.get_formatted_agent_prompt_context(

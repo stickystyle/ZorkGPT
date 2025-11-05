@@ -174,8 +174,8 @@ class TestAgentPromptReasoningGuidance:
         assert "NAVIGATION PROTOCOL:" in agent.system_prompt, \
             "NAVIGATION PROTOCOL section should still be present"
 
-        assert "COMMAND SYNTAX:" in agent.system_prompt, \
-            "COMMAND SYNTAX section should still be present"
+        assert "PARSER REFERENCE:" in agent.system_prompt, \
+            "PARSER REFERENCE section should still be present"
 
         assert "OUTPUT FORMAT" in agent.system_prompt, \
             "OUTPUT FORMAT section should still be present"

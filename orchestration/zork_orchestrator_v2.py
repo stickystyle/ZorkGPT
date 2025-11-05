@@ -1200,6 +1200,27 @@ SURVIVAL DEPENDS ON SCORE INCREASE.
                 rejected_actions_this_turn,
             )
 
+    def _sync_inventory_from_z_machine(self) -> None:
+        """Sync game_state inventory with Z-machine reality every turn.
+
+        This eliminates inventory desyncs by unconditionally updating game_state
+        with authoritative Z-machine inventory data after every action execution.
+        Fast operation (O(n) where n = inventory size, typically < 10 items).
+        """
+        try:
+            structured_inv = self.jericho_interface.get_inventory_structured()
+            self.game_state.current_inventory = [obj.name for obj in structured_inv]
+        except RuntimeError as e:
+            self.logger.error(
+                f"Failed to sync inventory from Z-machine: {e}",
+                extra={
+                    "event_type": "inventory_sync_failure",
+                    "episode_id": self.game_state.episode_id,
+                    "turn": self.game_state.turn_count,
+                }
+            )
+            # Don't update inventory if sync fails - keep previous state
+
     def _execute_turn_logic(self, current_state: str) -> Tuple[str, str]:
         """Execute the main turn logic (with or without Langfuse tracing)."""
         # Generate action using agent
@@ -1307,6 +1328,9 @@ SURVIVAL DEPENDS ON SCORE INCREASE.
 
         # Execute action using Jericho
         next_game_state = self.jericho_interface.send_command(action_to_take)
+
+        # Sync inventory with Z-machine reality after every action
+        self._sync_inventory_from_z_machine()
 
         # Track action after execution (for novelty detection)
         self._track_action_history(action_to_take)
@@ -1458,19 +1482,10 @@ SURVIVAL DEPENDS ON SCORE INCREASE.
         if hasattr(extracted_info, "score") and extracted_info.score is not None:
             self.game_state.previous_zork_score = extracted_info.score
 
-        # Update inventory if present
-        if hasattr(extracted_info, "inventory") and extracted_info.inventory:
-            prev_inventory = self.game_state.current_inventory
-            self.game_state.current_inventory = extracted_info.inventory
-
-            # Track object events (Phase 6)
-            self.knowledge_manager.detect_object_events(
-                prev_inventory=prev_inventory,
-                current_inventory=extracted_info.inventory,
-                jericho_interface=self.jericho_interface,
-                action=action,
-                turn=self.game_state.turn_count,
-            )
+        # Note: Inventory sync now handled by _sync_inventory_from_z_machine()
+        # which is called after every action execution. The Z-machine is the
+        # authoritative source of truth for inventory state.
+        # Object event detection can be reimplemented if needed using Z-machine data.
 
         # Update game over flag
         if hasattr(extracted_info, "game_over") and extracted_info.game_over:

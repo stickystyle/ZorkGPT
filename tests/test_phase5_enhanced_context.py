@@ -839,8 +839,9 @@ class TestFormattedPromptWithReasoning:
         reasoning_pos = formatted.find("## Previous Reasoning and Actions")
         objectives_pos = formatted.find("CURRENT OBJECTIVES:")
 
-        # Verify ordering: score < reasoning < objectives
-        assert score_pos < reasoning_pos < objectives_pos
+        # Verify ordering with new urgency-based priority:
+        # reasoning < objectives < score (least to most urgent)
+        assert reasoning_pos < objectives_pos < score_pos
 
 
 if __name__ == "__main__":
