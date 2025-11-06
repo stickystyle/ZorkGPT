@@ -21,6 +21,7 @@ class TestMutualExclusivityValidation:
             category="SUCCESS",
             memory_title="New memory",
             memory_text="Some text",
+            persistence="permanent",
             status=MemoryStatus.ACTIVE,
             supersedes_memory_titles={"Old memory 1"},
             invalidate_memory_titles={"Old memory 2"},
@@ -39,6 +40,7 @@ class TestMutualExclusivityValidation:
                 category="SUCCESS",
                 memory_title="New memory",
                 memory_text="Some text",
+                persistence="permanent",
                 status=MemoryStatus.ACTIVE,
                 supersedes_memory_titles={"Old memory"},
                 invalidate_memory_titles={"Old memory"},  # CONFLICT
@@ -58,6 +60,7 @@ class TestMutualExclusivityValidation:
                 category="SUCCESS",
                 memory_title="New memory",
                 memory_text="Some text",
+                persistence="permanent",
                 status=MemoryStatus.ACTIVE,
                 supersedes_memory_titles={"Memory A", "Memory B", "Memory C"},
                 invalidate_memory_titles={"Memory B", "Memory C", "Memory D"},  # B and C overlap
@@ -77,6 +80,7 @@ class TestMutualExclusivityValidation:
             category="SUCCESS",
             memory_title="New memory",
             memory_text="Some text",
+            persistence="permanent",
             status=MemoryStatus.ACTIVE,
             supersedes_memory_titles={"Old memory 1", "Old memory 2"},
             invalidate_memory_titles=set(),  # Empty
@@ -93,6 +97,7 @@ class TestMutualExclusivityValidation:
             category="SUCCESS",
             memory_title="New memory",
             memory_text="Some text",
+            persistence="permanent",
             status=MemoryStatus.ACTIVE,
             supersedes_memory_titles=set(),  # Empty
             invalidate_memory_titles={"Wrong memory"},
@@ -109,6 +114,7 @@ class TestMutualExclusivityValidation:
             category="DISCOVERY",
             memory_title="New discovery",
             memory_text="Found something new",
+            persistence="permanent",
             status=MemoryStatus.ACTIVE,
             supersedes_memory_titles=set(),
             invalidate_memory_titles=set()
@@ -125,6 +131,7 @@ class TestMutualExclusivityValidation:
                 category="SUCCESS",
                 memory_title="New memory",
                 memory_text="Some text",
+                persistence="permanent",
                 status=MemoryStatus.ACTIVE,
                 invalidate_memory_titles={"Wrong memory"},
                 invalidation_reason=None  # Missing required field
@@ -141,6 +148,7 @@ class TestMutualExclusivityValidation:
                 category="SUCCESS",
                 memory_title="New memory",
                 memory_text="Some text",
+                persistence="permanent",
                 status=MemoryStatus.ACTIVE,
                 invalidate_memory_titles={"Wrong memory"},
                 invalidation_reason="   "  # Whitespace-only
@@ -157,6 +165,7 @@ class TestMutualExclusivityValidation:
                 category="SUCCESS",
                 memory_title="New memory",
                 memory_text="Some text",
+                persistence="permanent",
                 status=MemoryStatus.ACTIVE,
                 invalidate_memory_titles={"Wrong memory"},
                 invalidation_reason=""  # Empty string

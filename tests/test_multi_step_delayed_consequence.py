@@ -132,6 +132,7 @@ def mock_llm_tentative_memory():
         "category": "NOTE",
         "memory_title": "Troll accepts lunch gift",
         "memory_text": "Troll accepts lunch offering graciously and eats it. Reaction to gift unclear, might allow passage.",
+        "persistence": "permanent",
         "status": "TENTATIVE",
         "reasoning": "Troll accepted the gift, but long-term consequence unclear. Marking TENTATIVE until we know if it's pacified or still hostile."
     }
@@ -154,6 +155,7 @@ def mock_llm_supersession_memory():
         "category": "DANGER",
         "memory_title": "Troll attacks after accepting gift",
         "memory_text": "Troll accepts lunch gift but then becomes hostile and attacks when attempting to pass. Gift strategy does not pacify troll.",
+        "persistence": "permanent",
         "status": "ACTIVE",
         "supersedes_memory_titles": ["Troll accepts lunch gift"],
         "reasoning": "This contradicts the previous TENTATIVE memory. Troll acceptance did not lead to safe passage. Must supersede optimistic memory and warn against this strategy."
@@ -409,6 +411,7 @@ Troll accepts lunch offering graciously and eats it. Reaction to gift unclear, m
             "category": "DANGER",
             "memory_title": "Troll kills after accepting gift",
             "memory_text": "Troll accepts lunch but then attacks and kills when attempting passage. Gift strategy is FATAL. Do not attempt.",
+            "persistence": "permanent",
             "status": "ACTIVE",
             "supersedes_memory_titles": ["Troll accepts lunch gift"],
             "reasoning": "Death occurred after gift acceptance. This is a critical DANGER memory - gift does not work, leads to death."
@@ -515,6 +518,7 @@ class TestDelayedConsequenceEdgeCases:
             "category": "DANGER",
             "memory_title": "Troll attacks when moving north",
             "memory_text": "Troll attacks with axe when attempting to move north.",
+            "persistence": "permanent",
             "reasoning": "Dangerous action, should remember."
         }
         """
@@ -613,6 +617,7 @@ Troll accepts lunch offering graciously.
             "category": "DANGER",
             "memory_title": "Troll attacks after gift",
             "memory_text": "Gift does not work.",
+            "persistence": "permanent",
             "status": "ACTIVE",
             "supersedes_memory_titles": ["Troll accepts lunch gift"],
             "reasoning": "Contradicts previous memory."

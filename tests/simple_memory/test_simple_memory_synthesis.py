@@ -24,6 +24,7 @@ class TestMemorySynthesisResponseSchema:
             "category": "SUCCESS",
             "memory_title": "Test Title",
             "memory_text": "Test memory text.",
+            "persistence": "permanent",
             "reasoning": "Test reasoning"
         }
 
@@ -46,7 +47,8 @@ class TestMemorySynthesisResponseSchema:
             "should_remember": True,
             "category": "FAILURE",
             "memory_title": "Test",
-            "memory_text": "Test text."
+            "memory_text": "Test text.",
+            "persistence": "permanent"
         }
 
         # Parse
@@ -65,6 +67,7 @@ class TestMemorySynthesisResponseSchema:
             "category": "INVALID_CATEGORY",  # Not in [SUCCESS, FAILURE, DISCOVERY, DANGER, NOTE]
             "memory_title": "Test",
             "memory_text": "Test text.",
+            "persistence": "permanent",
             "reasoning": "Test"
         }
 
@@ -92,7 +95,8 @@ class TestMemorySynthesisResponseSchema:
                 "should_remember": True,
                 "category": 123,  # Wrong type
                 "memory_title": "Test",
-                "memory_text": "Test."
+                "memory_text": "Test.",
+                "persistence": "permanent"
             })
 
     def test_model_validate_json_from_string(self, mock_logger, game_config, game_state):
@@ -106,6 +110,7 @@ class TestMemorySynthesisResponseSchema:
             "category": "DISCOVERY",
             "memory_title": "Found key",
             "memory_text": "Key unlocks door.",
+            "persistence": "permanent",
             "reasoning": "Important discovery"
         })
 
@@ -796,7 +801,7 @@ class TestRecordActionOutcomeMethod:
             # Content should be correct
             content = memories_path.read_text()
             assert "Location 23: Living Room" in content
-            assert "[SUCCESS]" in content
+            assert "[SUCCESS - PERMANENT]" in content  # New format includes persistence marker
             assert "Acquired lamp" in content
             assert "*(Ep1, T45, +5)*" in content
 

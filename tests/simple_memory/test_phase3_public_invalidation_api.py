@@ -59,6 +59,7 @@ def test_invalidate_memory_single_success(setup_manager):
         turns="20",
         score_change=0,
         text="Troll seems approachable.",
+        persistence="permanent",
         status=MemoryStatus.ACTIVE
     )
     manager.add_memory(
@@ -81,7 +82,7 @@ def test_invalidate_memory_single_success(setup_manager):
     # Verify memory was updated in file
     memories_path = game_dir / "Memories.md"
     content = memories_path.read_text()
-    assert "[NOTE - SUPERSEDED] Troll is friendly" in content
+    assert "[NOTE - PERMANENT - SUPERSEDED] Troll is friendly" in content  # With persistence marker
     assert '[Invalidated at T25: "Proven false by death at turn 25"]' in content
 
 
@@ -100,6 +101,7 @@ def test_invalidate_memory_default_turn(setup_manager):
         turns="30",
         score_change=5,
         text="Brass key opens the stone door.",
+        persistence="permanent",
         status=MemoryStatus.ACTIVE
     )
     manager.add_memory(
@@ -136,6 +138,7 @@ def test_invalidate_memory_empty_reason_fails(setup_manager):
         turns="10",
         score_change=0,
         text="The pit looks very deep.",
+        persistence="permanent",
         status=MemoryStatus.ACTIVE
     )
     manager.add_memory(
@@ -158,8 +161,8 @@ def test_invalidate_memory_empty_reason_fails(setup_manager):
     # Verify memory was NOT updated
     memories_path = game_dir / "Memories.md"
     content = memories_path.read_text()
-    assert "[DANGER - SUPERSEDED]" not in content
-    assert "[DANGER] Pit is deep" in content  # Still ACTIVE
+    assert "[DANGER - PERMANENT - SUPERSEDED]" not in content
+    assert "[DANGER - PERMANENT] Pit is deep" in content  # Still ACTIVE (with PERMANENT marker)
 
 
 def test_invalidate_memory_nonexistent_memory(setup_manager):
@@ -191,6 +194,7 @@ def test_invalidate_memories_batch_success(setup_manager):
             turns="20",
             score_change=0,
             text="Troll seems friendly.",
+            persistence="permanent",
             status=MemoryStatus.ACTIVE
         ),
         Memory(
@@ -200,6 +204,7 @@ def test_invalidate_memories_batch_success(setup_manager):
             turns="21",
             score_change=0,
             text="Troll accepts lunch gift.",
+            persistence="permanent",
             status=MemoryStatus.TENTATIVE
         )
     ]
@@ -226,8 +231,8 @@ def test_invalidate_memories_batch_success(setup_manager):
     # Verify both memories were updated
     memories_path = game_dir / "Memories.md"
     content = memories_path.read_text()
-    assert "[NOTE - SUPERSEDED] Troll is friendly" in content
-    assert "[NOTE - SUPERSEDED] Troll accepts gifts" in content
+    assert "[NOTE - PERMANENT - SUPERSEDED] Troll is friendly" in content  # With persistence marker
+    assert "[NOTE - PERMANENT - SUPERSEDED] Troll accepts gifts" in content  # With persistence marker
     assert '[Invalidated at T25: "Both proven false by troll attack"]' in content
 
 
@@ -259,6 +264,7 @@ def test_invalidate_memories_empty_reason(setup_manager):
         turns="20",
         score_change=0,
         text="Test text.",
+        persistence="permanent",
         status=MemoryStatus.ACTIVE
     )
     manager.add_memory(
@@ -291,6 +297,7 @@ def test_invalidate_memories_partial_success(setup_manager):
         turns="20",
         score_change=0,
         text="Test text A.",
+        persistence="permanent",
         status=MemoryStatus.ACTIVE
     )
     manager.add_memory(
@@ -324,6 +331,7 @@ def test_invalidate_memory_substring_match(setup_manager):
         turns="20",
         score_change=5,
         text="Successfully unlocked door.",
+        persistence="permanent",
         status=MemoryStatus.ACTIVE
     )
     manager.add_memory(
@@ -346,7 +354,7 @@ def test_invalidate_memory_substring_match(setup_manager):
     # Verify memory was updated
     memories_path = game_dir / "Memories.md"
     content = memories_path.read_text()
-    assert "[SUCCESS - SUPERSEDED]" in content
+    assert "[SUCCESS - PERMANENT - SUPERSEDED]" in content  # With persistence marker
     assert '[Invalidated at T25: "Key was wrong key"]' in content
 
 
@@ -362,6 +370,7 @@ def test_invalidate_memory_logging(setup_manager):
         turns="20",
         score_change=0,
         text="Test text.",
+        persistence="permanent",
         status=MemoryStatus.ACTIVE
     )
     manager.add_memory(
@@ -400,6 +409,7 @@ def test_invalidate_memories_logging_summary(setup_manager):
             turns="20",
             score_change=0,
             text=f"Test text {i}.",
+            persistence="permanent",
             status=MemoryStatus.ACTIVE
         )
         manager.add_memory(

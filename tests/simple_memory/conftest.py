@@ -35,9 +35,11 @@ class Memory:
     turns: str  # Turn range (e.g., "23-24" or "23")
     score_change: Optional[int]  # Score change (+5, +0, None if not specified)
     text: str  # 1-2 sentence synthesized insight
+    persistence: str  # "core" | "permanent" | "ephemeral" - REQUIRED
     status: MemoryStatusType = MemoryStatus.ACTIVE  # Memory status
     superseded_by: Optional[str] = None  # Title of memory that superseded this
     superseded_at_turn: Optional[int] = None  # Turn when superseded
+    invalidation_reason: Optional[str] = None  # Reason for standalone invalidation
 
 
 # ============================================================================
@@ -235,6 +237,7 @@ def mock_llm_client_synthesis():
         "category": "SUCCESS",
         "memory_title": "Acquired lamp",
         "memory_text": "Brass lantern provides light for dark areas.",
+        "persistence": "permanent",
         "status": "ACTIVE",
         "supersedes_memory_titles": [],
         "reasoning": "Significant item acquisition"
@@ -290,5 +293,6 @@ def sample_memory():
         episode=1,
         turns="23",
         score_change=0,
-        text="Window can be opened successfully."
+        text="Window can be opened successfully.",
+        persistence="permanent"
     )
