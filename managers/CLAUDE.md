@@ -540,6 +540,45 @@ manager.supersede_memory(
 3. Calls `add_memory()` for new memory (routing automatic)
 4. Migration happens transparently via routing logic
 
+#### Persistence Level Validation
+
+Supersession enforces persistence compatibility to prevent data loss after episode resets.
+
+**Validation Logic** (`supersede_memory()` lines 826-836):
+```python
+if old_memory.persistence in ["core", "permanent"] and new_memory.persistence == "ephemeral":
+    self.log_warning("Cannot downgrade ... - would cause data loss after episode reset")
+    return False
+```
+
+**Allowed Transitions**:
+- Ephemeral → Ephemeral (state updates)
+- Ephemeral → Permanent (upgrades to game mechanics)
+- Permanent → Permanent (refinements)
+- Core → Core (rare: correcting spawn state)
+- Core → Permanent (spawn confirmations)
+
+**Rejected Transitions** (return False, log warning):
+- Permanent → Ephemeral (would lose game mechanic after reset)
+- Core → Ephemeral (would lose spawn state after reset)
+
+**Why This Matters**:
+
+Without validation, this bug occurs:
+1. Agent learns "Troll attacks on sight" (PERMANENT, in file)
+2. Agent drops sword near troll (creates EPHEMERAL memory)
+3. LLM incorrectly supersedes PERMANENT with EPHEMERAL
+4. Episode resets → EPHEMERAL cleared, PERMANENT marked SUPERSEDED
+5. Agent loses knowledge that troll is dangerous!
+
+**Error Handling**:
+- `supersede_memory()` returns `False` when downgrade attempted
+- Warning logged with both persistence levels and reason
+- Original memory unchanged (not marked SUPERSEDED)
+- New ephemeral memory NOT added to cache
+
+**Testing**: See `tests/simple_memory/test_supersede_validation.py` for validation tests.
+
 ### Episode Reset Behavior
 
 `reset_episode()` clears ephemeral cache while preserving persistent cache:

@@ -823,6 +823,18 @@ class SimpleMemoryManager(BaseManager):
             )
             return False
 
+        # Validate persistence level compatibility (prevent downgrade to ephemeral)
+        if old_memory.persistence in ["core", "permanent"] and new_memory.persistence == "ephemeral":
+            self.log_warning(
+                f"Cannot downgrade {old_memory.persistence} memory to ephemeral - would cause data loss after episode reset",
+                location_id=location_id,
+                old_title=old_memory_title,
+                old_persistence=old_memory.persistence,
+                new_persistence=new_memory.persistence,
+                reason=f"{old_memory.persistence.capitalize()} knowledge cannot be replaced by temporary state"
+            )
+            return False
+
         # Extract turn number from new_memory.turns for the superseded_at_turn parameter
         # new_memory.turns is a string like "20" or "20-25"
         try:
@@ -1763,6 +1775,36 @@ Review existing memories above. Does this action outcome:
 If yes to any: list specific memory TITLES in supersedes_memory_titles field.
 If contradicting multiple memories: list ALL relevant titles.
 Use EXACT titles from existing memories above. If title is long, unique substring is sufficient.
+═══════════════════════════════════════════════════════════════
+
+SUPERSESSION PERSISTENCE RULES:
+═══════════════════════════════════════════════════════════════
+When superseding memories, persistence levels must be compatible:
+
+✓ ALLOWED SUPERSESSIONS:
+  • ephemeral → ephemeral (state update: "dropped sword" → "picked up sword")
+  • ephemeral → permanent (upgrade: "door opened" → "door can be opened")
+  • permanent → permanent (refinement: "troll peaceful" → "troll attacks")
+  • core → core (rare: correcting spawn state observation)
+  • core → permanent (confirmation: "sword here" → "sword takeable")
+
+✗ FORBIDDEN (causes data loss after episode reset):
+  • permanent → ephemeral ("troll attacks" → "dropped item near troll")
+  • core → ephemeral ("mailbox here" → "opened mailbox")
+
+**If permanent/core knowledge is wrong**: Use INVALIDATION instead of downgrade:
+  1. Invalidate the wrong permanent/core memory (with reason)
+  2. Create new ephemeral memory separately (if agent action needed)
+  3. This preserves data integrity across episode boundaries
+
+Example:
+  ❌ Wrong: supersede "Troll attacks" (permanent) with "Dropped sword near troll" (ephemeral)
+     → Would cause data loss: danger knowledge lost after episode reset
+
+  ✓ Right approach (two separate operations):
+     1. Keep "Troll attacks" (permanent) as-is (don't supersede)
+     2. Create "Dropped sword near troll" (ephemeral) as NEW memory
+     → Result: Both memories coexist - danger knowledge preserved, state change recorded
 ═══════════════════════════════════════════════════════════════
 
 INVALIDATION CHECK (without replacement):
