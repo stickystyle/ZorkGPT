@@ -31,6 +31,7 @@ class TestMovementMemoryStoredAtSource:
             "category": "SUCCESS",
             "memory_title": "Enter through window",
             "memory_text": "Window provides entrance to kitchen from behind house.",
+            "persistence": "permanent",
             "status": "ACTIVE",
             "supersedes_memory_titles": [],
             "reasoning": "Successful movement through window"
@@ -94,6 +95,7 @@ class TestMovementMemoryStoredAtSource:
             "category": "DISCOVERY",
             "memory_title": "Mailbox contains leaflet",
             "memory_text": "Small mailbox here contains advertising leaflet.",
+            "persistence": "permanent",
             "status": "ACTIVE",
             "supersedes_memory_titles": [],
             "reasoning": "Item discovery"
@@ -155,6 +157,7 @@ class TestMovementMemoryStoredAtSource:
             turns="23",
             score_change=0,
             text="Window provides entrance to kitchen from behind house.",
+            persistence="permanent",
             status="ACTIVE"
         )
         manager.memory_cache = {79: [movement_memory]}
@@ -198,6 +201,7 @@ class TestMultipleMemoriesAtSameLocation:
             "category": "SUCCESS",
             "memory_title": "Enter through window",
             "memory_text": "Window provides entrance to kitchen.",
+            "persistence": "permanent",
             "status": "ACTIVE",
             "supersedes_memory_titles": [],
             "reasoning": "Movement success"
@@ -210,6 +214,7 @@ class TestMultipleMemoriesAtSameLocation:
             "category": "DISCOVERY",
             "memory_title": "Mailbox contains leaflet",
             "memory_text": "Small mailbox contains advertising leaflet.",
+            "persistence": "permanent",
             "status": "ACTIVE",
             "supersedes_memory_titles": [],
             "reasoning": "Item discovery"
@@ -346,6 +351,7 @@ class TestEdgeCases:
             "category": "NOTE",
             "memory_title": "Invalid location test",
             "memory_text": "Testing invalid location handling.",
+            "persistence": "permanent",
             "status": "ACTIVE",
             "supersedes_memory_titles": [],
             "reasoning": "Test case"

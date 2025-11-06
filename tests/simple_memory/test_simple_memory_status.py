@@ -26,6 +26,7 @@ class TestMemoryStatusFiltering:
             turns="10",
             score_change=5,
             text="This is an active memory.",
+            persistence="permanent",
             status=MemoryStatus.ACTIVE
         )
 
@@ -56,6 +57,7 @@ class TestMemoryStatusFiltering:
             turns="11",
             score_change=0,
             text="This is a tentative memory.",
+            persistence="permanent",
             status=MemoryStatus.TENTATIVE
         )
 
@@ -86,6 +88,7 @@ class TestMemoryStatusFiltering:
             turns="12",
             score_change=-5,
             text="This memory was proven wrong.",
+            persistence="permanent",
             status=MemoryStatus.SUPERSEDED
         )
 
@@ -114,6 +117,7 @@ class TestMemoryStatusFiltering:
             turns="10",
             score_change=5,
             text="This is active.",
+            persistence="permanent",
             status=MemoryStatus.ACTIVE
         )
 
@@ -124,6 +128,7 @@ class TestMemoryStatusFiltering:
             turns="11",
             score_change=0,
             text="This is tentative.",
+            persistence="permanent",
             status=MemoryStatus.TENTATIVE
         )
 
@@ -134,6 +139,7 @@ class TestMemoryStatusFiltering:
             turns="12",
             score_change=-5,
             text="This was proven wrong.",
+            persistence="permanent",
             status=MemoryStatus.SUPERSEDED
         )
 
@@ -183,6 +189,7 @@ class TestMemoryStatusFiltering:
             turns="10",
             score_change=5,
             text="Active.",
+            persistence="permanent",
             status=MemoryStatus.ACTIVE
         )
 
@@ -193,6 +200,7 @@ class TestMemoryStatusFiltering:
             turns="11",
             score_change=0,
             text="Tentative.",
+            persistence="permanent",
             status=MemoryStatus.TENTATIVE
         )
 

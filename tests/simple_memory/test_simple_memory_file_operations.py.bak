@@ -45,8 +45,8 @@ class TestWriteNewMemoryToFile:
         # Should contain location header
         assert "## Location 15: West of House" in content
 
-        # Should contain memory entry (with PERMANENT marker since persistence='permanent')
-        assert "**[SUCCESS - PERMANENT] Open window**" in content
+        # Should contain memory entry
+        assert "**[SUCCESS] Open window**" in content
         assert "*(Ep1, T23, +0)*" in content
         assert "Window can be opened successfully." in content
 
@@ -76,10 +76,10 @@ class TestWriteNewMemoryToFile:
         # File should now exist
         assert memories_path.exists()
 
-        # Verify content (with PERMANENT marker since persistence='permanent')
+        # Verify content
         content = memories_path.read_text(encoding="utf-8")
         assert "## Location 15: West of House" in content
-        assert "**[SUCCESS - PERMANENT] Open window**" in content
+        assert "**[SUCCESS] Open window**" in content
 
     def test_memory_formatted_correctly_in_markdown(self, mock_logger, game_config, game_state, sample_memory):
         """Test that memory entry is formatted correctly in markdown."""
@@ -98,12 +98,12 @@ class TestWriteNewMemoryToFile:
         memories_path = Path(game_config.zork_game_workdir) / "Memories.md"
         content = memories_path.read_text(encoding="utf-8")
 
-        # Should match exact format: **[CATEGORY - PERMANENT] Title** *(metadata)*\ntext
-        assert "**[SUCCESS - PERMANENT] Open window** *(Ep1, T23, +0)*" in content
+        # Should match exact format: **[CATEGORY] Title** *(metadata)*\ntext
+        assert "**[SUCCESS] Open window** *(Ep1, T23, +0)*" in content
 
         # Text should be on next line
         lines = content.split("\n")
-        header_idx = next(i for i, line in enumerate(lines) if "**[SUCCESS - PERMANENT] Open window**" in line)
+        header_idx = next(i for i, line in enumerate(lines) if "**[SUCCESS] Open window**" in line)
         text_line = lines[header_idx + 1]
         assert "Window can be opened successfully." in text_line
 
@@ -147,8 +147,7 @@ class TestWriteNewMemoryToFile:
             episode=1,
             turns="23-24",
             score_change=0,
-            text="Window can be opened with effort.",
-            persistence="permanent"
+            text="Window can be opened with effort."
         )
 
         manager.add_memory(15, "West of House", memory_range)
@@ -160,8 +159,7 @@ class TestWriteNewMemoryToFile:
             episode=2,
             turns="45",
             score_change=5,
-            text="Lamp provides light.",
-            persistence="permanent"
+            text="Lamp provides light."
         )
 
         manager.add_memory(23, "Living Room", memory_score)
@@ -173,8 +171,7 @@ class TestWriteNewMemoryToFile:
             episode=1,
             turns="100",
             score_change=None,
-            text="Grue will kill you.",
-            persistence="permanent"
+            text="Grue will kill you."
         )
 
         manager.add_memory(10, "Dark Room", memory_no_score)
@@ -218,8 +215,7 @@ class TestAppendToExistingLocationSection:
             episode=1,
             turns="25",
             score_change=None,
-            text="Window cannot be taken.",
-            persistence="permanent"
+            text="Window cannot be taken."
         )
 
         result = manager.add_memory(15, "West of House", new_memory)
@@ -232,9 +228,9 @@ class TestAppendToExistingLocationSection:
         memories_path = Path(game_config.zork_game_workdir) / "Memories.md"
         content = memories_path.read_text(encoding="utf-8")
 
-        # Both memories should be present (with PERMANENT markers since persistence='permanent')
-        assert "**[SUCCESS] Open window**" in content  # From sample data (old format, backward compat)
-        assert "**[FAILURE - PERMANENT] Take window**" in content  # Newly written (new format)
+        # Both memories should be present
+        assert "**[SUCCESS] Open window**" in content
+        assert "**[FAILURE] Take window**" in content
 
     def test_memories_in_correct_order_newest_last(self, mock_logger, game_config, game_state, create_memories_file):
         """Test that memories are in correct order with newest last."""
@@ -251,8 +247,7 @@ class TestAppendToExistingLocationSection:
             episode=1,
             turns="25",
             score_change=None,
-            text="Window cannot be taken.",
-            persistence="permanent"
+            text="Window cannot be taken."
         )
         manager.add_memory(15, "West of House", memory2)
 
@@ -263,8 +258,7 @@ class TestAppendToExistingLocationSection:
             episode=1,
             turns="20",
             score_change=0,
-            text="Mailbox contains leaflet.",
-            persistence="permanent"
+            text="Mailbox contains leaflet."
         )
         manager.add_memory(15, "West of House", memory3)
 
@@ -274,8 +268,8 @@ class TestAppendToExistingLocationSection:
 
         # Find positions of each memory
         success_pos = content.find("**[SUCCESS] Open window**")
-        failure_pos = content.find("**[FAILURE - PERMANENT] Take window**")  # Newly written
-        discovery_pos = content.find("**[DISCOVERY - PERMANENT] Mailbox location**")  # Newly written
+        failure_pos = content.find("**[FAILURE] Take window**")
+        discovery_pos = content.find("**[DISCOVERY] Mailbox location**")
 
         # Should be in order: SUCCESS < FAILURE < DISCOVERY
         assert success_pos < failure_pos < discovery_pos
@@ -295,8 +289,7 @@ class TestAppendToExistingLocationSection:
             episode=1,
             turns="25",
             score_change=None,
-            text="Window cannot be taken.",
-            persistence="permanent"
+            text="Window cannot be taken."
         )
         manager.add_memory(15, "West of House", new_memory)
 
@@ -327,8 +320,7 @@ class TestAppendToExistingLocationSection:
             episode=1,
             turns="25",
             score_change=None,
-            text="Window cannot be taken.",
-            persistence="permanent"
+            text="Window cannot be taken."
         )
         manager.add_memory(15, "West of House", new_memory)
 
@@ -358,8 +350,7 @@ class TestCreateNewLocationSection:
             episode=1,
             turns="45",
             score_change=5,
-            text="Lamp provides light.",
-            persistence="permanent"
+            text="Lamp provides light."
         )
 
         result = manager.add_memory(23, "Living Room", new_memory)
@@ -392,8 +383,7 @@ class TestCreateNewLocationSection:
             episode=1,
             turns="45",
             score_change=5,
-            text="Lamp provides light.",
-            persistence="permanent"
+            text="Lamp provides light."
         )
         manager.add_memory(23, "Living Room", new_memory)
 
@@ -423,8 +413,7 @@ class TestCreateNewLocationSection:
             episode=1,
             turns="45",
             score_change=5,
-            text="Lamp provides light.",
-            persistence="permanent"
+            text="Lamp provides light."
         )
         manager.add_memory(23, "Living Room", new_memory)
 
@@ -455,8 +444,7 @@ class TestCreateNewLocationSection:
             episode=1,
             turns="100",
             score_change=None,
-            text="Grue will kill you.",
-            persistence="permanent"
+            text="Grue will kill you."
         )
         manager.add_memory(10, "Dark Room", new_memory)
 
@@ -492,8 +480,7 @@ class TestFileBackupMechanism:
             episode=1,
             turns="25",
             score_change=None,
-            text="Window cannot be taken.",
-            persistence="permanent"
+            text="Window cannot be taken."
         )
         manager.add_memory(15, "West of House", new_memory)
 
@@ -519,8 +506,7 @@ class TestFileBackupMechanism:
             episode=1,
             turns="25",
             score_change=None,
-            text="Window cannot be taken.",
-            persistence="permanent"
+            text="Window cannot be taken."
         )
         manager.add_memory(15, "West of House", new_memory)
 
@@ -551,8 +537,7 @@ class TestFileBackupMechanism:
             episode=1,
             turns="23",
             score_change=0,
-            text="Window can be opened.",
-            persistence="permanent"
+            text="Window can be opened."
         )
         manager.add_memory(15, "West of House", new_memory)
 
@@ -580,8 +565,7 @@ class TestFileBackupMechanism:
             episode=1,
             turns="25",
             score_change=None,
-            text="Window cannot be taken.",
-            persistence="permanent"
+            text="Window cannot be taken."
         )
         manager.add_memory(15, "West of House", memory1)
 
@@ -595,8 +579,7 @@ class TestFileBackupMechanism:
             episode=1,
             turns="20",
             score_change=0,
-            text="Mailbox contains leaflet.",
-            persistence="permanent"
+            text="Mailbox contains leaflet."
         )
         manager.add_memory(15, "West of House", memory2)
 
@@ -632,8 +615,7 @@ class TestAtomicCacheUpdates:
             episode=1,
             turns="25",
             score_change=None,
-            text="Window cannot be taken.",
-            persistence="permanent"
+            text="Window cannot be taken."
         )
         result = manager.add_memory(15, "West of House", new_memory)
 
@@ -662,8 +644,7 @@ class TestAtomicCacheUpdates:
             episode=1,
             turns="25",
             score_change=None,
-            text="Window cannot be taken.",
-            persistence="permanent"
+            text="Window cannot be taken."
         )
         manager.add_memory(15, "West of House", new_memory)
 
@@ -702,8 +683,7 @@ class TestAtomicCacheUpdates:
                 episode=1,
                 turns="25",
                 score_change=None,
-                text="Window cannot be taken.",
-            persistence="permanent"
+                text="Window cannot be taken."
             )
             result = manager.add_memory(15, "West of House", new_memory)
 
@@ -728,8 +708,7 @@ class TestAtomicCacheUpdates:
             episode=1,
             turns="25",
             score_change=None,
-            text="Window cannot be taken.",
-            persistence="permanent"
+            text="Window cannot be taken."
         )
         manager.add_memory(15, "West of House", new_memory)
 
@@ -764,8 +743,7 @@ class TestFileLocking:
                 episode=1,
                 turns=str(20 + i),
                 score_change=None,
-                text=f"Memory text {i}.",
-                persistence="permanent"
+                text=f"Memory text {i}."
             )
             for i in range(10)
         ]
@@ -819,8 +797,7 @@ class TestFileLocking:
             episode=1,
             turns="25",
             score_change=None,
-            text="Window cannot be taken.",
-            persistence="permanent"
+            text="Window cannot be taken."
         )
         manager.add_memory(15, "West of House", new_memory)
 
@@ -831,8 +808,7 @@ class TestFileLocking:
             episode=1,
             turns="20",
             score_change=0,
-            text="Mailbox contains leaflet.",
-            persistence="permanent"
+            text="Mailbox contains leaflet."
         )
         result = manager.add_memory(15, "West of House", memory2)
 
@@ -856,8 +832,7 @@ class TestFileLocking:
                 episode=1,
                 turns="25",
                 score_change=None,
-                text="Window cannot be taken.",
-            persistence="permanent"
+                text="Window cannot be taken."
             )
             result = manager.add_memory(15, "West of House", new_memory)
 
@@ -871,8 +846,7 @@ class TestFileLocking:
             episode=1,
             turns="20",
             score_change=0,
-            text="Mailbox contains leaflet.",
-            persistence="permanent"
+            text="Mailbox contains leaflet."
         )
         result = manager.add_memory(15, "West of House", memory2)
 
@@ -905,8 +879,7 @@ class TestFileLocking:
                 episode=1,
                 turns="25",
                 score_change=None,
-                text="Window cannot be taken.",
-            persistence="permanent"
+                text="Window cannot be taken."
             )
 
             # Should fail due to timeout

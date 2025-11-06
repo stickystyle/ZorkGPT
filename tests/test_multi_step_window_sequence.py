@@ -105,6 +105,7 @@ def mock_llm_client_multi_step_synthesis():
         "category": "SUCCESS",
         "memory_title": "Window entry to kitchen",
         "memory_text": "To enter kitchen from behind house: (1) examine window to confirm it's usable, (2) open window to make it passable, (3) enter window to reach kitchen. Window requires opening before entry is possible.",
+        "persistence": "permanent",
         "reasoning": "This is a multi-step procedure that requires specific sequence. History shows three distinct actions were needed: examination revealed the window was ajar but not open enough, opening made it passable, then entry succeeded. This causal chain is important for future visits."
     }
     """
@@ -276,6 +277,7 @@ class TestWindowSequenceMultiStep:
             "category": "SUCCESS",
             "memory_title": "Enter window works",
             "memory_text": "Entering the window leads to the kitchen.",
+            "persistence": "permanent",
             "reasoning": "Action succeeded and moved to new location."
         }
         """

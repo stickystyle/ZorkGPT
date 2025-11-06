@@ -412,6 +412,400 @@ def test_llm_invalidation_workflow(manager):
 - Create new DANGER/NOTE memories after invalidation if new information discovered
 - Use clear invalidation reasons explaining why memory was wrong
 
+## Ephemeral Memory System
+
+**Problem Solved**: Agent-caused state changes (e.g., "I dropped the sword here") were persisting across episode boundaries, causing false expectations when the agent returned to locations in new episodes where objects had been reset to spawn state.
+
+**Solution**: Three-tier persistence classification system with dual cache architecture that automatically clears temporary agent state on episode reset while preserving permanent game knowledge.
+
+### Three-Tier Persistence Classification
+
+**CORE** (`persistence="core"`):
+- Spawn state from first-visit room descriptions
+- Resets each episode (rooms return to spawn state)
+- Example: "Room has mailbox at spawn" (true every episode)
+- Storage: File + memory_cache (persistent across code runs)
+
+**PERMANENT** (`persistence="permanent"`):
+- Game mechanics, reusable procedural knowledge
+- Persists across all episodes indefinitely
+- Example: "Open window → enter window leads to Kitchen"
+- Storage: File + memory_cache (persistent across code runs)
+
+**EPHEMERAL** (`persistence="ephemeral"`):
+- Agent-caused temporary state changes
+- Cleared on episode reset (agent state doesn't persist)
+- Example: "Dropped sword at West of House" (not true next episode)
+- Storage: ephemeral_cache only (in-memory, never written to file)
+
+### Dual Cache Architecture
+
+SimpleMemoryManager maintains two separate caches:
+
+```python
+# Persistent: Loaded from Memories.md (CORE + PERMANENT)
+self.memory_cache: Dict[int, List[Memory]] = {}
+
+# Ephemeral: In-memory only, cleared on episode reset
+self.ephemeral_cache: Dict[int, List[Memory]] = {}
+```
+
+**Why Dual Caches?**
+- Performance: Ephemeral memories never touch disk (fast operations)
+- Isolation: Episode reset clears ephemeral_cache, preserves memory_cache
+- Simplicity: add_memory() routes by persistence field automatically
+
+### Persistence Routing
+
+`add_memory()` automatically routes memories based on `persistence` field:
+
+```python
+# EPHEMERAL: In-memory only
+memory = Memory(
+    category="NOTE",
+    title="Dropped sword here",
+    episode=1,
+    turns="25",
+    score_change=0,
+    text="I dropped the sword at this location for tactical reasons.",
+    persistence="ephemeral"  # → ephemeral_cache only
+)
+manager.add_memory(location_id, location_name, memory)
+
+# CORE or PERMANENT: File + cache
+memory = Memory(
+    category="SUCCESS",
+    title="Window leads to Kitchen",
+    episode=1,
+    turns="48",
+    score_change=5,
+    text="Entering the window leads to the Kitchen.",
+    persistence="permanent"  # → memory_cache + Memories.md
+)
+manager.add_memory(location_id, location_name, memory)
+```
+
+**Implementation in add_memory() (lines 653-742):**
+```python
+if memory.persistence == "ephemeral":
+    # Route to ephemeral_cache (no file write)
+    if location_id not in self.ephemeral_cache:
+        self.ephemeral_cache[location_id] = []
+    self.ephemeral_cache[location_id].append(memory)
+    return True
+else:
+    # Route to file + memory_cache
+    success = self._write_memory_to_file(location_id, location_name, memory)
+    if success:
+        if location_id not in self.memory_cache:
+            self.memory_cache[location_id] = []
+        self.memory_cache[location_id].append(memory)
+    return success
+```
+
+### Cache Migration During Supersession
+
+`supersede_memory()` handles migration from ephemeral to permanent:
+
+```python
+# Upgrade ephemeral to permanent (migration case)
+old_ephemeral = Memory(
+    title="Sword on ground",
+    persistence="ephemeral",
+    # ...
+)
+
+new_permanent = Memory(
+    title="Sword is quest item, always here",
+    persistence="permanent",
+    # ...
+)
+
+manager.supersede_memory(
+    location_id=15,
+    location_name="Living Room",
+    old_memory_title="Sword on ground",
+    new_memory=new_permanent
+)
+
+# Result:
+# - Old ephemeral marked SUPERSEDED in ephemeral_cache
+# - New permanent added to memory_cache + file (migrated!)
+# - Episode reset will clear old, keep new
+```
+
+**Implementation in supersede_memory() (lines 744-835):**
+1. Searches both caches for old memory by title
+2. Marks old memory as SUPERSEDED (stays in original cache)
+3. Calls `add_memory()` for new memory (routing automatic)
+4. Migration happens transparently via routing logic
+
+#### Persistence Level Validation
+
+Supersession enforces persistence compatibility to prevent data loss after episode resets.
+
+**Validation Logic** (`supersede_memory()` lines 826-836):
+```python
+if old_memory.persistence in ["core", "permanent"] and new_memory.persistence == "ephemeral":
+    self.log_warning("Cannot downgrade ... - would cause data loss after episode reset")
+    return False
+```
+
+**Allowed Transitions**:
+- Ephemeral → Ephemeral (state updates)
+- Ephemeral → Permanent (upgrades to game mechanics)
+- Permanent → Permanent (refinements)
+- Core → Core (rare: correcting spawn state)
+- Core → Permanent (spawn confirmations)
+
+**Rejected Transitions** (return False, log warning):
+- Permanent → Ephemeral (would lose game mechanic after reset)
+- Core → Ephemeral (would lose spawn state after reset)
+
+**Why This Matters**:
+
+Without validation, this bug occurs:
+1. Agent learns "Troll attacks on sight" (PERMANENT, in file)
+2. Agent drops sword near troll (creates EPHEMERAL memory)
+3. LLM incorrectly supersedes PERMANENT with EPHEMERAL
+4. Episode resets → EPHEMERAL cleared, PERMANENT marked SUPERSEDED
+5. Agent loses knowledge that troll is dangerous!
+
+**Error Handling**:
+- `supersede_memory()` returns `False` when downgrade attempted
+- Warning logged with both persistence levels and reason
+- Original memory unchanged (not marked SUPERSEDED)
+- New ephemeral memory NOT added to cache
+
+**Testing**: See `tests/simple_memory/test_supersede_validation.py` for validation tests.
+
+### Episode Reset Behavior
+
+`reset_episode()` clears ephemeral cache while preserving persistent cache:
+
+```python
+def reset_episode(self) -> None:
+    """
+    Reset manager state for new episode.
+
+    CRITICAL: Clears ephemeral_cache to prevent false memories.
+    Persistent cache (memory_cache) remains unchanged.
+    """
+    ephemeral_count = sum(len(mems) for mems in self.ephemeral_cache.values())
+    self.ephemeral_cache.clear()
+
+    self.log_info(
+        f"Episode reset: Cleared {ephemeral_count} ephemeral memories",
+        ephemeral_count=ephemeral_count
+    )
+    # Note: memory_cache (persistent) is NOT cleared
+```
+
+**Episode Lifecycle:**
+```
+Episode 1:
+- Agent adds CORE memory "Room has mailbox" (persistent)
+- Agent adds PERMANENT memory "Mailbox has leaflet" (persistent)
+- Agent adds EPHEMERAL memory "Dropped sword here" (ephemeral)
+- get_location_memory() returns all 3 memories
+
+Episode Reset:
+- ephemeral_cache cleared (sword memory gone)
+- memory_cache unchanged (room + mailbox remain)
+
+Episode 2:
+- Agent returns to location
+- get_location_memory() returns CORE + PERMANENT only
+- No false "sword on ground" memory
+- Agent can add new EPHEMERAL memories for Episode 2
+```
+
+### Memory Retrieval
+
+`get_location_memory()` combines both caches:
+
+```python
+def get_location_memory(self, location_id: int) -> str:
+    """
+    Get formatted memories for location from BOTH caches.
+
+    Combines:
+    - memory_cache (CORE + PERMANENT from file)
+    - ephemeral_cache (EPHEMERAL from current episode)
+
+    Filters out SUPERSEDED status (not shown to agent).
+    """
+    # Get memories from both caches
+    persistent_memories = self.memory_cache.get(location_id, [])
+    ephemeral_memories = self.ephemeral_cache.get(location_id, [])
+    all_memories = persistent_memories + ephemeral_memories
+
+    # Apply status filtering and format
+    # ...
+```
+
+### File Format with Persistence Markers
+
+Memories written to Memories.md include persistence markers in category field:
+
+**CORE Memory:**
+```markdown
+**[SUCCESS - CORE] West of House has mailbox at spawn** *(Ep1, T1, +0)*
+The mailbox is present at West of House in spawn state every episode.
+```
+
+**PERMANENT Memory:**
+```markdown
+**[SUCCESS - PERMANENT] Open window → enter window → Kitchen** *(Ep1, T48, +5)*
+Multi-step procedure: (1) open window, (2) enter window leads to Kitchen.
+```
+
+**EPHEMERAL Memory:**
+```
+NOT WRITTEN TO FILE (ephemeral_cache only)
+```
+
+**Format with Status:**
+```markdown
+**[CATEGORY - PERSISTENCE - STATUS] Title** *(Episode, Turn, Score)*
+**[NOTE - PERMANENT - TENTATIVE] Troll might accept gifts** *(Ep1, T12, +0)*
+**[SUCCESS - CORE - SUPERSEDED] Old spawn state** *(Ep1, T1, +0)*
+```
+
+### Public API Methods
+
+**Cache Inspection:**
+```python
+# Count ephemeral memories
+ephemeral_count = manager.get_ephemeral_count(location_id)
+total_ephemeral = manager.get_ephemeral_count()  # All locations
+
+# Count persistent memories (CORE + PERMANENT)
+persistent_count = manager.get_persistent_count(location_id)
+total_persistent = manager.get_persistent_count()  # All locations
+
+# Detailed breakdown
+breakdown = manager.get_memory_breakdown(location_id)
+# Returns: {"core": 1, "permanent": 2, "ephemeral": 3}
+```
+
+**Memory Operations:**
+```python
+# Add memory (automatic routing)
+manager.add_memory(location_id, location_name, memory)
+
+# Supersede with migration
+manager.supersede_memory(
+    location_id,
+    location_name,
+    old_memory_title,
+    new_memory
+)
+
+# Retrieve combined view
+memories_text = manager.get_location_memory(location_id)
+
+# Episode reset
+manager.reset_episode()  # Clears ephemeral_cache
+```
+
+### Configuration
+
+No additional configuration required. The system uses existing memory system configuration:
+
+```toml
+[tool.zorkgpt.memory_sampling]
+temperature = 0.3
+max_tokens = 1000
+memory_history_window = 3
+```
+
+### Testing
+
+**Test Coverage:** 196 total tests in simple_memory suite
+
+**Ephemeral-Specific Tests:**
+- `test_memory_persistence.py` (4 tests): Memory dataclass persistence field validation
+- `test_memory_synthesis_persistence.py` (5 tests): MemorySynthesisResponse validation
+- `test_ephemeral_cache.py` (12 tests): Dual cache initialization and reset behavior
+- `test_memory_routing.py` (6 tests): add_memory() persistence routing
+- `test_cache_combining.py` (8 tests): get_location_memory() cache combining
+- `test_supersede_cache_migration.py` (7 tests): supersede_memory() migration cases
+- `test_persistence_markers.py` (10 tests): File format with persistence markers
+- `test_episode_lifecycle_integration.py` (1 test): Full episode lifecycle validation
+
+**Key Test Patterns:**
+```python
+# Test ephemeral routing
+ephemeral_memory = Memory(..., persistence="ephemeral")
+manager.add_memory(10, "Room", ephemeral_memory)
+assert manager.get_ephemeral_count(10) == 1
+assert manager.get_persistent_count(10) == 0
+assert "ephemeral_title" not in (tmp_path / "Memories.md").read_text()
+
+# Test cache migration
+old_ephemeral = Memory(..., persistence="ephemeral")
+new_permanent = Memory(..., persistence="permanent")
+manager.add_memory(15, "Room", old_ephemeral)
+manager.supersede_memory(15, "Room", old_ephemeral.title, new_permanent)
+assert 15 in manager.memory_cache  # Migrated
+assert new_permanent.title in (tmp_path / "Memories.md").read_text()
+
+# Test episode reset
+manager.add_memory(10, "Room", ephemeral_memory)
+manager.reset_episode()
+assert manager.get_ephemeral_count(10) == 0  # Cleared
+assert manager.get_persistent_count(10) > 0  # Unchanged
+```
+
+### Common Pitfalls for Ephemeral Memories
+
+**Don't:**
+- Mark game mechanics as ephemeral (use PERMANENT instead)
+- Mark spawn state as ephemeral (use CORE instead)
+- Manually clear ephemeral_cache (use reset_episode())
+- Write ephemeral memories to file (routing prevents this)
+- Expect ephemeral memories to persist across episodes
+
+**Do:**
+- Use EPHEMERAL for agent actions: "dropped X", "opened Y", "killed Z"
+- Use CORE for spawn state: "room has mailbox", "troll at north"
+- Use PERMANENT for procedures: "open window → enter window", "give food to troll fails"
+- Trust routing logic (add_memory() handles everything)
+- Verify persistence field when creating Memory objects
+- Test with episode reset scenarios
+
+### Migration from Old System
+
+**Backward Compatibility:**
+- Old memories without persistence markers default to "permanent"
+- Parser handles mixed old/new format files correctly
+- No migration script needed (gradual transition)
+
+**To Add Ephemeral Support:**
+1. Set `persistence` field when creating Memory objects
+2. No changes to file reading (parser handles both formats)
+3. New memories automatically get persistence markers
+4. Episode reset now clears ephemeral memories
+
+### Architecture Benefits
+
+**Performance:**
+- Ephemeral operations never touch disk
+- No file I/O overhead for temporary state
+- Fast episode reset (just clear dict)
+
+**Correctness:**
+- False memories automatically prevented
+- Agent can't be confused by stale temporary state
+- Cross-episode learning works correctly
+
+**Maintainability:**
+- Single routing point (add_memory())
+- Clear separation of concerns (dual caches)
+- File format includes human-readable markers
+- Comprehensive test coverage
+
 ### Supersession Workflow
 
 When LLM detects contradiction in synthesis:

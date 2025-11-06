@@ -78,6 +78,7 @@ def mock_llm_client_synthesis():
         "category": "SUCCESS",
         "memory_title": "Test Memory",
         "memory_text": "Test memory text.",
+        "persistence": "permanent",
         "reasoning": "Test reasoning"
     }
     """
@@ -404,7 +405,8 @@ class TestOrchestratorIntegration:
             episode=1,
             turns="10",
             score_change=5,
-            text="Memory from episode 1"
+            text="Memory from episode 1",
+            persistence="permanent"
         )
 
         success = manager.add_memory(15, "Living Room", memory)
@@ -646,7 +648,7 @@ class TestEndToEndIntegration:
         # First action: LLM says remember
         mock_llm_remember = Mock()
         mock_response_1 = Mock()
-        mock_response_1.content = '{"should_remember": true, "category": "SUCCESS", "memory_title": "First Memory", "memory_text": "First memory text", "reasoning": "New discovery"}'
+        mock_response_1.content = '{"should_remember": true, "category": "SUCCESS", "memory_title": "First Memory", "memory_text": "First memory text", "persistence": "permanent", "reasoning": "New discovery"}'
         mock_llm_remember.chat.completions.create.return_value = mock_response_1
 
         manager = SimpleMemoryManager(
@@ -720,7 +722,8 @@ class TestMemoryFileIntegration:
                 episode=1,
                 turns=str(i),
                 score_change=0,
-                text=f"Memory text {i}"
+                text=f"Memory text {i}",
+                persistence="permanent"
             )
 
             success = manager.add_memory(15, "Living Room", memory)
@@ -757,7 +760,8 @@ class TestMemoryFileIntegration:
             episode=1,
             turns="1",
             score_change=0,
-            text="Test"
+            text="Test",
+            persistence="permanent"
         )
 
         manager.add_memory(15, "Living Room", memory)

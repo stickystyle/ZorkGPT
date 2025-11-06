@@ -138,6 +138,7 @@ class TestPhase4StandaloneInvalidation:
             category="DANGER",
             memory_title="Troll attacks after accepting gift",
             memory_text="Troll accepts gift but then attacks immediately. Gift strategy fails.",
+            persistence="permanent",
             status="ACTIVE",
             supersedes_memory_titles={"Troll accepts lunch gift"},
             invalidate_memory_titles={"Troll might be friendly"},
@@ -305,6 +306,7 @@ class TestPhase4BackwardCompatibility:
             "category": "DANGER",
             "memory_title": "Troll attacks after gift",
             "memory_text": "Troll attacks despite accepting gift.",
+            "persistence": "permanent",
             "status": "ACTIVE",
             "supersedes_memory_titles": ["Troll accepts lunch gift"],
             "reasoning": "Contradicts previous memory"
@@ -342,6 +344,7 @@ class TestPhase4BackwardCompatibility:
             "category": "DISCOVERY",
             "memory_title": "Sword found on floor",
             "memory_text": "Elvish sword lying on the floor, can be taken.",
+            "persistence": "permanent",
             "status": "ACTIVE",
             "reasoning": "New discovery"
         }"""

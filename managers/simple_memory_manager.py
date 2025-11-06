@@ -66,6 +66,11 @@ class Memory:
        - superseded_by = INVALIDATION_MARKER
        - superseded_at_turn = <turn>
        - invalidation_reason = <explanation>
+
+    Persistence levels:
+    - "core": Fundamental game mechanics (never expire)
+    - "permanent": Validated successful strategies (long-lasting)
+    - "ephemeral": Temporary situational insights (expire quickly)
     """
     category: str              # SUCCESS, FAILURE, DISCOVERY, DANGER, NOTE
     title: str                 # Short title of the memory
@@ -73,10 +78,20 @@ class Memory:
     turns: str                 # Turn range (e.g., "23-24" or "23")
     score_change: Optional[int]  # Score change (+5, +0, None if not specified)
     text: str                  # 1-2 sentence synthesized insight
+    persistence: str           # "core" | "permanent" | "ephemeral" - REQUIRED, no default
     status: MemoryStatusType = MemoryStatus.ACTIVE  # Memory status
     superseded_by: Optional[str] = None  # Title of superseding memory or INVALIDATION_MARKER
     superseded_at_turn: Optional[int] = None  # Turn when superseded or invalidated
     invalidation_reason: Optional[str] = None  # Reason for standalone invalidation (only with INVALIDATION_MARKER)
+
+    def __post_init__(self):
+        """Validate persistence field after initialization."""
+        valid_values = ["core", "permanent", "ephemeral"]
+        if self.persistence not in valid_values:
+            raise ValueError(
+                f"Invalid persistence value: '{self.persistence}'. "
+                f"Must be one of: {', '.join(valid_values)}"
+            )
 
 
 class MemorySynthesisResponse(BaseModel):
@@ -87,6 +102,7 @@ class MemorySynthesisResponse(BaseModel):
     category: Optional[str] = None  # Only required if should_remember=true
     memory_title: Optional[str] = None  # Only required if should_remember=true
     memory_text: Optional[str] = None  # Only required if should_remember=true
+    persistence: Optional[str] = None  # "core" | "permanent" | "ephemeral", required if should_remember=true
     status: MemoryStatusType = Field(default=MemoryStatus.ACTIVE)  # Default to ACTIVE
     supersedes_memory_titles: Set[str] = Field(default_factory=set)  # Titles to mark as superseded
     invalidate_memory_titles: Set[str] = Field(default_factory=set)  # Titles to invalidate without replacement
@@ -103,6 +119,20 @@ class MemorySynthesisResponse(BaseModel):
                 raise ValueError("memory_title is required when should_remember=true")
             if not self.memory_text:
                 raise ValueError("memory_text is required when should_remember=true")
+
+            # Validate persistence field
+            valid_persistence = ["core", "permanent", "ephemeral"]
+            if not self.persistence:
+                raise ValueError(
+                    f"persistence required when should_remember=true. "
+                    f"Must be one of {valid_persistence}"
+                )
+
+            # Validate persistence value
+            if self.persistence not in valid_persistence:
+                raise ValueError(
+                    f"persistence must be one of {valid_persistence}, got: {self.persistence}"
+                )
 
         # Validate invalidation fields
         if self.invalidate_memory_titles:
@@ -145,8 +175,13 @@ class SimpleMemoryManager(BaseManager):
 
     # Regex patterns for parsing Memories.md format
     LOCATION_HEADER_PATTERN = re.compile(r"^## Location (\d+): (.+)$")
-    # Matches: **[CATEGORY] Title** or **[CATEGORY - STATUS] Title**
-    MEMORY_ENTRY_PATTERN = re.compile(r"^\*\*\[(\w+)(?: - (\w+))?\] (.+?)\*\* \*\((.*?)\)\*$")
+    # Matches: **[CATEGORY] Title** or **[CATEGORY - PERSISTENCE] Title** or **[CATEGORY - PERSISTENCE - STATUS] Title**
+    # Group 1: Category (e.g., "NOTE", "SUCCESS")
+    # Group 2: Optional middle field (persistence or status)
+    # Group 3: Optional final field (status when persistence present)
+    # Group 4: Title
+    # Group 5: Metadata
+    MEMORY_ENTRY_PATTERN = re.compile(r"^\*\*\[(\w+)(?: - (\w+))?(?: - (\w+))?\] (.+?)\*\* \*\((.*?)\)\*$")
     # Matches: [Invalidated at T<turn>: "<reason>"]
     # Use negated character class to exclude quotes from capture
     INVALIDATION_REF_PATTERN = re.compile(r'^\[Invalidated at T(\d+): "([^"]*)"\]$')
@@ -154,8 +189,11 @@ class SimpleMemoryManager(BaseManager):
     def __init__(self, logger, config: GameConfiguration, game_state: GameState, llm_client=None):
         super().__init__(logger, config, game_state, "simple_memory")
 
-        # Initialize in-memory cache
+        # PERSISTENT: Loaded from Memories.md (core + permanent)
         self.memory_cache: Dict[int, List[Memory]] = {}
+
+        # EPHEMERAL: In-memory only, cleared on episode reset
+        self.ephemeral_cache: Dict[int, List[Memory]] = {}
 
         # Store LLM client (lazy initialization)
         self._llm_client = llm_client
@@ -174,12 +212,21 @@ class SimpleMemoryManager(BaseManager):
 
     def reset_episode(self) -> None:
         """
-        Reset manager state for a new episode.
+        Reset manager state for new episode.
 
-        Note: Memory cache persists across episodes - only episode-specific
-        tracking would be reset here. Currently no episode-specific state.
+        CRITICAL: Clears ephemeral_cache to prevent false memories.
+        Persistent cache (memory_cache) remains unchanged.
         """
-        self.log_debug("Simple memory manager reset for new episode")
+        # Clear ephemeral memories
+        ephemeral_count = sum(len(mems) for mems in self.ephemeral_cache.values())
+        self.ephemeral_cache.clear()
+
+        self.log_info(
+            f"Episode reset: Cleared {ephemeral_count} ephemeral memories",
+            ephemeral_count=ephemeral_count
+        )
+
+        # Note: memory_cache (persistent) is NOT cleared
 
     def process_turn(self) -> None:
         """
@@ -217,6 +264,60 @@ class SimpleMemoryManager(BaseManager):
         })
 
         return status
+
+    def get_ephemeral_count(self, location_id: Optional[int] = None) -> int:
+        """
+        Get count of ephemeral memories.
+
+        Args:
+            location_id: Specific location, or None for total across all locations
+
+        Returns:
+            Count of ephemeral memories
+        """
+        if location_id is not None:
+            return len(self.ephemeral_cache.get(location_id, []))
+        else:
+            return sum(len(mems) for mems in self.ephemeral_cache.values())
+
+    def get_persistent_count(self, location_id: Optional[int] = None) -> int:
+        """
+        Get count of persistent memories (CORE + PERMANENT).
+
+        Args:
+            location_id: Specific location, or None for total across all locations
+
+        Returns:
+            Count of persistent memories
+        """
+        if location_id is not None:
+            return len(self.memory_cache.get(location_id, []))
+        else:
+            return sum(len(mems) for mems in self.memory_cache.values())
+
+    def get_memory_breakdown(self, location_id: int) -> Dict[str, int]:
+        """
+        Get breakdown of memory types at location.
+
+        Args:
+            location_id: Location to get breakdown for
+
+        Returns:
+            {"core": count, "permanent": count, "ephemeral": count}
+        """
+        breakdown = {"core": 0, "permanent": 0, "ephemeral": 0}
+
+        # Count from persistent cache (core + permanent)
+        for mem in self.memory_cache.get(location_id, []):
+            if mem.status != MemoryStatus.SUPERSEDED:
+                breakdown[mem.persistence] += 1
+
+        # Count from ephemeral cache
+        for mem in self.ephemeral_cache.get(location_id, []):
+            if mem.status != MemoryStatus.SUPERSEDED:
+                breakdown[mem.persistence] += 1
+
+        return breakdown
 
     def _load_memories_from_file(self) -> None:
         """
@@ -341,26 +442,62 @@ class SimpleMemoryManager(BaseManager):
 
                 # Only parse new memory header if we have a valid location
                 if current_location_id is not None:
-                    # Parse new memory header
+                    # Parse new memory header with updated regex groups
+                    # Group 1: Category
+                    # Group 2: Optional middle field (persistence or status)
+                    # Group 3: Optional final field (status when persistence present)
+                    # Group 4: Title
+                    # Group 5: Metadata
                     category = memory_match.group(1)
+                    second_field = memory_match.group(2)
+                    third_field = memory_match.group(3)
+                    title = memory_match.group(4).strip()
+                    metadata = memory_match.group(5).strip()
 
-                    # Validate status value
-                    status_str = memory_match.group(2)
-                    if status_str and status_str not in [MemoryStatus.ACTIVE, MemoryStatus.TENTATIVE, MemoryStatus.SUPERSEDED]:
-                        self.log_warning(
-                            f"Invalid memory status '{status_str}', defaulting to ACTIVE",
-                            line=line,
-                            status=status_str
-                        )
-                        status = MemoryStatus.ACTIVE
-                    else:
-                        status = status_str or MemoryStatus.ACTIVE
+                    # Determine persistence and status
+                    persistence = "permanent"  # Default
+                    status = MemoryStatus.ACTIVE  # Default
 
-                    title = memory_match.group(3).strip()
-                    metadata = memory_match.group(4).strip()
+                    # If third_field exists, we have: CATEGORY - PERSISTENCE - STATUS
+                    if third_field:
+                        # Second field is persistence, third field is status
+                        if second_field:
+                            second_field_upper = second_field.upper()
+                            if second_field_upper in ["CORE", "PERMANENT", "EPHEMERAL"]:
+                                persistence = second_field.lower()
+                            else:
+                                self.log_warning(
+                                    f"Expected persistence marker, got '{second_field}', defaulting to 'permanent'",
+                                    line=line,
+                                    field=second_field
+                                )
+                        if third_field in [MemoryStatus.ACTIVE, MemoryStatus.TENTATIVE, MemoryStatus.SUPERSEDED]:
+                            status = third_field
+                        else:
+                            self.log_warning(
+                                f"Expected status marker, got '{third_field}', defaulting to ACTIVE",
+                                line=line,
+                                field=third_field
+                            )
+                    # If only second_field exists, we have: CATEGORY - (PERSISTENCE or STATUS)
+                    elif second_field:
+                        second_field_upper = second_field.upper()
 
-                    # Store status along with other header info
-                    current_memory_header = (category, status, title, metadata)
+                        # Check if it's a persistence marker (CORE, PERMANENT, EPHEMERAL)
+                        if second_field_upper in ["CORE", "PERMANENT", "EPHEMERAL"]:
+                            persistence = second_field.lower()
+                        # Check if it's a status marker (ACTIVE, TENTATIVE, SUPERSEDED)
+                        elif second_field in [MemoryStatus.ACTIVE, MemoryStatus.TENTATIVE, MemoryStatus.SUPERSEDED]:
+                            status = second_field
+                        else:
+                            self.log_warning(
+                                f"Unknown second field '{second_field}', treating as status and defaulting to ACTIVE",
+                                line=line,
+                                field=second_field
+                            )
+
+                    # Store persistence, status, and other header info
+                    current_memory_header = (category, persistence, status, title, metadata)
                     current_memory_text_lines = []
                 else:
                     # Skip memory entries when not in a valid location
@@ -442,11 +579,11 @@ class SimpleMemoryManager(BaseManager):
 
         Args:
             location_id: Integer location ID
-            memory_header: Tuple of (category, status, title, metadata)
+            memory_header: Tuple of (category, persistence, status, title, metadata)
             text_lines: List of text lines for memory content
             invalidation_info: Optional tuple of (turn, reason) for invalidated memories
         """
-        category, status, title, metadata = memory_header  # Unpack 4 values now
+        category, persistence, status, title, metadata = memory_header  # Unpack 5 values now
 
         try:
             # Parse metadata: "Ep1, T23-24, +0" or "Ep1, T100"
@@ -467,7 +604,7 @@ class SimpleMemoryManager(BaseManager):
             if invalidation_info:
                 _, invalidation_reason = invalidation_info
 
-            # Create Memory object with status
+            # Create Memory object with parsed persistence and status
             memory = Memory(
                 category=category,
                 title=title,
@@ -475,6 +612,7 @@ class SimpleMemoryManager(BaseManager):
                 turns=turns,
                 score_change=score_change,
                 text=text,
+                persistence=persistence,  # Use parsed persistence value
                 status=status,
                 superseded_by=INVALIDATION_MARKER if invalidation_reason else None,
                 invalidation_reason=invalidation_reason
@@ -545,15 +683,16 @@ class SimpleMemoryManager(BaseManager):
         memory: Memory
     ) -> bool:
         """
-        Add a memory to file and update cache atomically.
+        Add a memory to file and/or cache based on persistence level.
+
+        Routing logic:
+        - Ephemeral memories: Added to ephemeral_cache only (NOT written to file)
+        - Core/Permanent memories: Written to file AND added to memory_cache
 
         This method:
-        1. Acquires file lock for thread safety
-        2. Creates backup of existing file
-        3. Reads entire file and parses structure
-        4. Appends memory to existing location or creates new section
-        5. Writes updated content atomically
-        6. Updates in-memory cache
+        1. Routes based on memory.persistence value
+        2. Ephemeral: In-memory only (ephemeral_cache)
+        3. Core/Permanent: File write with lock, backup, and atomic write
 
         Args:
             location_id: Integer location ID from Z-machine
@@ -563,6 +702,25 @@ class SimpleMemoryManager(BaseManager):
         Returns:
             True if successful, False if operation failed
         """
+        # Route based on persistence level
+        if memory.persistence == "ephemeral":
+            # Ephemeral memories: in-memory only (NOT written to file)
+            if location_id not in self.ephemeral_cache:
+                self.ephemeral_cache[location_id] = []
+            self.ephemeral_cache[location_id].append(memory)
+
+            self.log_info(
+                f"Added ephemeral memory [{memory.category}] {memory.title} to location {location_id} (in-memory only)",
+                location_id=location_id,
+                location_name=location_name,
+                category=memory.category,
+                title=memory.title,
+                persistence=memory.persistence
+            )
+
+            return True
+
+        # Core/Permanent memories: write to file AND add to cache
         memories_path = Path(self.config.zork_game_workdir) / "Memories.md"
         lock_path = str(memories_path) + ".lock"
 
@@ -595,11 +753,12 @@ class SimpleMemoryManager(BaseManager):
                 self.memory_cache[location_id].append(memory)
 
                 self.log_info(
-                    f"Added memory [{memory.category}] {memory.title} to location {location_id}",
+                    f"Added {memory.persistence} memory to file: [{memory.category}] {memory.title} to location {location_id}",
                     location_id=location_id,
                     location_name=location_name,
                     category=memory.category,
-                    title=memory.title
+                    title=memory.title,
+                    persistence=memory.persistence
                 )
 
                 return True
@@ -611,6 +770,111 @@ class SimpleMemoryManager(BaseManager):
                 error=str(e)
             )
             return False
+
+    def supersede_memory(
+        self,
+        location_id: int,
+        location_name: str,
+        old_memory_title: str,
+        new_memory: Memory
+    ) -> bool:
+        """
+        Supersede an existing memory with a new one, handling cache migration.
+
+        This method handles three cases:
+        1. Permanent → Permanent: Both in memory_cache
+        2. Ephemeral → Ephemeral: Both in ephemeral_cache, no file write
+        3. Ephemeral → Permanent: Migrate from ephemeral_cache to memory_cache + file
+
+        Args:
+            location_id: Location ID where memory exists
+            location_name: Location name for logging
+            old_memory_title: Title of memory to supersede
+            new_memory: New memory to add
+
+        Returns:
+            True if supersession succeeded, False if old memory not found
+        """
+        # Search memory_cache (persistent) for old memory
+        old_memory = None
+        old_in_persistent = False
+        if location_id in self.memory_cache:
+            for mem in self.memory_cache[location_id]:
+                if mem.title == old_memory_title:
+                    old_memory = mem
+                    old_in_persistent = True
+                    break
+
+        # Search ephemeral_cache if not found
+        if not old_memory and location_id in self.ephemeral_cache:
+            for mem in self.ephemeral_cache[location_id]:
+                if mem.title == old_memory_title:
+                    old_memory = mem
+                    old_in_persistent = False
+                    break
+
+        # Return False if not found in either cache
+        if not old_memory:
+            self.log_warning(
+                f"Memory '{old_memory_title}' not found at location {location_id}",
+                location_id=location_id,
+                location_name=location_name,
+                memory_title=old_memory_title
+            )
+            return False
+
+        # Validate persistence level compatibility (prevent downgrade to ephemeral)
+        if old_memory.persistence in ["core", "permanent"] and new_memory.persistence == "ephemeral":
+            self.log_warning(
+                f"Cannot downgrade {old_memory.persistence} memory to ephemeral - would cause data loss after episode reset",
+                location_id=location_id,
+                old_title=old_memory_title,
+                old_persistence=old_memory.persistence,
+                new_persistence=new_memory.persistence,
+                reason=f"{old_memory.persistence.capitalize()} knowledge cannot be replaced by temporary state"
+            )
+            return False
+
+        # Extract turn number from new_memory.turns for the superseded_at_turn parameter
+        # new_memory.turns is a string like "20" or "20-25"
+        try:
+            turn_parts = new_memory.turns.split('-')
+            superseded_at_turn = int(turn_parts[-1])  # Use the last turn number
+        except (ValueError, IndexError):
+            superseded_at_turn = self.game_state.turn_count
+
+        # Mark old memory as SUPERSEDED
+        old_memory.status = MemoryStatus.SUPERSEDED
+        old_memory.superseded_by = new_memory.title
+        old_memory.superseded_at_turn = superseded_at_turn
+
+        # If old memory was in persistent cache, update the file
+        if old_in_persistent:
+            # Update the file to mark old memory as SUPERSEDED
+            self._update_memory_status(
+                location_id=location_id,
+                memory_title=old_memory_title,
+                new_status=MemoryStatus.SUPERSEDED,
+                superseded_by=new_memory.title,
+                superseded_at_turn=superseded_at_turn
+            )
+
+        # Add new memory (routing handled by add_memory)
+        success = self.add_memory(location_id, location_name, new_memory)
+
+        if success:
+            self.log_info(
+                f"Superseded memory: '{old_memory_title}' → '{new_memory.title}' "
+                f"({old_memory.persistence} → {new_memory.persistence})",
+                location_id=location_id,
+                location_name=location_name,
+                old_title=old_memory_title,
+                new_title=new_memory.title,
+                old_persistence=old_memory.persistence,
+                new_persistence=new_memory.persistence
+            )
+
+        return success
 
     def invalidate_memory(
         self,
@@ -972,14 +1236,17 @@ class SimpleMemoryManager(BaseManager):
 
     def _format_memory_entry(self, memory: Memory) -> str:
         """
-        Format single memory entry with status indicator.
+        Format single memory entry with persistence markers and status indicator.
 
-        Format: **[CATEGORY] Title** *(EpX, TY, +/-Z)*
-                text
+        Format for ACTIVE:
+            - CORE: **[CATEGORY - CORE] Title** *(EpX, TY, +/-Z)*
+            - PERMANENT: **[CATEGORY - PERMANENT] Title** *(EpX, TY, +/-Z)*
+            - No marker: **[CATEGORY] Title** *(EpX, TY, +/-Z)* (legacy/ephemeral)
 
-        For TENTATIVE/SUPERSEDED: **[CATEGORY - STATUS] Title** *(metadata)*
-                                   [Superseded at TurnX by "Title"]
-                                   ~~text~~
+        Format for TENTATIVE/SUPERSEDED:
+            **[CATEGORY - PERSISTENCE - STATUS] Title** *(metadata)*
+            [Superseded at TurnX by "Title"] or [Invalidated at TurnX: "reason"]
+            ~~text~~
 
         Args:
             memory: Memory object
@@ -997,11 +1264,16 @@ class SimpleMemoryManager(BaseManager):
 
         metadata = ", ".join(metadata_parts)
 
+        # Build category string with persistence marker
+        category_str = memory.category
+        if memory.persistence in ["core", "permanent"]:
+            category_str = f"{memory.category} - {memory.persistence.upper()}"
+
         # Format header with optional status
         if memory.status == MemoryStatus.ACTIVE:
-            header = f"**[{memory.category}] {memory.title}** *({metadata})*"
+            header = f"**[{category_str}] {memory.title}** *({metadata})*"
         else:
-            header = f"**[{memory.category} - {memory.status}] {memory.title}** *({metadata})*"
+            header = f"**[{category_str} - {memory.status}] {memory.title}** *({metadata})*"
 
         # Format text (strikethrough if superseded)
         if memory.status == MemoryStatus.SUPERSEDED:
@@ -1154,10 +1426,23 @@ class SimpleMemoryManager(BaseManager):
                     if in_target_location:
                         memory_match = self.MEMORY_ENTRY_PATTERN.match(line)
                         if memory_match:
+                            # Parse header with new regex groups
                             category = memory_match.group(1)
-                            status = memory_match.group(2) or MemoryStatus.ACTIVE
-                            title = memory_match.group(3).strip()
-                            metadata = memory_match.group(4).strip()
+                            second_field = memory_match.group(2)
+                            third_field = memory_match.group(3)
+                            title = memory_match.group(4).strip()
+                            metadata = memory_match.group(5).strip()
+
+                            # Determine current persistence marker
+                            persistence_marker = None
+                            if third_field:
+                                # Format is: CATEGORY - PERSISTENCE - STATUS
+                                if second_field and second_field.upper() in ["CORE", "PERMANENT", "EPHEMERAL"]:
+                                    persistence_marker = second_field.upper()
+                            elif second_field:
+                                # Format is: CATEGORY - (PERSISTENCE or STATUS)
+                                if second_field.upper() in ["CORE", "PERMANENT", "EPHEMERAL"]:
+                                    persistence_marker = second_field.upper()
 
                             # Check if this is the memory to update (exact or substring match)
                             if memory_title in title or title in memory_title:
@@ -1165,8 +1450,11 @@ class SimpleMemoryManager(BaseManager):
                                 memory_found = True
                                 in_target_memory = True
 
-                                # Format new header with status
-                                updated_header = f"**[{category} - {new_status}] {title}** *({metadata})*"
+                                # Format new header preserving persistence marker
+                                if persistence_marker:
+                                    updated_header = f"**[{category} - {persistence_marker} - {new_status}] {title}** *({metadata})*"
+                                else:
+                                    updated_header = f"**[{category} - {new_status}] {title}** *({metadata})*"
                                 updated_lines.append(updated_header)
 
                                 # Add reference line (supersession or invalidation)
@@ -1489,6 +1777,36 @@ If contradicting multiple memories: list ALL relevant titles.
 Use EXACT titles from existing memories above. If title is long, unique substring is sufficient.
 ═══════════════════════════════════════════════════════════════
 
+SUPERSESSION PERSISTENCE RULES:
+═══════════════════════════════════════════════════════════════
+When superseding memories, persistence levels must be compatible:
+
+✓ ALLOWED SUPERSESSIONS:
+  • ephemeral → ephemeral (state update: "dropped sword" → "picked up sword")
+  • ephemeral → permanent (upgrade: "door opened" → "door can be opened")
+  • permanent → permanent (refinement: "troll peaceful" → "troll attacks")
+  • core → core (rare: correcting spawn state observation)
+  • core → permanent (confirmation: "sword here" → "sword takeable")
+
+✗ FORBIDDEN (causes data loss after episode reset):
+  • permanent → ephemeral ("troll attacks" → "dropped item near troll")
+  • core → ephemeral ("mailbox here" → "opened mailbox")
+
+**If permanent/core knowledge is wrong**: Use INVALIDATION instead of downgrade:
+  1. Invalidate the wrong permanent/core memory (with reason)
+  2. Create new ephemeral memory separately (if agent action needed)
+  3. This preserves data integrity across episode boundaries
+
+Example:
+  ❌ Wrong: supersede "Troll attacks" (permanent) with "Dropped sword near troll" (ephemeral)
+     → Would cause data loss: danger knowledge lost after episode reset
+
+  ✓ Right approach (two separate operations):
+     1. Keep "Troll attacks" (permanent) as-is (don't supersede)
+     2. Create "Dropped sword near troll" (ephemeral) as NEW memory
+     → Result: Both memories coexist - danger knowledge preserved, state change recorded
+═══════════════════════════════════════════════════════════════
+
 INVALIDATION CHECK (without replacement):
 ═══════════════════════════════════════════════════════════════
 Can you DISPROVE an existing memory without creating a specific replacement?
@@ -1567,6 +1885,66 @@ Examples:
   • "Drank mysterious potion" (consumed but effect not yet clear) → TENTATIVE
 
 **Rule of thumb:** If you think "this worked... for now", mark it TENTATIVE.
+═══════════════════════════════════════════════════════════════
+
+MEMORY PERSISTENCE CLASSIFICATION:
+═══════════════════════════════════════════════════════════════
+Choose based on WHAT HAPPENED (action type), not WHEN (visit timing).
+
+**CORE** - Spawn state from room description (FIRST VISIT ONLY):
+  Definition: Items/objects/fixtures in room description on first visit
+  When to use:
+    ✓ ONLY on first visit to location (first_visit=true)
+    ✓ ONLY for passive observations from room text
+    ✓ NOT for agent actions or discoveries
+
+  Examples:
+    ✓ "Sword here" (from "Living Room. There is a sword here.") → CORE
+    ✓ "Brass lantern in trophy case" (from room description) → CORE
+    ✓ "Mailbox visible" (from "West of House" description) → CORE
+    ✗ "Dropped sword here" (agent action, not room text) → NOT CORE
+    ✗ "Sword was here" (return visit) → NOT CORE
+
+**PERMANENT** - Game mechanics and reusable knowledge:
+  Definition: How the game works; knowledge true across episodes
+  When to use:
+    ✓ ANY visit (first or return)
+    ✓ Learning rules, mechanics, dangers, constraints
+    ✓ Knowledge that stays true after episode reset
+
+  Examples:
+    ✓ "Troll attacks on sight" (danger behavior) → PERMANENT
+    ✓ "Window can be opened" (game mechanic) → PERMANENT
+    ✓ "Taking egg grants 5 points" (scoring rule) → PERMANENT
+    ✓ "Door nailed shut" (permanent obstacle) → PERMANENT
+    ✓ "Cannot climb tree from here" (constraint) → PERMANENT
+
+**EPHEMERAL** - Agent-caused state changes:
+  Definition: What agent DID that changes state temporarily
+  When to use:
+    ✓ ANY visit (first or return)
+    ✓ Agent performed action: drop, place, open, take, move
+    ✓ State change that resets on episode boundary
+
+  Examples:
+    ✓ "Dropped sword here" (agent action) → EPHEMERAL
+    ✓ "Placed nest in sack" (agent organization) → EPHEMERAL
+    ✓ "Opened window from outside" (agent state change) → EPHEMERAL
+    ✓ "Left lantern on table" (inventory management) → EPHEMERAL
+
+DECISION CRITERIA:
+1. CORE: Room description observation on FIRST VISIT only
+2. EPHEMERAL: Agent action that changes state (ANY VISIT)
+3. PERMANENT: Game mechanic/rule learned (ANY VISIT)
+
+If agent DOES something → likely EPHEMERAL
+If agent LEARNS something → likely PERMANENT
+If agent SEES something in room description (first visit) → likely CORE
+
+Current visit status: {"FIRST VISIT" if z_machine_context.get('first_visit', False) else "RETURN VISIT"}
+⚠️  CORE only allowed on first visit
+
+Response field REQUIRED: "persistence": "core" | "permanent" | "ephemeral"
 ═══════════════════════════════════════════════════════════════
 """
 
@@ -1665,11 +2043,12 @@ If should_remember=true (new actionable insight):
   "category": "SUCCESS"|"FAILURE"|"DISCOVERY"|"DANGER"|"NOTE",
   "memory_title": "3-6 words, evergreen",
   "memory_text": "1-2 sentences, actionable insight",
+  "persistence": "core"|"permanent"|"ephemeral",
   "status": "ACTIVE"|"TENTATIVE",
   "supersedes_memory_titles": ["Title1", "Title2"],
   "invalidate_memory_titles": ["Title3", "Title4"],
   "invalidation_reason": "explanation for why invalidated memories are wrong",
-  "reasoning": "explain semantic comparison, contradiction detection, status choice"
+  "reasoning": "explain semantic comparison, contradiction detection, status choice, persistence choice"
 }}
 
 Example valid response for NOT remembering:
@@ -1684,9 +2063,10 @@ Example valid response for remembering:
   "category": "DANGER",
   "memory_title": "Troll attacks after accepting gift",
   "memory_text": "Troll accepts lunch gift but then becomes hostile and attacks. Gift strategy ineffective.",
+  "persistence": "permanent",
   "status": "ACTIVE",
   "supersedes_memory_titles": ["Troll accepts lunch gift"],
-  "reasoning": "Contradicts previous tentative memory - troll is not pacified by gifts"
+  "reasoning": "Contradicts previous tentative memory - troll is not pacified by gifts. PERMANENT because this is a game mechanic that stays true across episodes."
 }}
 
 Example valid response for invalidating without new memory:
@@ -1703,11 +2083,12 @@ Example valid response for creating new memory AND invalidating others:
   "category": "DANGER",
   "memory_title": "Troll attacks after accepting gift",
   "memory_text": "Troll accepts gift but then attacks immediately. Gift strategy fails.",
+  "persistence": "permanent",
   "status": "ACTIVE",
   "supersedes_memory_titles": ["Troll accepts lunch gift"],
   "invalidate_memory_titles": ["Troll is friendly"],
   "invalidation_reason": "Proven false by attack",
-  "reasoning": "Superseding the direct memory about gift, invalidating unrelated assumption"
+  "reasoning": "Superseding the direct memory about gift, invalidating unrelated assumption. PERMANENT because danger pattern persists across episodes."
 }}"""
 
             # Call LLM with structured output
@@ -1882,6 +2263,7 @@ Example valid response for creating new memory AND invalidating others:
             turns=str(self.game_state.turn_count),
             score_change=z_machine_context.get('score_delta'),
             text=synthesis.memory_text,
+            persistence="permanent",  # Default persistence level
             status=synthesis.status  # Include status from synthesis response
         )
 
@@ -1907,6 +2289,8 @@ Example valid response for creating new memory AND invalidating others:
         """
         Retrieve formatted memory text for a location.
 
+        Combines memories from BOTH memory_cache (persistent) and ephemeral_cache (episode-only).
+
         Filters memories by status:
         - ACTIVE: Shown normally
         - TENTATIVE: Shown with warning marker
@@ -1918,16 +2302,17 @@ Example valid response for creating new memory AND invalidating others:
         Returns:
             Formatted string with filtered memories
         """
-        if location_id not in self.memory_cache:
-            return ""
+        # Combine memories from both caches
+        persistent_memories = self.memory_cache.get(location_id, [])
+        ephemeral_memories = self.ephemeral_cache.get(location_id, [])
+        all_memories = persistent_memories + ephemeral_memories
 
-        memories = self.memory_cache[location_id]
-        if not memories:
+        if not all_memories:
             return ""
 
         # Separate memories by status
-        active_memories = [m for m in memories if m.status == MemoryStatus.ACTIVE]
-        tentative_memories = [m for m in memories if m.status == MemoryStatus.TENTATIVE]
+        active_memories = [m for m in all_memories if m.status == MemoryStatus.ACTIVE]
+        tentative_memories = [m for m in all_memories if m.status == MemoryStatus.TENTATIVE]
         # SUPERSEDED memories are not shown to agent (proven wrong)
 
         # Format output
