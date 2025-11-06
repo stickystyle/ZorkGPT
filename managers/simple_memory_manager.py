@@ -1844,6 +1844,66 @@ Examples:
 
 **Rule of thumb:** If you think "this worked... for now", mark it TENTATIVE.
 ═══════════════════════════════════════════════════════════════
+
+MEMORY PERSISTENCE CLASSIFICATION:
+═══════════════════════════════════════════════════════════════
+Choose based on WHAT HAPPENED (action type), not WHEN (visit timing).
+
+**CORE** - Spawn state from room description (FIRST VISIT ONLY):
+  Definition: Items/objects/fixtures in room description on first visit
+  When to use:
+    ✓ ONLY on first visit to location (first_visit=true)
+    ✓ ONLY for passive observations from room text
+    ✓ NOT for agent actions or discoveries
+
+  Examples:
+    ✓ "Sword here" (from "Living Room. There is a sword here.") → CORE
+    ✓ "Brass lantern in trophy case" (from room description) → CORE
+    ✓ "Mailbox visible" (from "West of House" description) → CORE
+    ✗ "Dropped sword here" (agent action, not room text) → NOT CORE
+    ✗ "Sword was here" (return visit) → NOT CORE
+
+**PERMANENT** - Game mechanics and reusable knowledge:
+  Definition: How the game works; knowledge true across episodes
+  When to use:
+    ✓ ANY visit (first or return)
+    ✓ Learning rules, mechanics, dangers, constraints
+    ✓ Knowledge that stays true after episode reset
+
+  Examples:
+    ✓ "Troll attacks on sight" (danger behavior) → PERMANENT
+    ✓ "Window can be opened" (game mechanic) → PERMANENT
+    ✓ "Taking egg grants 5 points" (scoring rule) → PERMANENT
+    ✓ "Door nailed shut" (permanent obstacle) → PERMANENT
+    ✓ "Cannot climb tree from here" (constraint) → PERMANENT
+
+**EPHEMERAL** - Agent-caused state changes:
+  Definition: What agent DID that changes state temporarily
+  When to use:
+    ✓ ANY visit (first or return)
+    ✓ Agent performed action: drop, place, open, take, move
+    ✓ State change that resets on episode boundary
+
+  Examples:
+    ✓ "Dropped sword here" (agent action) → EPHEMERAL
+    ✓ "Placed nest in sack" (agent organization) → EPHEMERAL
+    ✓ "Opened window from outside" (agent state change) → EPHEMERAL
+    ✓ "Left lantern on table" (inventory management) → EPHEMERAL
+
+DECISION CRITERIA:
+1. CORE: Room description observation on FIRST VISIT only
+2. EPHEMERAL: Agent action that changes state (ANY VISIT)
+3. PERMANENT: Game mechanic/rule learned (ANY VISIT)
+
+If agent DOES something → likely EPHEMERAL
+If agent LEARNS something → likely PERMANENT
+If agent SEES something in room description (first visit) → likely CORE
+
+Current visit status: {"FIRST VISIT" if z_machine_context.get('first_visit', False) else "RETURN VISIT"}
+⚠️  CORE only allowed on first visit
+
+Response field REQUIRED: "persistence": "core" | "permanent" | "ephemeral"
+═══════════════════════════════════════════════════════════════
 """
 
             # Add history sections if available (for multi-step procedure detection)
@@ -1941,11 +2001,12 @@ If should_remember=true (new actionable insight):
   "category": "SUCCESS"|"FAILURE"|"DISCOVERY"|"DANGER"|"NOTE",
   "memory_title": "3-6 words, evergreen",
   "memory_text": "1-2 sentences, actionable insight",
+  "persistence": "core"|"permanent"|"ephemeral",
   "status": "ACTIVE"|"TENTATIVE",
   "supersedes_memory_titles": ["Title1", "Title2"],
   "invalidate_memory_titles": ["Title3", "Title4"],
   "invalidation_reason": "explanation for why invalidated memories are wrong",
-  "reasoning": "explain semantic comparison, contradiction detection, status choice"
+  "reasoning": "explain semantic comparison, contradiction detection, status choice, persistence choice"
 }}
 
 Example valid response for NOT remembering:
@@ -1960,9 +2021,10 @@ Example valid response for remembering:
   "category": "DANGER",
   "memory_title": "Troll attacks after accepting gift",
   "memory_text": "Troll accepts lunch gift but then becomes hostile and attacks. Gift strategy ineffective.",
+  "persistence": "permanent",
   "status": "ACTIVE",
   "supersedes_memory_titles": ["Troll accepts lunch gift"],
-  "reasoning": "Contradicts previous tentative memory - troll is not pacified by gifts"
+  "reasoning": "Contradicts previous tentative memory - troll is not pacified by gifts. PERMANENT because this is a game mechanic that stays true across episodes."
 }}
 
 Example valid response for invalidating without new memory:
@@ -1979,11 +2041,12 @@ Example valid response for creating new memory AND invalidating others:
   "category": "DANGER",
   "memory_title": "Troll attacks after accepting gift",
   "memory_text": "Troll accepts gift but then attacks immediately. Gift strategy fails.",
+  "persistence": "permanent",
   "status": "ACTIVE",
   "supersedes_memory_titles": ["Troll accepts lunch gift"],
   "invalidate_memory_titles": ["Troll is friendly"],
   "invalidation_reason": "Proven false by attack",
-  "reasoning": "Superseding the direct memory about gift, invalidating unrelated assumption"
+  "reasoning": "Superseding the direct memory about gift, invalidating unrelated assumption. PERMANENT because danger pattern persists across episodes."
 }}"""
 
             # Call LLM with structured output
