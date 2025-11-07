@@ -207,6 +207,7 @@ class ZorkOrchestratorV2:
             adaptive_knowledge_manager=self.knowledge_manager.adaptive_knowledge_manager,
             map_manager=self.map_manager,  # NEW: Pass MapManager for spatial context
             simple_memory=self.simple_memory,  # NEW: Pass SimpleMemoryManager for memory access
+            langfuse_client=self.langfuse_client,  # NEW: Pass Langfuse client for span tracing
         )
 
         # Episode synthesizer (needs references to other managers)

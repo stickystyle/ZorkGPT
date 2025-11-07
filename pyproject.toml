@@ -133,7 +133,7 @@ zork_game_workdir = "game_files"
 # Orchestrator Configuration
 max_turns_per_episode = 500
 knowledge_update_interval = 100
-objective_update_interval = 25
+objective_update_interval = 15
 enable_state_export = true
 max_context_tokens = 40000
 context_overflow_threshold = 0.6

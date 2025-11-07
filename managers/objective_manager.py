@@ -12,6 +12,7 @@ from typing import List, Dict, Any
 from pydantic import BaseModel
 from pathlib import Path
 from collections import deque
+from contextlib import nullcontext
 
 from managers.base_manager import BaseManager
 from session.game_state import GameState
@@ -60,11 +61,13 @@ class ObjectiveManager(BaseManager):
         adaptive_knowledge_manager: AdaptiveKnowledgeManager,
         map_manager=None,  # NEW: Optional MapManager for spatial context
         simple_memory=None,  # NEW: Optional SimpleMemoryManager for memory access
+        langfuse_client=None,  # NEW: Optional Langfuse client for span tracing
     ):
         super().__init__(logger, config, game_state, "objective_manager")
         self.adaptive_knowledge_manager = adaptive_knowledge_manager
         self.map_manager = map_manager
         self.simple_memory = simple_memory
+        self.langfuse_client = langfuse_client
 
         # Objective refinement tracking
         self.last_objective_refinement_turn = 0
@@ -104,79 +107,124 @@ class ObjectiveManager(BaseManager):
 
     def check_and_update_objectives(self, current_agent_reasoning: str = "") -> None:
         """Check if it's time for an objective update and perform it if needed."""
-        try:
-            self.log_debug(
-                f"Objective update check: turn={self.game_state.turn_count}, "
-                f"interval={self.config.objective_update_interval}, "
-                f"last_update={self.game_state.objective_update_turn}",
-                details=f"turn={self.game_state.turn_count}, interval={self.config.objective_update_interval}, last_update={self.game_state.objective_update_turn}",
+        # Prepare span metadata for tracing
+        should_process = self.should_process_turn()
+        current_objective_count = len(self.game_state.discovered_objectives)
+        turns_since_update = self.game_state.turn_count - self.game_state.objective_update_turn
+
+        # Determine exit reason for tracing
+        exit_reason = None
+        if self.game_state.turn_count == 0:
+            exit_reason = "turn_0"
+        elif not should_process:
+            exit_reason = "already_updated"
+        else:
+            exit_reason = "processing"
+
+        # Create span for tracing (visible even if we exit early)
+        if self.langfuse_client:
+            span_metadata = {
+                "turn_number": self.game_state.turn_count,
+                "location_id": self.game_state.current_room_id,
+                "location_name": self.game_state.current_room_name_for_map,
+                "current_objective_count": current_objective_count,
+                "objective_update_interval": self.config.objective_update_interval,
+                "last_objective_update_turn": self.game_state.objective_update_turn,
+                "turns_since_update": turns_since_update,
+                "should_process": should_process,
+                "exit_reason": exit_reason,
+            }
+            span_input = {
+                "current_objective_count": current_objective_count,
+                "turn_info": f"Turn {self.game_state.turn_count}, interval {self.config.objective_update_interval}, last update {self.game_state.objective_update_turn}",
+                "reasoning_preview": current_agent_reasoning[:200] if current_agent_reasoning else "",
+            }
+            tracing_context = self.langfuse_client.start_as_current_span(
+                name="objective-discovery-check",
+                input=span_input,
+                metadata=span_metadata,
             )
+        else:
+            tracing_context = nullcontext()
 
-            # Also log to the structured logger for permanent record
-            self.logger.info(
-                f"Objective update check: turn={self.game_state.turn_count}, last_update={self.game_state.objective_update_turn}",
-                extra={
-                    "event_type": "objective_update_check",
-                    "episode_id": self.game_state.episode_id,
-                    "turn": self.game_state.turn_count,
-                    "objective_update_turn": self.game_state.objective_update_turn,
-                    "current_objectives_count": len(
-                        self.game_state.discovered_objectives
-                    ),
-                },
-            )
-
-            # Update objectives every turn, ensuring it's not a duplicate call for the same turn.
-            if self.should_process_turn():
-                self.log_progress(
-                    f"Triggering objective update at turn {self.game_state.turn_count}",
-                    stage="objective_update",
-                    details=f"Starting objective update at turn {self.game_state.turn_count}",
-                )
-
-                self.logger.info(
-                    f"Triggering objective update at turn {self.game_state.turn_count}",
-                    extra={
-                        "event_type": "objective_update_triggered",
-                        "episode_id": self.game_state.episode_id,
-                        "turn": self.game_state.turn_count,
-                    },
-                )
-                self._update_discovered_objectives(current_agent_reasoning)
-            else:
+        with tracing_context as span:
+            try:
                 self.log_debug(
-                    f"Objective update skipped: turn_count={self.game_state.turn_count}, already updated this turn or turn 0",
-                    details=f"Skipping objective update at turn {self.game_state.turn_count}",
+                    f"Objective update check: turn={self.game_state.turn_count}, "
+                    f"interval={self.config.objective_update_interval}, "
+                    f"last_update={self.game_state.objective_update_turn}",
+                    details=f"turn={self.game_state.turn_count}, interval={self.config.objective_update_interval}, last_update={self.game_state.objective_update_turn}",
                 )
 
+                # Also log to the structured logger for permanent record
                 self.logger.info(
-                    f"Objective update skipped: turn_count={self.game_state.turn_count}, already updated this turn or turn 0",
+                    f"Objective update check: turn={self.game_state.turn_count}, last_update={self.game_state.objective_update_turn}",
                     extra={
-                        "event_type": "objective_update_skipped",
+                        "event_type": "objective_update_check",
                         "episode_id": self.game_state.episode_id,
                         "turn": self.game_state.turn_count,
                         "objective_update_turn": self.game_state.objective_update_turn,
-                        "skip_reason": "turn_0"
-                        if self.game_state.turn_count == 0
-                        else "already_updated",
+                        "current_objectives_count": len(
+                            self.game_state.discovered_objectives
+                        ),
                     },
                 )
-        except Exception as e:
-            self.log_error(
-                f"Exception in _check_objective_update: {e}",
-                details=f"Error during objective update check: {e}",
-            )
 
-            self.logger.error(
-                f"Exception in _check_objective_update: {e}",
-                extra={
-                    "event_type": "objective_update_exception",
-                    "episode_id": self.game_state.episode_id,
-                    "turn": self.game_state.turn_count,
-                    "error": str(e),
-                },
-            )
-            raise  # Re-raise to be caught by the outer try-catch
+                # Update objectives every turn, ensuring it's not a duplicate call for the same turn.
+                if should_process:
+                    self.log_progress(
+                        f"Triggering objective update at turn {self.game_state.turn_count}",
+                        stage="objective_update",
+                        details=f"Starting objective update at turn {self.game_state.turn_count}",
+                    )
+
+                    self.logger.info(
+                        f"Triggering objective update at turn {self.game_state.turn_count}",
+                        extra={
+                            "event_type": "objective_update_triggered",
+                            "episode_id": self.game_state.episode_id,
+                            "turn": self.game_state.turn_count,
+                        },
+                    )
+                    self._update_discovered_objectives(current_agent_reasoning)
+                else:
+                    self.log_debug(
+                        f"Objective update skipped: turn_count={self.game_state.turn_count}, already updated this turn or turn 0",
+                        details=f"Skipping objective update at turn {self.game_state.turn_count}",
+                    )
+
+                    self.logger.info(
+                        f"Objective update skipped: turn_count={self.game_state.turn_count}, already updated this turn or turn 0",
+                        extra={
+                            "event_type": "objective_update_skipped",
+                            "episode_id": self.game_state.episode_id,
+                            "turn": self.game_state.turn_count,
+                            "objective_update_turn": self.game_state.objective_update_turn,
+                            "skip_reason": "turn_0"
+                            if self.game_state.turn_count == 0
+                            else "already_updated",
+                        },
+                    )
+            except Exception as e:
+                # Update span metadata to reflect exception (if span exists)
+                if span and hasattr(span, 'update'):
+                    span.update(metadata={"exit_reason": "exception"})
+
+                self.log_error(
+                    f"Exception in _check_objective_update: {e}",
+                    details=f"Error during objective update check: {e}",
+                )
+
+                self.logger.error(
+                    f"Exception in _check_objective_update: {e}",
+                    extra={
+                        "event_type": "objective_update_exception",
+                        "episode_id": self.game_state.episode_id,
+                        "turn": self.game_state.turn_count,
+                        "error": str(e),
+                    },
+                )
+                raise  # Re-raise to be caught by the outer try-catch
 
     def _update_discovered_objectives(self, current_agent_reasoning: str = "") -> None:
         """
@@ -520,20 +568,59 @@ Example valid response:
             game_response: Game's response text
             extracted_info: Structured info from extractor (score, location, etc.)
         """
-        # Early exit: No objectives to check
-        if not self.game_state.discovered_objectives:
-            return
+        # Prepare span metadata for tracing
+        has_objectives = bool(self.game_state.discovered_objectives)
+        is_enabled = self.config.enable_objective_completion_llm_check
+        is_correct_interval = (self.game_state.turn_count % self.config.completion_check_interval == 0)
 
-        # Early exit: Feature disabled in config
-        if not self.config.enable_objective_completion_llm_check:
-            return
+        # Determine exit reason for tracing
+        exit_reason = None
+        if not has_objectives:
+            exit_reason = "no_objectives"
+        elif not is_enabled:
+            exit_reason = "disabled_in_config"
+        elif not is_correct_interval:
+            exit_reason = "not_correct_interval"
 
-        # Early exit: Not the right turn interval
-        if self.game_state.turn_count % self.config.completion_check_interval != 0:
-            return
+        # Create span for tracing (visible even if we exit early)
+        if self.langfuse_client:
+            span_metadata = {
+                "turn_number": self.game_state.turn_count,
+                "location_id": self.game_state.current_room_id,
+                "location_name": self.game_state.current_room_name_for_map,
+                "has_objectives": has_objectives,
+                "objective_count": len(self.game_state.discovered_objectives) if has_objectives else 0,
+                "is_enabled": is_enabled,
+                "is_correct_interval": is_correct_interval,
+                "exit_reason": exit_reason,
+            }
+            span_input = {
+                "action": action_taken,
+                "response_preview": game_response[:200] if game_response else "",
+            }
+            tracing_context = self.langfuse_client.start_as_current_span(
+                name="objective-completion-check",
+                input=span_input,
+                metadata=span_metadata,
+            )
+        else:
+            tracing_context = nullcontext()
 
-        # Call LLM evaluation with full parameters
-        self._evaluate_objective_completion(action_taken, game_response, extracted_info)
+        with tracing_context:
+            # Early exit: No objectives to check
+            if not has_objectives:
+                return
+
+            # Early exit: Feature disabled in config
+            if not is_enabled:
+                return
+
+            # Early exit: Not the right turn interval
+            if not is_correct_interval:
+                return
+
+            # Call LLM evaluation with full parameters
+            self._evaluate_objective_completion(action_taken, game_response, extracted_info)
 
     def _evaluate_objective_completion(
         self, action_taken: str, game_response: str, extracted_info
