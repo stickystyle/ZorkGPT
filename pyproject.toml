@@ -102,7 +102,7 @@ max_tokens = 400
 [tool.zorkgpt.memory_sampling]
 # Memory Synthesis LLM Sampling Parameters
 temperature = 0.3
-max_tokens = 1000
+max_tokens = 2000  # Increased to prevent JSON truncation
 memory_history_window = 3
 # top_p = null     # Optional - leave commented for default
 # top_k = null     # Optional - leave commented for default

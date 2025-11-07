@@ -2140,6 +2140,18 @@ Example valid response for creating new memory AND invalidating others:
                 response_format=create_json_schema(MemorySynthesisResponse)
             )
 
+            # Check if we hit token limit (which could cause truncated JSON)
+            if llm_response.usage:
+                completion_tokens = llm_response.usage.get('completion_tokens', 0)
+                max_tokens = self.config.memory_sampling.get('max_tokens', 1000)
+                if completion_tokens >= max_tokens * 0.95:  # Within 5% of limit
+                    self.log_warning(
+                        f"Memory synthesis response near token limit: {completion_tokens}/{max_tokens} tokens used",
+                        completion_tokens=completion_tokens,
+                        max_tokens=max_tokens,
+                        location_id=location_id
+                    )
+
             # Note: Empty response checking is now handled by llm_client with automatic retries
             # Extract JSON (handles markdown fences, reasoning tags, and embedded JSON)
             json_content = extract_json_from_text(llm_response.content)
@@ -2170,15 +2182,34 @@ Example valid response for creating new memory AND invalidating others:
             # Get response preview safely (llm_response may not be defined if error occurred during call)
             try:
                 response_preview = llm_response.content[:500] if llm_response and llm_response.content else "No response content"
+                response_length = len(llm_response.content) if llm_response and llm_response.content else 0
+                tokens_used = llm_response.usage.get('completion_tokens', 0) if llm_response and llm_response.usage else 0
             except (NameError, AttributeError):
                 response_preview = "Error occurred before LLM response received"
+                response_length = 0
+                tokens_used = 0
 
-            self.log_error(
-                f"Failed to synthesize memory: {e}",
-                location_id=location_id,
-                error=str(e),
-                response_preview=response_preview
-            )
+            # Check if this is a JSON truncation error (EOF while parsing)
+            error_str = str(e)
+            if "EOF while parsing" in error_str or "Unterminated string" in error_str:
+                max_tokens = self.config.memory_sampling.get('max_tokens', 1000)
+                self.log_error(
+                    f"JSON truncation detected - response likely hit token limit: {e}",
+                    location_id=location_id,
+                    error=error_str,
+                    response_length=response_length,
+                    tokens_used=tokens_used,
+                    max_tokens=max_tokens,
+                    suggestion=f"Consider increasing memory_sampling.max_tokens (current: {max_tokens})",
+                    response_preview=response_preview
+                )
+            else:
+                self.log_error(
+                    f"Failed to synthesize memory: {e}",
+                    location_id=location_id,
+                    error=error_str,
+                    response_preview=response_preview
+                )
             return None
 
     def record_action_outcome(
