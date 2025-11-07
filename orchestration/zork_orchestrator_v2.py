@@ -199,12 +199,14 @@ class ZorkOrchestratorV2:
             json_log_file=self.config.json_log_file,
         )
 
-        # Objective manager (needs knowledge manager reference)
+        # Objective manager (needs knowledge, map, and memory managers)
         self.objective_manager = ObjectiveManager(
             logger=self.logger,
             config=self.config,
             game_state=self.game_state,
             adaptive_knowledge_manager=self.knowledge_manager.adaptive_knowledge_manager,
+            map_manager=self.map_manager,  # NEW: Pass MapManager for spatial context
+            simple_memory=self.simple_memory,  # NEW: Pass SimpleMemoryManager for memory access
         )
 
         # Episode synthesizer (needs references to other managers)

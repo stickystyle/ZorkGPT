@@ -67,25 +67,36 @@ def __init__(
     game_state: GameState,
     adaptive_knowledge_manager: AdaptiveKnowledgeManager,
     map_manager: "MapManager" = None,  # NEW
-    memory_manager: "SimpleMemoryManager" = None,  # NEW
+    simple_memory: "SimpleMemoryManager" = None,  # NEW
 ):
     super().__init__(logger, config, game_state, "objective_manager")
     self.adaptive_knowledge_manager = adaptive_knowledge_manager
     self.map_manager = map_manager
-    self.memory_manager = memory_manager
+    self.simple_memory = simple_memory
 ```
 
 ### Data Integration Strategy
 
-**Approach: Hybrid - Full Knowledge + Filtered Memories + Map Summary**
+**Approach: Hybrid - Full Knowledge + Distance-Sorted Memories + Map Summary**
 
 | Data Source | Strategy | Rationale |
 |-------------|----------|-----------|
 | **Knowledge** | Full file | Strategic wisdom (updated infrequently, ~2-5K tokens) |
-| **Memories** | Current + Adjacent | Tactical procedures (filtered by location, ~800-1.5K tokens) |
+| **Memories** | All locations sorted by distance | Strategic ACTIVE memories (CORE + PERMANENT only, ~3-6K tokens) |
 | **Map** | Mermaid + Summary | Exploration context (visual + text, ~500-800 tokens) |
 
-**Total Context Addition**: ~3-7K tokens per objective update (every 20 turns = acceptable)
+**Memory Filtering:**
+- **By Status**: ACTIVE only (excludes TENTATIVE and SUPERSEDED - unconfirmed or invalidated knowledge)
+- **By Persistence**: CORE + PERMANENT only (excludes EPHEMERAL - session state handled by ContextManager)
+
+**Rationale for Distance-Sorted All Memories:**
+- ObjectiveManager runs every 20 turns - agent could be anywhere on map
+- "Adjacent only" approach is arbitrary when agent position is random
+- Agent needs strategic visibility of ALL opportunities (distant treasures, dangers, etc.)
+- Distance sorting provides spatial context without arbitrary cutoffs
+- Enables multi-step planning: "To reach treasure at L150, route through L120 → L135"
+
+**Total Context Addition**: ~6-11K tokens per objective update (every 20 turns = acceptable)
 
 ## Implementation Details
 
@@ -111,92 +122,108 @@ def _get_full_knowledge(self) -> str:
 
 ---
 
-#### `_get_memories_with_adjacent(location_id: int) -> str`
+#### `_get_all_memories_by_distance(location_id: int) -> str`
 
-**Purpose**: Get memories for current location + adjacent locations (1 hop away)
+**Purpose**: Get ALL strategic memories from the entire game, sorted by distance from current location
 
 ```python
-def _get_memories_with_adjacent(self, current_location_id: int) -> str:
+def _get_all_memories_by_distance(self, current_location_id: int) -> str:
     """
-    Get memories for current location + adjacent locations.
+    Get all ACTIVE strategic memories sorted by distance from current location.
 
-    Returns formatted memory text for prompt inclusion.
+    Filtering:
+    - Status: ACTIVE only (excludes TENTATIVE, SUPERSEDED)
+    - Persistence: CORE + PERMANENT only (excludes EPHEMERAL)
+
+    Rationale: ObjectiveManager is strategic (20-turn planning). Ephemeral memories
+    are tactical (session state) and already available in ContextManager when agent
+    is at that location.
     """
-    if not self.memory_manager:
+    if not self.simple_memory or not self.map_manager:
         return "No memory data available"
 
-    lines = []
+    # Calculate distances to all locations with strategic memories
+    location_distances = []
+    for loc_id, memories in self.simple_memory.memory_cache.items():
+        # Filter to ACTIVE strategic memories only
+        strategic_memories = [
+            m for m in memories
+            if m.status == "ACTIVE"
+            and m.persistence in ["core", "permanent"]
+        ]
 
-    # Current location memories
-    current_memories = self.memory_manager.memory_cache.get(current_location_id, [])
-    if current_memories:
-        current_name = self.game_state.current_room_name_for_map
-        lines.append(f"## Memories for Current Location {current_location_id} ({current_name}):")
-        lines.append(self._format_memories(current_memories))
+        if strategic_memories:  # Only include location if it has strategic memories
+            distance = self._calculate_distance_bfs(current_location_id, loc_id)
+            location_distances.append((distance, loc_id, strategic_memories))
 
-    # Adjacent location memories
-    adjacent_ids = self._get_adjacent_room_ids(current_location_id)
-    if adjacent_ids:
-        lines.append("\n## Memories for Adjacent Locations:")
-        for adj_id in sorted(adjacent_ids)[:5]:  # Limit to 5 adjacent rooms
-            adj_memories = self.memory_manager.memory_cache.get(adj_id, [])
-            if adj_memories:
-                adj_name = self.map_manager.game_map.room_names.get(adj_id, f"Location #{adj_id}")
-                lines.append(f"\n**Location {adj_id} ({adj_name}):**")
-                lines.append(self._format_memories(adj_memories[:3]))  # Top 3 memories per location
+    # Sort by distance (closest first)
+    location_distances.sort(key=lambda x: x[0])
 
-    if not lines:
-        return "No memories available for current or adjacent locations"
+    # Format grouped by location
+    lines = ["## All Game Memories (Sorted by Distance from Current Location)\n"]
+    for distance, loc_id, memories in location_distances:
+        loc_name = self.map_manager.game_map.room_names.get(
+            loc_id, f"Location #{loc_id}"
+        )
+        lines.append(f"\n**Location {loc_id} ({loc_name}) - {distance} hops away:**")
+        lines.append(self._format_memories(memories))  # All strategic memories
 
     return "\n".join(lines)
 ```
 
-**Why adjacent locations?**
-- Provides context for where agent could go next
-- Enables objectives like "Go north to Location 81 to investigate lantern memory"
-- Limits token usage (current + 5 adjacent = ~6 locations max)
+**Why distance-sorted all memories?**
+- Agent can see distant opportunities even if not immediately adjacent
+- Enables multi-step planning: "To reach treasure at L150, route through L120 → L135"
+- No arbitrary cutoffs - consistent regardless of where objective update happens
+- Strategic visibility for long-term goal setting
+- Distance provides spatial context without limiting scope
 
 ---
 
-#### `_get_adjacent_room_ids(location_id: int, max_depth: int = 1) -> List[int]`
+#### `_calculate_distance_bfs(from_id: int, to_id: int) -> int`
 
-**Purpose**: Get IDs of rooms adjacent to given location
+**Purpose**: Calculate shortest path distance between two locations using BFS
 
 ```python
-def _get_adjacent_room_ids(self, location_id: int, max_depth: int = 1) -> List[int]:
+def _calculate_distance_bfs(self, from_id: int, to_id: int) -> int:
     """
-    Get IDs of rooms adjacent to given location.
+    Calculate shortest path distance between locations using BFS.
 
     Args:
-        location_id: Current room ID
-        max_depth: How many hops away (1 = immediate neighbors)
+        from_id: Starting location ID
+        to_id: Target location ID
 
     Returns:
-        List of adjacent room IDs
+        Hop count (int) or float('inf') if unreachable
     """
-    if not self.map_manager:
-        return []
+    from collections import deque
 
-    adjacent_ids = set()
-    map_data = self.map_manager.game_map
+    if from_id == to_id:
+        return 0
 
-    # Get rooms we can reach FROM current location (outgoing connections)
-    if location_id in map_data.connections:
-        for exit_action, dest_id in map_data.connections[location_id].items():
-            adjacent_ids.add(dest_id)
+    visited = {from_id}
+    queue = deque([(from_id, 0)])  # (location_id, distance)
 
-    # Get rooms that can reach US (incoming connections)
-    for source_id, exits in map_data.connections.items():
-        for exit_action, dest_id in exits.items():
-            if dest_id == location_id:
-                adjacent_ids.add(source_id)
+    while queue:
+        current_id, dist = queue.popleft()
 
-    return list(adjacent_ids)
+        # Check outgoing connections
+        if current_id in self.map_manager.game_map.connections:
+            for exit_action, dest_id in self.map_manager.game_map.connections[current_id].items():
+                if dest_id == to_id:
+                    return dist + 1
+                if dest_id not in visited:
+                    visited.add(dest_id)
+                    queue.append((dest_id, dist + 1))
+
+    return float('inf')  # Unreachable
 ```
 
-**Why bidirectional?**
-- Outgoing: Where we can go from here
-- Incoming: Where we came from (might have memories worth revisiting)
+**Why BFS for distance?**
+- Finds shortest path (minimum hops) between locations
+- Provides spatial context: "3 hops away" helps LLM understand effort required
+- Pathfinding done by LLM using map context (not by this function)
+- Enables priority ordering: closer memories = more immediately actionable
 
 ---
 
@@ -230,7 +257,7 @@ def _get_map_context(self) -> str:
     total_rooms = len(self.map_manager.game_map.rooms)
     lines.append(f"\n## Exploration Statistics")
     lines.append(f"- Rooms discovered: {total_rooms}")
-    lines.append(f"- Current location: {self.game_state.current_room_name_for_map} (ID: {self.game_state.current_room_id})")
+    lines.append(f"- Current location: {self.game_state.current_room_name} (ID: {self.game_state.current_room_id})")
 
     return "\n".join(lines)
 ```
@@ -249,7 +276,11 @@ def _get_map_context(self) -> str:
 ```python
 def _get_routing_summary(self, current_location_id: int) -> str:
     """
-    Generate text-based routing summary for current location and adjacent rooms.
+    Generate text-based routing summary for current location.
+
+    Shows available exits from current location only.
+    Adjacent location routing was removed - distance-sorted memories
+    provide this context instead, allowing LLM to determine routes.
 
     Returns human-readable routing information with location IDs.
     """
@@ -271,19 +302,8 @@ def _get_routing_summary(self, current_location_id: int) -> str:
     else:
         lines.append("  - No mapped exits")
 
-    # Adjacent locations (1 hop away)
-    adjacent_ids = self._get_adjacent_room_ids(current_location_id)
-    if adjacent_ids:
-        lines.append("\n## Adjacent Locations (1 hop away):")
-        for adj_id in sorted(adjacent_ids)[:5]:  # Limit to 5 to control token usage
-            adj_name = map_graph.room_names.get(adj_id, f"Location #{adj_id}")
-            lines.append(f"\n**Location {adj_id} ({adj_name}):**")
-
-            if adj_id in map_graph.connections:
-                for exit_action, dest_id in sorted(list(map_graph.connections[adj_id].items())[:3]):  # Limit exits
-                    dest_name = map_graph.room_names.get(dest_id, f"Location #{dest_id}")
-                    back_marker = " [back to current]" if dest_id == current_location_id else ""
-                    lines.append(f"  - {exit_action} → Location {dest_id} ({dest_name}){back_marker}")
+    # Note: Adjacent location routing removed - memories now provide this context
+    # via distance-sorted format. LLM can determine routing using map connections.
 
     return "\n".join(lines)
 ```
@@ -321,6 +341,49 @@ def _format_memories(self, memories: List[Memory]) -> str:
 
 ---
 
+#### `_get_gameplay_context() -> str`
+
+**Purpose**: Format recent gameplay history for objective discovery context
+
+```python
+def _get_gameplay_context(self) -> str:
+    """
+    Format recent gameplay history for objective discovery context.
+
+    Provides recent action/response pairs to show tactical patterns
+    without redundant extracted state data.
+
+    Returns:
+        Formatted string with recent actions and responses
+    """
+    lines = []
+
+    # Recent action history (last 10 actions)
+    recent_actions = self.game_state.action_history[-10:] if self.game_state.action_history else []
+    if recent_actions:
+        lines.append("## Recent Actions (Last 10 Turns)")
+        for i, (action, response) in enumerate(recent_actions, start=1):
+            turn_num = self.game_state.turn_count - len(recent_actions) + i
+            lines.append(f"\nTurn {turn_num}:")
+            lines.append(f"  Action: {action}")
+            # Truncate long responses to avoid token bloat
+            response_preview = response[:200] + "..." if len(response) > 200 else response
+            lines.append(f"  Response: {response_preview}")
+    else:
+        lines.append("## Recent Actions\n(No actions yet - start of episode)")
+
+    return "\n".join(lines)
+```
+
+**Why this approach?**
+- Separates strategic context (knowledge, memories, map) from tactical context (recent turns)
+- Truncates responses to avoid token bloat (200 char limit per response)
+- Provides turn numbers for temporal context
+- Gracefully handles empty history (start of episode)
+- Action/response pairs contain the same info that memory_log_history extracts (redundancy avoided)
+
+---
+
 ### 2. Updated Prompt Structure
 
 **In `_update_discovered_objectives()`, replace current prompt with:**
@@ -328,8 +391,9 @@ def _format_memories(self, memories: List[Memory]) -> str:
 ```python
 # Get contextual data
 knowledge_content = self._get_full_knowledge()
-memories_content = self._get_memories_with_adjacent(self.game_state.current_room_id)
+memories_content = self._get_all_memories_by_distance(self.game_state.current_room_id)
 map_context = self._get_map_context()
+gameplay_context = self._get_gameplay_context()
 
 prompt = f"""Analyze recent gameplay and available knowledge to discover objectives.
 
@@ -347,7 +411,7 @@ prompt = f"""Analyze recent gameplay and available knowledge to discover objecti
 
 CURRENT STATE:
 - Score: {self.game_state.previous_zork_score}
-- Location: {self.game_state.current_room_name_for_map} (ID: {self.game_state.current_room_id})
+- Location: {self.game_state.current_room_name} (ID: {self.game_state.current_room_id})
 - Inventory: {self.game_state.current_inventory}
 
 Based on ALL of this context, identify objectives that:
@@ -422,7 +486,7 @@ self.objective_manager = ObjectiveManager(
     game_state=self.game_state,
     adaptive_knowledge_manager=self.adaptive_knowledge_manager,
     map_manager=self.map_manager,  # NEW: Pass MapManager reference
-    memory_manager=self.simple_memory,  # NEW: Pass SimpleMemoryManager reference
+    simple_memory=self.simple_memory,  # NEW: Pass SimpleMemoryManager reference
 )
 ```
 
@@ -504,15 +568,21 @@ EpisodeSynthesizer → needs knowledge and state managers ✅
 | Component | Estimated Tokens | Notes |
 |-----------|-----------------|-------|
 | **Knowledge Base** | 2,000 - 5,000 | Full file, strategic wisdom |
-| **Current Location Memories** | 300 - 500 | 3-5 memories, formatted |
-| **Adjacent Memories** | 500 - 1,000 | 5 locations × 3 memories each |
+| **All Memories (Distance-Sorted)** | 3,000 - 6,000 | ~25 locations × 3-5 memories each, ACTIVE CORE+PERMANENT only |
 | **Map Mermaid** | 200 - 400 | Visual diagram |
-| **Routing Summary** | 200 - 400 | Current + 5 adjacent rooms |
+| **Routing Summary** | 200 - 400 | Current location connections |
 | **Recent Gameplay** | 500 - 800 | Already in current prompt |
 | **System Prompt** | 800 - 1,200 | Instructions and examples |
-| **TOTAL ADDED** | **~3,000 - 7,000** | New context vs current |
+| **TOTAL ADDED** | **~6,000 - 11,000** | New context vs current |
 
-**Total Objective Update Context**: ~10K - 15K tokens (acceptable for 20-turn interval)
+**Total Objective Update Context**: ~12K - 18K tokens (acceptable for 20-turn interval)
+
+**Why larger token budget is acceptable:**
+- Objectives update only every 20 turns (not every turn)
+- Strategic decisions require comprehensive context
+- Filtering reduces noise: ACTIVE only, CORE+PERMANENT only
+- Distance sorting provides natural priority ordering
+- No arbitrary cutoffs mean consistent strategic visibility
 
 ### Trade-offs
 
@@ -526,18 +596,21 @@ EpisodeSynthesizer → needs knowledge and state managers ✅
 - Larger LLM calls for objective updates
 - Could hit token limits with very large knowledge bases
 
-**Mitigation Strategies:**
+**Mitigation Strategies (if token usage becomes an issue):**
 1. **If knowledge base grows > 10K tokens:**
    - Add summarization step (LLM-generated summary for objectives)
    - Split knowledge into "objectives-relevant" section
 
-2. **If memory filtering needed:**
-   - Add recency filter (only memories from last N episodes)
-   - Add category filter (only SUCCESS/DISCOVERY for objectives)
+2. **If memory count explodes (>50 locations with memories):**
+   - Add distance cutoff: only include memories within N hops (e.g., 5-10 hops)
+   - Add recency filter: prioritize memories from recent episodes
+   - Currently: NO cutoffs until we measure actual performance issues
 
 3. **If map is huge:**
-   - Only include current region (3-hop radius)
+   - Only include current region (3-hop radius) in Mermaid
    - Text summary instead of full Mermaid for very large maps
+
+**Current approach:** Include ALL memories with NO cutoffs until we identify actual issues with token usage or LLM performance
 
 ## Testing Strategy
 
@@ -553,32 +626,32 @@ class TestObjectiveManagerEnhanced:
     def test_get_full_knowledge_handles_missing_file(self):
         """Should return fallback message if file missing"""
 
-    def test_get_adjacent_room_ids_outgoing(self):
-        """Should find rooms reachable from current location"""
+    def test_calculate_distance_bfs_same_location(self):
+        """Should return 0 for same location"""
 
-    def test_get_adjacent_room_ids_incoming(self):
-        """Should find rooms that can reach current location"""
+    def test_calculate_distance_bfs_adjacent(self):
+        """Should return 1 for directly connected rooms"""
 
-    def test_get_adjacent_room_ids_no_map_manager(self):
-        """Should handle missing map_manager gracefully"""
+    def test_calculate_distance_bfs_multi_hop(self):
+        """Should calculate correct distance for multi-hop paths"""
 
-    def test_get_memories_with_adjacent_current_only(self):
-        """Should format memories for current location"""
+    def test_calculate_distance_bfs_unreachable(self):
+        """Should return float('inf') for unreachable locations"""
 
-    def test_get_memories_with_adjacent_includes_neighbors(self):
-        """Should include memories from adjacent locations"""
+    def test_get_all_memories_by_distance_filtering(self):
+        """Should filter to ACTIVE CORE+PERMANENT memories only"""
 
-    def test_get_memories_with_adjacent_limits_count(self):
-        """Should limit to 5 adjacent locations"""
+    def test_get_all_memories_by_distance_sorting(self):
+        """Should sort locations by distance (closest first)"""
+
+    def test_get_all_memories_by_distance_no_cutoffs(self):
+        """Should include all locations with strategic memories (no arbitrary limits)"""
 
     def test_get_map_context_includes_mermaid(self):
         """Should include Mermaid diagram in context"""
 
     def test_get_routing_summary_current_location(self):
-        """Should show exits from current location"""
-
-    def test_get_routing_summary_adjacent_locations(self):
-        """Should show connections for adjacent rooms"""
+        """Should show exits from current location only"""
 
     def test_format_memories_shows_status(self):
         """Should show status markers for non-ACTIVE memories"""
@@ -599,8 +672,14 @@ class TestObjectiveManagerIntegration:
     def test_objectives_reference_location_ids(self):
         """Objectives should use location IDs not just names"""
 
-    def test_objectives_suggest_adjacent_exploration(self):
-        """Objectives should suggest exploring adjacent rooms with memories"""
+    def test_objectives_suggest_distant_exploration(self):
+        """Objectives should suggest exploring locations with memories regardless of distance"""
+
+    def test_objectives_exclude_ephemeral_memories(self):
+        """Objectives should not reference EPHEMERAL memories (session state)"""
+
+    def test_objectives_exclude_tentative_superseded(self):
+        """Objectives should only use ACTIVE memories (not TENTATIVE or SUPERSEDED)"""
 
     def test_full_workflow_with_enhanced_context(self):
         """Full objective update with knowledge + memories + map"""
@@ -621,16 +700,17 @@ class TestObjectiveManagerIntegration:
 
 ### Phase 1: Add Helper Methods (Low Risk)
 - Add `_get_full_knowledge()`
-- Add `_get_adjacent_room_ids()`
-- Add `_get_memories_with_adjacent()`
+- Add `_calculate_distance_bfs()`
+- Add `_get_all_memories_by_distance()`
 - Add `_get_map_context()`
 - Add `_get_routing_summary()`
 - Add `_format_memories()`
+- Add `_get_gameplay_context()`
 - **Risk**: Low (new methods, no existing code changes)
 
 ### Phase 2: Update __init__ (Medium Risk)
 - Add `map_manager` parameter
-- Add `memory_manager` parameter
+- Add `simple_memory` parameter
 - Update orchestrator initialization
 - **Risk**: Medium (dependency injection changes)
 
@@ -641,9 +721,10 @@ class TestObjectiveManagerIntegration:
 - **Risk**: High (changes objective generation behavior)
 
 ### Rollback Plan
-- Keep old prompt in comments for quick revert
-- Feature flag: `config.enable_enhanced_objectives` (default: False)
-- Monitor objective quality metrics before full rollout
+- Keep old prompt in comments for quick revert if needed
+- All changes are additive (new helper methods, updated prompt)
+- Revert by restoring old `_update_discovered_objectives()` implementation
+- No configuration changes required
 
 ## Success Criteria
 
@@ -666,7 +747,7 @@ class TestObjectiveManagerIntegration:
 ### Short-term
 1. **Objective Quality Scoring**: Rate objectives based on specificity, knowledge use
 2. **Memory Recency Weighting**: Prioritize recent episode memories
-3. **Category Filtering**: Only include SUCCESS/DISCOVERY memories for objectives
+3. **Distance Cutoffs (if needed)**: Add configurable max distance if token budget becomes issue
 
 ### Long-term
 1. **Dynamic Context Sizing**: Adjust knowledge/memory inclusion based on token budget
@@ -684,6 +765,68 @@ class TestObjectiveManagerIntegration:
 
 ---
 
-**Document Version**: 1.0
-**Last Updated**: 2025-01-04
-**Status**: Specification (Ready for Implementation)
+## Design Decisions (Brainstorming Session 2025-01-06)
+
+### Memory Retrieval: Distance-Sorted All Memories
+
+**Decision**: Include ALL strategic memories from the entire game, sorted by distance from current location.
+
+**Rejected Approach**: "Current + adjacent only" (original spec)
+- Problem: ObjectiveManager runs every 20 turns - agent position is random
+- "Adjacent" is arbitrary when agent could be anywhere
+- Limits strategic visibility to immediate surroundings
+
+**Chosen Approach**: Distance-sorted all memories
+- Agent can see ALL opportunities regardless of distance
+- Enables multi-step planning: "To reach Location 150, route through 120 → 135"
+- No arbitrary cutoffs - consistent strategic visibility
+- Distance provides spatial context without limiting scope
+
+### Memory Filtering: ACTIVE Strategic Memories Only
+
+**Decision**: Filter by Status (ACTIVE only) + Persistence (CORE + PERMANENT only)
+
+**Rationale:**
+- **Status Filtering**: ACTIVE only (exclude TENTATIVE and SUPERSEDED)
+  - TENTATIVE: Unconfirmed, may be invalidated later
+  - SUPERSEDED: Proven wrong by later evidence
+  - Only ACTIVE memories are reliable for strategic planning
+
+- **Persistence Filtering**: CORE + PERMANENT only (exclude EPHEMERAL)
+  - EPHEMERAL: Session-specific state changes (e.g., "dropped sword here")
+  - Cleared on episode reset - not relevant for strategic planning
+  - Already available in ContextManager for tactical decisions at that location
+  - ObjectiveManager = strategic (20-turn planning), EPHEMERAL = tactical (turn-by-turn)
+
+**Memory Categories (all 5 included if ACTIVE + CORE/PERMANENT):**
+- SUCCESS: Proven procedures
+- FAILURE: Known failed approaches
+- DISCOVERY: Items, locations, new information
+- DANGER: Threats, hazards
+- NOTE: General observations
+
+### Distance Display: Hop Count Only
+
+**Decision**: Show hop count (e.g., "3 hops away"), not full pathfinding route
+
+**Rationale:**
+- Pathfinding is LLM's responsibility using map context
+- Hop count provides spatial context for priority ordering
+- Keeps token usage minimal
+- LLM can reason: "3 hops = plan multi-step route" vs "8 hops = defer until closer"
+
+### No Cutoffs Until Measured
+
+**Decision**: Include ALL memories with NO arbitrary limits until we identify actual performance issues
+
+**Rationale:**
+- No evidence yet of token budget problems
+- Premature optimization wastes engineering effort
+- Can add distance cutoffs later if needed (e.g., "only within 10 hops")
+- Strategic planning benefits from comprehensive visibility
+
+---
+
+**Document Version**: 1.1
+**Last Updated**: 2025-01-06
+**Status**: Specification (Updated with Brainstorming Decisions - Ready for Implementation)
