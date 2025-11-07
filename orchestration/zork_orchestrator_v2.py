@@ -284,6 +284,9 @@ class ZorkOrchestratorV2:
             initial_extracted_info = self.extractor.extract_info(initial_game_state)
             self._process_extraction(initial_extracted_info, "", initial_game_state)
 
+            # Generate turn 1 objectives BEFORE game loop starts (if memories exist)
+            self._generate_turn_1_objectives()
+
             # Run the main game loop
             final_score = self._run_game_loop(initial_game_state)
 
@@ -1565,25 +1568,6 @@ SURVIVAL DEPENDS ON SCORE INCREASE.
         # Map manager periodic check (currently no-op; map updates happen in real-time)
         self.map_manager.process_turn()
 
-        # Turn 1: Generate initial objectives if memories exist from prior episodes
-        if self.game_state.turn_count == 1:
-            has_memories = self.simple_memory.get_persistent_count() > 0
-            if has_memories:
-                self.logger.info(
-                    "Turn 1: Running objective generation from memories and knowledgebase",
-                    extra={
-                        "event_type": "turn_1_objective_generation",
-                        "episode_id": self.game_state.episode_id,
-                        "memory_count": self.simple_memory.get_persistent_count(),
-                    }
-                )
-                current_reasoning = ""
-                if self.game_state.action_reasoning_history:
-                    current_reasoning = self.game_state.action_reasoning_history[-1].get(
-                        "reasoning", ""
-                    )
-                self.objective_manager.process_periodic_updates(current_reasoning)
-
         # Objective updates (normal periodic check at interval)
         if self.objective_manager.should_process_turn():
             current_reasoning = ""
@@ -1599,6 +1583,35 @@ SURVIVAL DEPENDS ON SCORE INCREASE.
 
         # State management (context overflow)
         self.state_manager.process_turn()
+
+    def _generate_turn_1_objectives(self) -> None:
+        """
+        Generate initial objectives before turn 1 if memories exist from prior episodes.
+
+        This ensures objectives are available to the agent when making its first decision.
+        Only runs if persistent memories exist (cross-episode learning).
+        """
+        has_memories = self.simple_memory.get_persistent_count() > 0
+        if has_memories:
+            self.logger.info(
+                "Pre-turn 1: Generating initial objectives from memories and knowledgebase",
+                extra={
+                    "event_type": "turn_1_objective_generation",
+                    "episode_id": self.game_state.episode_id,
+                    "memory_count": self.simple_memory.get_persistent_count(),
+                }
+            )
+            # Use bootstrap method to bypass turn checks
+            self.objective_manager.bootstrap_initial_objectives()
+        else:
+            self.logger.info(
+                "Pre-turn 1: No persistent memories found, skipping initial objective generation",
+                extra={
+                    "event_type": "turn_1_objective_generation_skipped",
+                    "episode_id": self.game_state.episode_id,
+                    "reason": "no_memories",
+                }
+            )
 
     def _export_coordinated_state(self) -> None:
         """Coordinate data gathering from managers and export complete state."""

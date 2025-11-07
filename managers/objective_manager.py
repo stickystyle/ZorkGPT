@@ -94,6 +94,23 @@ class ObjectiveManager(BaseManager):
         # Check for stale objectives
         self.check_objective_staleness()
 
+    def bootstrap_initial_objectives(self) -> None:
+        """
+        Bootstrap initial objectives before turn 1 from memories and knowledgebase.
+
+        This method bypasses normal turn checks and is meant to be called once
+        during episode initialization (at turn 0) to give the agent starting objectives
+        based on cross-episode knowledge.
+        """
+        self.log_info(
+            f"Bootstrapping initial objectives at turn {self.game_state.turn_count}",
+            turn=self.game_state.turn_count,
+        )
+
+        # Directly call objective update, bypassing turn check
+        # No agent reasoning available yet at turn 0
+        self._update_discovered_objectives(current_agent_reasoning="")
+
     def should_process_turn(self) -> bool:
         """Check if objectives need processing this turn."""
         # Check if it's time for an objective update
