@@ -10,12 +10,14 @@ Handles the complete lifecycle of objective management:
 
 from typing import List, Dict, Any
 from pydantic import BaseModel
+from pathlib import Path
+from collections import deque
 
 from managers.base_manager import BaseManager
 from session.game_state import GameState
 from session.game_configuration import GameConfiguration
 from knowledge import AdaptiveKnowledgeManager
-from shared_utils import create_json_schema, strip_markdown_json_fences, extract_json_from_text
+from shared_utils import create_json_schema, strip_markdown_json_fences, extract_json_from_text, estimate_tokens
 
 
 class ObjectiveDiscoveryResponse(BaseModel):
@@ -56,9 +58,13 @@ class ObjectiveManager(BaseManager):
         config: GameConfiguration,
         game_state: GameState,
         adaptive_knowledge_manager: AdaptiveKnowledgeManager,
+        map_manager=None,  # NEW: Optional MapManager for spatial context
+        simple_memory=None,  # NEW: Optional SimpleMemoryManager for memory access
     ):
         super().__init__(logger, config, game_state, "objective_manager")
         self.adaptive_knowledge_manager = adaptive_knowledge_manager
+        self.map_manager = map_manager
+        self.simple_memory = simple_memory
 
         # Objective refinement tracking
         self.last_objective_refinement_turn = 0
@@ -197,82 +203,121 @@ class ObjectiveManager(BaseManager):
                 },
             )
 
-            # Get recent gameplay context for analysis
-            recent_memory = (
-                self.game_state.memory_log_history[-20:]
-                if len(self.game_state.memory_log_history) > 20
-                else self.game_state.memory_log_history
+            # Gather rich context from all available sources
+            knowledge_content = self._get_full_knowledge()
+            memories_content = self._get_all_memories_by_distance(self.game_state.current_room_id)
+            map_context = self._get_map_context()
+            gameplay_context = self._get_gameplay_context()
+
+            # Log token counts for each context section
+            knowledge_tokens = estimate_tokens(knowledge_content)
+            memories_tokens = estimate_tokens(memories_content)
+            map_tokens = estimate_tokens(map_context)
+            gameplay_tokens = estimate_tokens(gameplay_context)
+            total_context_tokens = knowledge_tokens + memories_tokens + map_tokens + gameplay_tokens
+
+            self.log_debug(
+                f"Objective context token breakdown: knowledge={knowledge_tokens}, "
+                f"memories={memories_tokens}, map={map_tokens}, gameplay={gameplay_tokens}, "
+                f"total={total_context_tokens}",
+                details=f"Total context tokens: {total_context_tokens}"
             )
-            recent_actions = (
-                self.game_state.action_history[-10:]
-                if len(self.game_state.action_history) > 10
-                else self.game_state.action_history
+
+            self.logger.info(
+                f"Objective discovery context prepared: {total_context_tokens} tokens",
+                extra={
+                    "event_type": "objective_context_prepared",
+                    "episode_id": self.game_state.episode_id,
+                    "turn": self.game_state.turn_count,
+                    "knowledge_tokens": knowledge_tokens,
+                    "memories_tokens": memories_tokens,
+                    "map_tokens": map_tokens,
+                    "gameplay_tokens": gameplay_tokens,
+                    "total_context_tokens": total_context_tokens,
+                }
             )
 
-            # Prepare context for LLM analysis
-            gameplay_context = self._prepare_objective_analysis_context(
-                recent_memory, recent_actions, current_agent_reasoning
-            )
+            # Create prompt for objective discovery/updating with enhanced context
+            prompt = f"""Analyze recent gameplay and available knowledge to discover objectives.
 
-            # Create prompt for objective discovery/updating
-            prompt = f"""Analyze recent gameplay and identify concrete GAME OBJECTIVES, not meta-strategies.
+=== STRATEGIC KNOWLEDGE (General Wisdom) ===
+{knowledge_content}
 
-**CORRECT OBJECTIVES (what to achieve):**
-✓ "Acquire painting from Gallery to increase score"
-✓ "Find rope for climbing vertical obstacles"
-✓ "Explore East Chasm for hidden treasures"
-✓ "Solve window puzzle to access kitchen"
-✓ "Defeat troll to access eastern passages"
-✓ "Take brass lantern from living room"
-✓ "Unlock basement door with rusty key"
+=== LOCATION-SPECIFIC MEMORIES ===
+{memories_content}
 
-**INCORRECT OBJECTIVES (how to play):**
-✗ "Manage inventory capacity to avoid hazards"
-✗ "Apply strategic item drop hierarchy"
-✗ "Navigate efficiently between locations"
-✗ "Avoid repeating failed take actions"
-✗ "Track rejections systematically"
+=== MAP & ROUTING INFORMATION ===
+{map_context}
 
-**Focus on:**
-- **Specific items to acquire**: Treasures, tools, keys, weapons
-- **Locations to explore**: Unmapped exits, new areas, hidden rooms
-- **Puzzles to solve**: Doors, barriers, mechanisms, locked containers
-- **Score-increasing actions**: Achievements to unlock, treasures to collect
-- **NPCs to interact with**: Quest givers, traders, enemies to defeat
-
-CURRENT DISCOVERED OBJECTIVES:
-{self.game_state.discovered_objectives if self.game_state.discovered_objectives else "None discovered yet"}
-
-RECENTLY COMPLETED OBJECTIVES:
-{[comp["objective"] for comp in self.game_state.completed_objectives[-5:]] if self.game_state.completed_objectives else "None completed yet"}
-
-RECENT GAMEPLAY CONTEXT:
+=== RECENT GAMEPLAY ===
 {gameplay_context}
 
-CURRENT SCORE: {self.game_state.previous_zork_score}
-CURRENT LOCATION: {self.game_state.current_room_name_for_map}
-CURRENT INVENTORY: {self.game_state.current_inventory}
+CURRENT STATE:
+- Score: {self.game_state.previous_zork_score}
+- Location: {self.game_state.current_room_name} (ID: {self.game_state.current_room_id})
+- Inventory: {self.game_state.current_inventory}
 
-**Task:** Identify the top 3-5 concrete game objectives based on recent gameplay.
-Focus on WHAT to achieve, not HOW to play.
+Based on ALL of this context, identify objectives that:
+
+1. **Align with strategic knowledge**
+   - Avoid known dangers mentioned in knowledge base
+   - Pursue known high-value goals (treasures, puzzle solutions)
+   - Follow resource priority guidance (lantern > axe > sack)
+   - Apply learned command patterns and syntax
+
+2. **Leverage location-specific memories**
+   - Use known procedures from current or adjacent locations
+   - Example: "Memory shows window entry sequence at Location 79 → create objective to use it"
+   - Build on previous discoveries rather than rediscovering
+
+3. **Address exploration opportunities**
+   - Prioritize unexplored exits shown in map
+   - Investigate adjacent rooms with interesting memories
+   - Example: "Adjacent Location 81 has lantern memory → objective to go north and investigate"
+
+4. **Build on recent gameplay patterns**
+   - Continue successful strategies from recent actions
+   - Learn from recent failures or obstacles
+
+**Good Objective Examples:**
+✅ "Use window entry procedure from Location 79 memory (open window → enter window) to access Location 62 (Kitchen)"
+✅ "Avoid troll encounter at Location 152 (knowledge warns: requires specific item or combat)"
+✅ "Explore north to Location 81 (adjacent room with unexplored exits, lantern mentioned in memory)"
+✅ "Secure brass lantern before dark areas (knowledge priority: light source critical)"
+
+**Bad Objective Examples:**
+❌ "Explore the house" (too vague, no location IDs)
+❌ "Get items" (no specifics, doesn't leverage context)
+❌ "Try random actions" (ignores knowledge and memories)
+
+**IMPORTANT**:
+- Use location IDs when referencing locations (e.g., "Location 79", not just "behind house")
+- Reference specific memories or knowledge when creating objectives
+- Prioritize objectives that leverage cross-episode learning
+
+**RESPONSE LENGTH CONSTRAINTS:**
+- Keep reasoning field under 500 characters (2-3 sentences maximum)
+- Each objective should be 1 clear sentence
+- Total response should be under 1000 tokens
+- Focus on quality over quantity (3-5 objectives is ideal)
 
 **CRITICAL - OUTPUT FORMAT:**
-YOU MUST respond with ONLY a valid JSON object. Do not include any text before or after the JSON. Do not include thinking tags or reasoning outside the JSON structure.
+YOU MUST respond with ONLY a valid JSON object. Do not include any text before or after the JSON.
 
 Required JSON format:
 {{
   "objectives": ["objective 1", "objective 2", ...],
-  "reasoning": "brief explanation"
+  "reasoning": "brief explanation of how objectives align with knowledge/memories/map"
 }}
 
 Example valid response:
 {{
   "objectives": [
-    "Find a light source to explore dark areas safely",
-    "Acquire the brass lantern from the Living Room",
-    "Search for valuable treasures to increase score"
+    "Use window entry procedure from Location 79 memory to access Location 62 (Kitchen)",
+    "Avoid troll at Location 152 per knowledge base warning",
+    "Explore north to Location 81 to investigate lantern memory"
   ],
-  "reasoning": "Agent has discovered the importance of light from game feedback and is actively seeking the lantern."
+  "reasoning": "Objectives leverage window procedure memory (cross-episode learning), avoid known danger (strategic knowledge), and pursue exploration opportunity with useful item (map + memory combination)."
 }}"""
 
             # Get LLM response using adaptive knowledge manager's client
@@ -308,10 +353,14 @@ Example valid response:
                     if self.adaptive_knowledge_manager
                     else {}
                 )
+                # Token budget: ~2K prompt + ~1.5K completion = ~3.5K total
+                # Objectives: 3-5 × ~125 tokens = ~500 tokens
+                # Reasoning: ~75 tokens (brief, 2-3 sentences)
+                # Total: ~600 tokens (well within 1500 limit)
                 sampling_params.update(
                     {
                         "temperature": sampling_params.get("temperature", 0.3),
-                        "max_tokens": sampling_params.get("max_tokens", 5000),
+                        "max_tokens": sampling_params.get("max_tokens", 1500),
                         "response_format": create_json_schema(
                             ObjectiveDiscoveryResponse
                         ),
@@ -362,7 +411,7 @@ Example valid response:
                         details=f"Updated {len(updated_objectives)} objectives: {updated_objectives[:3]}",
                     )
 
-                    # Log the update
+                    # Log the update with reasoning
                     self.logger.info(
                         "Discovered objectives updated",
                         extra={
@@ -371,6 +420,7 @@ Example valid response:
                             "turn": self.game_state.turn_count,
                             "objective_count": len(updated_objectives),
                             "objectives": updated_objectives,
+                            "reasoning": reasoning,  # Include LLM reasoning
                         },
                     )
                 else:
@@ -881,6 +931,211 @@ Example valid response:
 
             except Exception as e:
                 self.log_error(f"Failed to refine objectives: {e}")
+
+    def _get_full_knowledge(self) -> str:
+        """
+        Load full knowledge base - strategic wisdom.
+
+        Returns:
+            Complete contents of knowledge base file or fallback message
+        """
+        kb_path = Path(self.config.zork_game_workdir) / self.config.knowledge_file
+        if kb_path.exists():
+            return kb_path.read_text(encoding="utf-8")
+        return "No strategic knowledge available."
+
+    def _calculate_distance_bfs(self, from_id: int, to_id: int) -> int:
+        """
+        Calculate shortest path distance between locations using BFS.
+
+        Args:
+            from_id: Starting location ID
+            to_id: Target location ID
+
+        Returns:
+            Hop count (int) or float('inf') if unreachable
+        """
+        if from_id == to_id:
+            return 0
+
+        if not self.map_manager or not hasattr(self.map_manager, 'game_map'):
+            return float('inf')
+
+        visited = {from_id}
+        queue = deque([(from_id, 0)])  # (location_id, distance)
+
+        while queue:
+            current_id, dist = queue.popleft()
+
+            # Check outgoing connections
+            if current_id in self.map_manager.game_map.connections:
+                for exit_action, dest_id in self.map_manager.game_map.connections[current_id].items():
+                    if dest_id == to_id:
+                        return dist + 1
+                    if dest_id not in visited:
+                        visited.add(dest_id)
+                        queue.append((dest_id, dist + 1))
+
+        return float('inf')  # Unreachable
+
+    def _get_all_memories_by_distance(self, current_location_id: int) -> str:
+        """
+        Get all ACTIVE strategic memories sorted by distance from current location.
+
+        Filtering:
+        - Status: ACTIVE only (excludes TENTATIVE, SUPERSEDED)
+
+        Note: Persistence filtering (CORE + PERMANENT) is not implemented yet in the
+        Memory dataclass. When the persistence field is added, this method should be
+        updated to filter: m.persistence in ["core", "permanent"]
+
+        Returns:
+            Formatted string with memories grouped by location and sorted by distance
+        """
+        if not self.simple_memory or not self.map_manager:
+            return "No memory data available"
+
+        # Calculate distances to all locations with strategic memories
+        location_distances = []
+        for loc_id, memories in self.simple_memory.memory_cache.items():
+            # Filter to ACTIVE memories only (strategic filtering)
+            # TODO: Add persistence filtering when field is implemented:
+            # strategic_memories = [m for m in memories
+            #                       if m.status == "ACTIVE"
+            #                       and m.persistence in ["core", "permanent"]]
+            strategic_memories = [
+                m for m in memories
+                if m.status == "ACTIVE"
+            ]
+
+            if strategic_memories:  # Only include location if it has strategic memories
+                distance = self._calculate_distance_bfs(current_location_id, loc_id)
+                location_distances.append((distance, loc_id, strategic_memories))
+
+        # Sort by distance (closest first)
+        location_distances.sort(key=lambda x: x[0])
+
+        # Format grouped by location
+        lines = ["## All Game Memories (Sorted by Distance from Current Location)\n"]
+        for distance, loc_id, memories in location_distances:
+            loc_name = self.map_manager.game_map.room_names.get(
+                loc_id, f"Location #{loc_id}"
+            )
+            lines.append(f"\n**Location {loc_id} ({loc_name}) - {distance} hops away:**")
+            lines.append(self._format_memories(memories))
+
+        return "\n".join(lines)
+
+    def _format_memories(self, memories: List) -> str:
+        """
+        Format list of Memory objects for prompt.
+
+        Args:
+            memories: List of Memory objects to format
+
+        Returns:
+            Formatted string with memory details
+        """
+        if not memories:
+            return "  (No memories)"
+
+        formatted = []
+        for mem in memories[:5]:  # Top 5 memories per location
+            status_marker = f" [{mem.status}]" if mem.status != "ACTIVE" else ""
+            formatted.append(f"  - [{mem.category}] {mem.title}{status_marker}")
+            formatted.append(f"    {mem.text}")
+
+        return "\n".join(formatted)
+
+    def _get_map_context(self) -> str:
+        """
+        Get map context including Mermaid diagram and exploration summary.
+
+        Returns:
+            Human-readable map information with location IDs
+        """
+        if not self.map_manager:
+            return "No map data available"
+
+        lines = []
+
+        # Mermaid diagram
+        mermaid = self.map_manager.game_map.render_mermaid()
+        lines.append("## Map Visualization (Mermaid Format)")
+        lines.append(mermaid)
+        lines.append("\nNote: Node IDs match location IDs in memories (L180 = Location 180)")
+        lines.append(f"**Current location**: L{self.game_state.current_room_id}\n")
+
+        # Current location routing
+        lines.append(self._get_routing_summary(self.game_state.current_room_id))
+
+        # Exploration statistics
+        total_rooms = len(self.map_manager.game_map.rooms)
+        lines.append(f"\n## Exploration Statistics")
+        lines.append(f"- Rooms discovered: {total_rooms}")
+        lines.append(f"- Current location: {self.game_state.current_room_name} (ID: {self.game_state.current_room_id})")
+
+        return "\n".join(lines)
+
+    def _get_routing_summary(self, current_location_id: int) -> str:
+        """
+        Generate text-based routing summary for current location.
+
+        Shows available exits from current location only.
+
+        Args:
+            current_location_id: Location ID to generate routing for
+
+        Returns:
+            Human-readable routing information with location IDs
+        """
+        if not self.map_manager:
+            return "No routing data available"
+
+        map_graph = self.map_manager.game_map
+        lines = []
+
+        # Current location connections
+        current_name = map_graph.room_names.get(current_location_id, f"Location #{current_location_id}")
+        lines.append(f"## Current Location: {current_location_id} ({current_name})")
+
+        if current_location_id in map_graph.connections and map_graph.connections[current_location_id]:
+            lines.append("**Available Exits:**")
+            for exit_action, dest_id in sorted(map_graph.connections[current_location_id].items()):
+                dest_name = map_graph.room_names.get(dest_id, f"Location #{dest_id}")
+                lines.append(f"  - {exit_action} → Location {dest_id} ({dest_name})")
+        else:
+            lines.append("  - No mapped exits")
+
+        return "\n".join(lines)
+
+    def _get_gameplay_context(self) -> str:
+        """
+        Format recent gameplay history for objective discovery context.
+
+        Provides recent action/response pairs to show tactical patterns
+        without redundant extracted state data.
+
+        Returns:
+            Formatted string with recent actions and responses
+        """
+        lines = []
+
+        # Recent action history (last 10 actions)
+        recent_actions = self.game_state.action_history[-10:] if self.game_state.action_history else []
+        if recent_actions:
+            lines.append("## Recent Actions (Last 10 Turns)")
+            for i, (action, response) in enumerate(recent_actions, start=1):
+                turn_num = self.game_state.turn_count - len(recent_actions) + i
+                lines.append(f"\nTurn {turn_num}:")
+                lines.append(f"  Action: {action}")
+                # Truncate long responses to avoid token bloat
+                response_preview = response[:200] + "..." if len(response) > 200 else response
+                lines.append(f"  Response: {response_preview}")
+        else:
+            lines.append("## Recent Actions\n(No actions yet - start of episode)")
+
+        return "\n".join(lines)
 
     def get_status(self) -> Dict[str, Any]:
         """Get current objective manager status."""
