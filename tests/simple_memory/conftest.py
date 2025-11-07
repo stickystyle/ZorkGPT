@@ -240,6 +240,8 @@ def mock_llm_client_synthesis():
         "supersedes_memory_titles": [],
         "reasoning": "Significant item acquisition"
     })
+    # Mock usage for token limit checking
+    mock_response.usage = {"completion_tokens": 100, "prompt_tokens": 500}
     client.chat.completions.create.return_value = mock_response
     return client
 

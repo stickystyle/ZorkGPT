@@ -68,9 +68,11 @@ def memory_manager(config, game_state, temp_memories_file):
     logger = Mock()
     manager = SimpleMemoryManager(logger, config, game_state)
 
-    # Mock LLM client
-    manager._llm_client = Mock()
+    # Mock LLM client (need to set on both manager and synthesizer)
+    mock_client = Mock()
+    manager._llm_client = mock_client
     manager._llm_client_initialized = True
+    manager.synthesizer.llm_client = mock_client  # Update synthesizer too
 
     return manager
 
@@ -226,9 +228,11 @@ class TestPhase4PromptExamples:
             # Return valid response
             response = Mock()
             response.content = '{"should_remember": false, "reasoning": "test"}'
+            response.usage = {"completion_tokens": 50, "prompt_tokens": 200}
             return response
 
-        memory_manager.llm_client.chat.completions.create.side_effect = capture_prompt
+        # Set up mock on synthesizer's client (already set by fixture)
+        memory_manager.synthesizer.llm_client.chat.completions.create.side_effect = capture_prompt
 
         # Call synthesis
         z_machine_context = {'died': True, 'score_delta': 0, 'location_changed': False, 'inventory_changed': False}
@@ -242,6 +246,7 @@ class TestPhase4PromptExamples:
         )
 
         # Verify prompt includes INVALIDATION CHECK section
+        assert captured_prompt is not None, "LLM was never called - prompt not captured"
         assert "INVALIDATION CHECK (without replacement)" in captured_prompt
         assert "invalidate_memory_titles" in captured_prompt
         assert "invalidation_reason" in captured_prompt
@@ -255,14 +260,17 @@ class TestPhase4PromptExamples:
             captured_prompt = kwargs['messages'][0]['content']
             response = Mock()
             response.content = '{"should_remember": false, "reasoning": "test"}'
+            response.usage = {"completion_tokens": 50, "prompt_tokens": 200}
             return response
 
-        memory_manager.llm_client.chat.completions.create.side_effect = capture_prompt
+        # Set up mock on synthesizer's client (already set by fixture)
+        memory_manager.synthesizer.llm_client.chat.completions.create.side_effect = capture_prompt
 
         z_machine_context = {'died': True, 'score_delta': 0, 'location_changed': False, 'inventory_changed': False}
         memory_manager.record_action_outcome(152, "Troll Room", "test", "test", z_machine_context)
 
         # Verify examples present
+        assert captured_prompt is not None, "LLM was never called"
         assert "Death invalidates TENTATIVE assumptions" in captured_prompt
         assert "Core assumption proven false" in captured_prompt
         assert "Multiple related memories wrong" in captured_prompt
@@ -281,14 +289,17 @@ class TestPhase4PromptExamples:
             captured_prompt = kwargs['messages'][0]['content']
             response = Mock()
             response.content = '{"should_remember": false, "reasoning": "test"}'
+            response.usage = {"completion_tokens": 50, "prompt_tokens": 200}
             return response
 
-        memory_manager.llm_client.chat.completions.create.side_effect = capture_prompt
+        # Set up mock on synthesizer's client (already set by fixture)
+        memory_manager.synthesizer.llm_client.chat.completions.create.side_effect = capture_prompt
 
         z_machine_context = {'died': True, 'score_delta': 0, 'location_changed': False, 'inventory_changed': False}
         memory_manager.record_action_outcome(152, "Troll Room", "test", "test", z_machine_context)
 
         # Verify JSON examples
+        assert captured_prompt is not None, "LLM was never called"
         assert "Example valid response for invalidating without new memory" in captured_prompt
         assert "Example valid response for creating new memory AND invalidating others" in captured_prompt
         assert '"invalidate_memory_titles"' in captured_prompt
@@ -311,8 +322,9 @@ class TestPhase4BackwardCompatibility:
             "supersedes_memory_titles": ["Troll accepts lunch gift"],
             "reasoning": "Contradicts previous memory"
         }"""
+        mock_response.usage = {"completion_tokens": 100, "prompt_tokens": 500}
 
-        memory_manager.llm_client.chat.completions.create.return_value = mock_response
+        memory_manager.synthesizer.llm_client.chat.completions.create.return_value = mock_response
 
         z_machine_context = {'died': True, 'score_delta': 0, 'location_changed': False, 'inventory_changed': False}
 
@@ -348,8 +360,9 @@ class TestPhase4BackwardCompatibility:
             "status": "ACTIVE",
             "reasoning": "New discovery"
         }"""
+        mock_response.usage = {"completion_tokens": 100, "prompt_tokens": 500}
 
-        memory_manager.llm_client.chat.completions.create.return_value = mock_response
+        memory_manager.synthesizer.llm_client.chat.completions.create.return_value = mock_response
 
         z_machine_context = {'first_visit': True, 'score_delta': 0, 'location_changed': False, 'inventory_changed': False}
 

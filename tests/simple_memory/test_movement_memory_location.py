@@ -21,7 +21,8 @@ class TestMovementMemoryStoredAtSource:
         manager = SimpleMemoryManager(
             logger=mock_logger, config=game_config, game_state=game_state
         )
-        manager.memory_cache = {}
+        # Clear memory cache via cache_manager
+        manager.cache_manager._memory_cache = {}
 
         # Mock LLM client to return a memory synthesis
         mock_llm_client = Mock()
@@ -36,9 +37,11 @@ class TestMovementMemoryStoredAtSource:
             "supersedes_memory_titles": [],
             "reasoning": "Successful movement through window"
         })
+        mock_response.usage = {"completion_tokens": 100, "prompt_tokens": 500}
         mock_llm_client.chat.completions.create.return_value = mock_response
         manager._llm_client = mock_llm_client
         manager._llm_client_initialized = True
+        manager.synthesizer.llm_client = mock_llm_client  # Update synthesizer too
 
         # Create Z-machine context showing movement from location 79 to 203
         z_machine_context = {
@@ -85,7 +88,8 @@ class TestMovementMemoryStoredAtSource:
         manager = SimpleMemoryManager(
             logger=mock_logger, config=game_config, game_state=game_state
         )
-        manager.memory_cache = {}
+        # Clear memory cache via cache_manager
+        manager.cache_manager._memory_cache = {}
 
         # Mock LLM client to return a memory synthesis
         mock_llm_client = Mock()
@@ -100,9 +104,11 @@ class TestMovementMemoryStoredAtSource:
             "supersedes_memory_titles": [],
             "reasoning": "Item discovery"
         })
+        mock_response.usage = {"completion_tokens": 100, "prompt_tokens": 500}
         mock_llm_client.chat.completions.create.return_value = mock_response
         manager._llm_client = mock_llm_client
         manager._llm_client_initialized = True
+        manager.synthesizer.llm_client = mock_llm_client  # Update synthesizer too
 
         # Create Z-machine context showing NO movement (stayed at location 79)
         z_machine_context = {
@@ -187,7 +193,8 @@ class TestMultipleMemoriesAtSameLocation:
         manager = SimpleMemoryManager(
             logger=mock_logger, config=game_config, game_state=game_state
         )
-        manager.memory_cache = {}
+        # Clear memory cache via cache_manager
+        manager.cache_manager._memory_cache = {}
 
         # Mock LLM client to return different memories
         mock_llm_client = Mock()
@@ -206,6 +213,7 @@ class TestMultipleMemoriesAtSameLocation:
             "supersedes_memory_titles": [],
             "reasoning": "Movement success"
         })
+        mock_response_1.usage = {"completion_tokens": 100, "prompt_tokens": 500}
 
         # Second memory: Examine mailbox
         mock_response_2 = Mock()
@@ -219,9 +227,11 @@ class TestMultipleMemoriesAtSameLocation:
             "supersedes_memory_titles": [],
             "reasoning": "Item discovery"
         })
+        mock_response_2.usage = {"completion_tokens": 100, "prompt_tokens": 500}
 
         # Set up mock to return different responses on consecutive calls
         mock_llm_client.chat.completions.create.side_effect = [mock_response_1, mock_response_2]
+        manager.synthesizer.llm_client = mock_llm_client  # Update synthesizer too
 
         # Record first action (movement through window)
         z_machine_context_1 = {
@@ -292,7 +302,8 @@ class TestEdgeCases:
         manager = SimpleMemoryManager(
             logger=mock_logger, config=game_config, game_state=game_state
         )
-        manager.memory_cache = {}
+        # Clear memory cache via cache_manager
+        manager.cache_manager._memory_cache = {}
 
         # Mock LLM client to return should_remember=False
         mock_llm_client = Mock()
@@ -301,9 +312,11 @@ class TestEdgeCases:
             "should_remember": False,
             "reasoning": "Trivial action, not worth remembering"
         })
+        mock_response.usage = {"completion_tokens": 100, "prompt_tokens": 500}
         mock_llm_client.chat.completions.create.return_value = mock_response
         manager._llm_client = mock_llm_client
         manager._llm_client_initialized = True
+        manager.synthesizer.llm_client = mock_llm_client  # Update synthesizer too
 
         # Create Z-machine context showing movement
         z_machine_context = {
@@ -341,9 +354,10 @@ class TestEdgeCases:
         manager = SimpleMemoryManager(
             logger=mock_logger, config=game_config, game_state=game_state
         )
-        manager.memory_cache = {}
+        # Clear memory cache via cache_manager
+        manager.cache_manager._memory_cache = {}
 
-        # Mock LLM client to return a memory synthesis
+        # Mock LLM client to return a memory synthesis (need to set on both manager and synthesizer)
         mock_llm_client = Mock()
         mock_response = Mock()
         mock_response.content = json.dumps({
@@ -356,9 +370,13 @@ class TestEdgeCases:
             "supersedes_memory_titles": [],
             "reasoning": "Test case"
         })
+        mock_response.usage = {"completion_tokens": 100, "prompt_tokens": 500}
+        mock_response.usage = {"completion_tokens": 100, "prompt_tokens": 500}
         mock_llm_client.chat.completions.create.return_value = mock_response
         manager._llm_client = mock_llm_client
         manager._llm_client_initialized = True
+        manager.synthesizer.llm_client = mock_llm_client  # Update synthesizer too
+        manager.synthesizer.llm_client = mock_llm_client  # Update synthesizer too
 
         # Create Z-machine context with location 0
         z_machine_context = {
@@ -396,7 +414,8 @@ class TestEdgeCases:
         manager = SimpleMemoryManager(
             logger=mock_logger, config=game_config, game_state=game_state
         )
-        manager.memory_cache = {}
+        # Clear memory cache via cache_manager
+        manager.cache_manager._memory_cache = {}
 
         # Create Z-machine context with NO triggers (no score change, no movement, no inventory change)
         z_machine_context = {
