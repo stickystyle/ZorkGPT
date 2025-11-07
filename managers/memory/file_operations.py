@@ -1,14 +1,12 @@
 """
 ABOUTME: File I/O operations for ZorkGPT memory system - reading and writing Memories.md.
-ABOUTME: Provides thread-safe file operations with locking, backups, and atomic writes.
+ABOUTME: Provides file operations with backups and atomic writes for single-threaded application.
 """
 
 import re
 import shutil
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
-
-from filelock import FileLock
 
 from .models import Memory, MemoryStatus, MemoryStatusType, INVALIDATION_MARKER
 from .cache_manager import MemoryCacheManager
@@ -461,43 +459,40 @@ class MemoryFileWriter:
             True if successful, False if operation failed
         """
         memories_path = Path(self.config.zork_game_workdir) / "Memories.md"
-        lock_path = str(memories_path) + ".lock"
 
         try:
-            # Acquire lock with 10 second timeout
-            with FileLock(lock_path, timeout=10):
-                # Create backup before write
-                self._create_backup(memories_path)
+            # Create backup before write
+            self._create_backup(memories_path)
 
-                # Read existing content or start fresh
-                if memories_path.exists():
-                    content = memories_path.read_text(encoding="utf-8")
-                else:
-                    content = "# Location Memories\n\n"
+            # Read existing content or start fresh
+            if memories_path.exists():
+                content = memories_path.read_text(encoding="utf-8")
+            else:
+                content = "# Location Memories\n\n"
 
-                # Update content with new memory
-                updated_content = self._add_memory_to_content(
-                    content,
-                    location_id,
-                    location_name,
-                    memory
-                )
+            # Update content with new memory
+            updated_content = self._add_memory_to_content(
+                content,
+                location_id,
+                location_name,
+                memory
+            )
 
-                # Write atomically
-                memories_path.write_text(updated_content, encoding="utf-8")
+            # Write atomically
+            memories_path.write_text(updated_content, encoding="utf-8")
 
-                self.logger.info(
-                    f"Added {memory.persistence} memory to file: [{memory.category}] {memory.title} to location {location_id}",
-                    extra={
-                        "location_id": location_id,
-                        "location_name": location_name,
-                        "category": memory.category,
-                        "title": memory.title,
-                        "persistence": memory.persistence
-                    }
-                )
+            self.logger.info(
+                f"Added {memory.persistence} memory to file: [{memory.category}] {memory.title} to location {location_id}",
+                extra={
+                    "location_id": location_id,
+                    "location_name": location_name,
+                    "category": memory.category,
+                    "title": memory.title,
+                    "persistence": memory.persistence
+                }
+            )
 
-                return True
+            return True
 
         except Exception as e:
             self.logger.error(
@@ -548,7 +543,6 @@ class MemoryFileWriter:
             ValueError: If neither superseded_by nor invalidation_reason provided
         """
         memories_path = Path(self.config.zork_game_workdir) / "Memories.md"
-        lock_path = str(memories_path) + ".lock"
 
         # Validate that exactly one of superseded_by or invalidation_reason is provided
         if not superseded_by and not invalidation_reason:
@@ -600,152 +594,150 @@ class MemoryFileWriter:
                 return False
 
         try:
-            # Acquire lock
-            with FileLock(lock_path, timeout=10):
-                # Backup before modification
-                self._create_backup(memories_path)
+            # Backup before modification
+            self._create_backup(memories_path)
 
-                # Read entire file
-                if not memories_path.exists():
-                    self.logger.warning(f"Cannot update memory: Memories.md not found")
-                    return False
+            # Read entire file
+            if not memories_path.exists():
+                self.logger.warning(f"Cannot update memory: Memories.md not found")
+                return False
 
-                content = memories_path.read_text(encoding="utf-8")
-                lines = content.split("\n")
+            content = memories_path.read_text(encoding="utf-8")
+            lines = content.split("\n")
 
-                # Determine reference line format based on workflow
-                if invalidation_reason:
-                    # Standalone invalidation
-                    reference_line = f'[Invalidated at T{superseded_at_turn}: "{invalidation_reason}"]'
-                else:
-                    # Traditional supersession
-                    reference_line = f'[Superseded at T{superseded_at_turn} by "{superseded_by}"]'
+            # Determine reference line format based on workflow
+            if invalidation_reason:
+                # Standalone invalidation
+                reference_line = f'[Invalidated at T{superseded_at_turn}: "{invalidation_reason}"]'
+            else:
+                # Traditional supersession
+                reference_line = f'[Superseded at T{superseded_at_turn} by "{superseded_by}"]'
 
-                # Find the memory entry and update it
-                updated_lines = []
-                in_target_location = False
-                in_target_memory = False
-                memory_found = False
-                i = 0
+            # Find the memory entry and update it
+            updated_lines = []
+            in_target_location = False
+            in_target_memory = False
+            memory_found = False
+            i = 0
 
-                while i < len(lines):
-                    line = lines[i]
+            while i < len(lines):
+                line = lines[i]
 
-                    # Check for location header
-                    location_match = self.LOCATION_HEADER_PATTERN.match(line)
-                    if location_match:
-                        loc_id = int(location_match.group(1))
-                        in_target_location = (loc_id == location_id)
-                        in_target_memory = False
-                        updated_lines.append(line)
-                        i += 1
-                        continue
-
-                    # Check for memory entry header (only in target location)
-                    if in_target_location:
-                        memory_match = self.MEMORY_ENTRY_PATTERN.match(line)
-                        if memory_match:
-                            # Parse header with new regex groups
-                            category = memory_match.group(1)
-                            second_field = memory_match.group(2)
-                            third_field = memory_match.group(3)
-                            title = memory_match.group(4).strip()
-                            metadata = memory_match.group(5).strip()
-
-                            # Determine current persistence marker
-                            persistence_marker = None
-                            if third_field:
-                                # Format is: CATEGORY - PERSISTENCE - STATUS
-                                if second_field and second_field.upper() in ["CORE", "PERMANENT", "EPHEMERAL"]:
-                                    persistence_marker = second_field.upper()
-                            elif second_field:
-                                # Format is: CATEGORY - (PERSISTENCE or STATUS)
-                                if second_field.upper() in ["CORE", "PERMANENT", "EPHEMERAL"]:
-                                    persistence_marker = second_field.upper()
-
-                            # Check if this is the memory to update (exact or substring match)
-                            if memory_title in title or title in memory_title:
-                                # Found the memory - update header
-                                memory_found = True
-                                in_target_memory = True
-
-                                # Format new header preserving persistence marker
-                                if persistence_marker:
-                                    updated_header = f"**[{category} - {persistence_marker} - {new_status}] {title}** *({metadata})*"
-                                else:
-                                    updated_header = f"**[{category} - {new_status}] {title}** *({metadata})*"
-                                updated_lines.append(updated_header)
-
-                                # Add reference line (supersession or invalidation)
-                                updated_lines.append(reference_line)
-
-                                i += 1
-
-                                # Now collect and update the memory text lines
-                                while i < len(lines):
-                                    text_line = lines[i]
-
-                                    # Stop at next memory or section end
-                                    if (text_line.startswith("**[") or
-                                        text_line.strip() == "---" or
-                                        text_line.startswith("##")):
-                                        in_target_memory = False
-                                        break
-
-                                    # Skip existing supersession/invalidation references
-                                    if text_line.strip().startswith("[Superseded at") or text_line.strip().startswith("[Invalidated at"):
-                                        i += 1
-                                        continue
-
-                                    # Wrap text in strikethrough if not already
-                                    if text_line.strip() and not text_line.strip().startswith("~~"):
-                                        text_line = f"~~{text_line}~~"  # Preserve original formatting
-
-                                    updated_lines.append(text_line)
-                                    i += 1
-
-                                continue
-                            else:
-                                # Not the target memory - keep as is
-                                in_target_memory = False
-                                updated_lines.append(line)
-                                i += 1
-                                continue
-
-                    # Default: keep line as-is
+                # Check for location header
+                location_match = self.LOCATION_HEADER_PATTERN.match(line)
+                if location_match:
+                    loc_id = int(location_match.group(1))
+                    in_target_location = (loc_id == location_id)
+                    in_target_memory = False
                     updated_lines.append(line)
                     i += 1
+                    continue
 
-                if not memory_found:
-                    self.logger.warning(
-                        f"Memory '{memory_title}' not found at location {location_id}",
-                        extra={
-                            "location_id": location_id,
-                            "memory_title": memory_title
-                        }
-                    )
-                    return False
+                # Check for memory entry header (only in target location)
+                if in_target_location:
+                    memory_match = self.MEMORY_ENTRY_PATTERN.match(line)
+                    if memory_match:
+                        # Parse header with new regex groups
+                        category = memory_match.group(1)
+                        second_field = memory_match.group(2)
+                        third_field = memory_match.group(3)
+                        title = memory_match.group(4).strip()
+                        metadata = memory_match.group(5).strip()
 
-                # Write updated content
-                memories_path.write_text("\n".join(updated_lines), encoding="utf-8")
+                        # Determine current persistence marker
+                        persistence_marker = None
+                        if third_field:
+                            # Format is: CATEGORY - PERSISTENCE - STATUS
+                            if second_field and second_field.upper() in ["CORE", "PERMANENT", "EPHEMERAL"]:
+                                persistence_marker = second_field.upper()
+                        elif second_field:
+                            # Format is: CATEGORY - (PERSISTENCE or STATUS)
+                            if second_field.upper() in ["CORE", "PERMANENT", "EPHEMERAL"]:
+                                persistence_marker = second_field.upper()
 
-                # Log with appropriate context
-                log_context = {
-                    "location_id": location_id,
-                    "memory_title": memory_title,
-                    "new_status": new_status,
-                }
-                if superseded_by:
-                    log_context["superseded_by"] = superseded_by
-                if invalidation_reason:
-                    log_context["invalidation_reason"] = invalidation_reason
+                        # Check if this is the memory to update (exact or substring match)
+                        if memory_title in title or title in memory_title:
+                            # Found the memory - update header
+                            memory_found = True
+                            in_target_memory = True
 
-                self.logger.info(
-                    f"Updated memory status: '{memory_title}' → {new_status}",
-                    extra=log_context
+                            # Format new header preserving persistence marker
+                            if persistence_marker:
+                                updated_header = f"**[{category} - {persistence_marker} - {new_status}] {title}** *({metadata})*"
+                            else:
+                                updated_header = f"**[{category} - {new_status}] {title}** *({metadata})*"
+                            updated_lines.append(updated_header)
+
+                            # Add reference line (supersession or invalidation)
+                            updated_lines.append(reference_line)
+
+                            i += 1
+
+                            # Now collect and update the memory text lines
+                            while i < len(lines):
+                                text_line = lines[i]
+
+                                # Stop at next memory or section end
+                                if (text_line.startswith("**[") or
+                                    text_line.strip() == "---" or
+                                    text_line.startswith("##")):
+                                    in_target_memory = False
+                                    break
+
+                                # Skip existing supersession/invalidation references
+                                if text_line.strip().startswith("[Superseded at") or text_line.strip().startswith("[Invalidated at"):
+                                    i += 1
+                                    continue
+
+                                # Wrap text in strikethrough if not already
+                                if text_line.strip() and not text_line.strip().startswith("~~"):
+                                    text_line = f"~~{text_line}~~"  # Preserve original formatting
+
+                                updated_lines.append(text_line)
+                                i += 1
+
+                            continue
+                        else:
+                            # Not the target memory - keep as is
+                            in_target_memory = False
+                            updated_lines.append(line)
+                            i += 1
+                            continue
+
+                # Default: keep line as-is
+                updated_lines.append(line)
+                i += 1
+
+            if not memory_found:
+                self.logger.warning(
+                    f"Memory '{memory_title}' not found at location {location_id}",
+                    extra={
+                        "location_id": location_id,
+                        "memory_title": memory_title
+                    }
                 )
+                return False
 
-                return True
+            # Write updated content
+            memories_path.write_text("\n".join(updated_lines), encoding="utf-8")
+
+            # Log with appropriate context
+            log_context = {
+                "location_id": location_id,
+                "memory_title": memory_title,
+                "new_status": new_status,
+            }
+            if superseded_by:
+                log_context["superseded_by"] = superseded_by
+            if invalidation_reason:
+                log_context["invalidation_reason"] = invalidation_reason
+
+            self.logger.info(
+                f"Updated memory status: '{memory_title}' → {new_status}",
+                extra=log_context
+            )
+
+            return True
 
         except Exception as e:
             self.logger.error(
