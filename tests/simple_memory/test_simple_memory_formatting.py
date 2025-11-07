@@ -1,48 +1,49 @@
 """
-ABOUTME: Tests for SimpleMemoryManager history formatting helper methods.
-ABOUTME: Covers _format_recent_actions() and _format_recent_reasoning() methods.
+ABOUTME: Tests for HistoryFormatter component used by SimpleMemoryManager.
+ABOUTME: Covers format_recent_actions() and format_recent_reasoning() methods.
 """
 
 import pytest
 from typing import List, Tuple, Dict, Any
+from unittest.mock import Mock
 
-from managers.simple_memory_manager import SimpleMemoryManager
+from managers.memory.formatting import HistoryFormatter
 
 
 # ============================================================================
-# Tests for _format_recent_actions()
+# Tests for format_recent_actions()
 # ============================================================================
 
-def test_format_empty_actions(mock_logger, game_config, game_state):
-    """Test _format_recent_actions() with empty list returns empty string."""
-    manager = SimpleMemoryManager(mock_logger, game_config, game_state)
+def test_format_empty_actions():
+    """Test format_recent_actions() with empty list returns empty string."""
+    formatter = HistoryFormatter()
 
-    result = manager._format_recent_actions([], start_turn=47)
+    result = formatter.format_recent_actions([], start_turn=47)
 
     assert result == ""
 
 
-def test_format_single_action(mock_logger, game_config, game_state):
-    """Test _format_recent_actions() with single action formats correctly."""
-    manager = SimpleMemoryManager(mock_logger, game_config, game_state)
+def test_format_single_action():
+    """Test format_recent_actions() with single action formats correctly."""
+    formatter = HistoryFormatter()
 
     actions = [("go north", "You are in a forest clearing.")]
-    result = manager._format_recent_actions(actions, start_turn=47)
+    result = formatter.format_recent_actions(actions, start_turn=47)
 
     expected = "Turn 47: go north\nResponse: You are in a forest clearing."
     assert result == expected
 
 
-def test_format_multiple_actions(mock_logger, game_config, game_state):
-    """Test _format_recent_actions() with multiple actions formats correctly."""
-    manager = SimpleMemoryManager(mock_logger, game_config, game_state)
+def test_format_multiple_actions():
+    """Test format_recent_actions() with multiple actions formats correctly."""
+    formatter = HistoryFormatter()
 
     actions = [
         ("go north", "You are in a forest clearing."),
         ("examine trees", "The trees are ordinary pine trees."),
         ("go east", "You are in a meadow.")
     ]
-    result = manager._format_recent_actions(actions, start_turn=47)
+    result = formatter.format_recent_actions(actions, start_turn=47)
 
     expected = """Turn 47: go north
 Response: You are in a forest clearing.
@@ -56,16 +57,16 @@ Response: You are in a meadow."""
     assert result == expected
 
 
-def test_format_actions_turn_numbering(mock_logger, game_config, game_state):
+def test_format_actions_turn_numbering():
     """Test _format_recent_actions() turn numbers increment correctly from start_turn."""
-    manager = SimpleMemoryManager(mock_logger, game_config, game_state)
+    formatter = HistoryFormatter()
 
     actions = [
         ("action1", "response1"),
         ("action2", "response2"),
         ("action3", "response3")
     ]
-    result = manager._format_recent_actions(actions, start_turn=100)
+    result = formatter.format_recent_actions(actions, start_turn=100)
 
     # Check that turn numbers are correct
     assert "Turn 100:" in result
@@ -76,16 +77,16 @@ def test_format_actions_turn_numbering(mock_logger, game_config, game_state):
     assert "Turn 103:" not in result
 
 
-def test_format_actions_with_long_responses(mock_logger, game_config, game_state):
+def test_format_actions_with_long_responses():
     """Test _format_recent_actions() handles long responses correctly."""
-    manager = SimpleMemoryManager(mock_logger, game_config, game_state)
+    formatter = HistoryFormatter()
 
     long_response = "This is a very long response " * 10
     actions = [
         ("examine room", long_response),
         ("take item", "Taken.")
     ]
-    result = manager._format_recent_actions(actions, start_turn=50)
+    result = formatter.format_recent_actions(actions, start_turn=50)
 
     # Check formatting is intact
     assert "Turn 50: examine room" in result
@@ -98,18 +99,18 @@ def test_format_actions_with_long_responses(mock_logger, game_config, game_state
 # Tests for _format_recent_reasoning()
 # ============================================================================
 
-def test_format_empty_reasoning(mock_logger, game_config, game_state):
+def test_format_empty_reasoning():
     """Test _format_recent_reasoning() with empty list returns empty string."""
-    manager = SimpleMemoryManager(mock_logger, game_config, game_state)
+    formatter = HistoryFormatter()
 
-    result = manager._format_recent_reasoning([])
+    result = formatter.format_recent_reasoning([])
 
     assert result == ""
 
 
-def test_format_single_reasoning(mock_logger, game_config, game_state):
+def test_format_single_reasoning():
     """Test _format_recent_reasoning() with single entry formats correctly."""
-    manager = SimpleMemoryManager(mock_logger, game_config, game_state)
+    formatter = HistoryFormatter()
 
     entries = [
         {
@@ -119,7 +120,7 @@ def test_format_single_reasoning(mock_logger, game_config, game_state):
             "timestamp": "2025-11-03T10:00:00"
         }
     ]
-    result = manager._format_recent_reasoning(entries)
+    result = formatter.format_recent_reasoning(entries)
 
     expected = """Turn 47:
 Reasoning: I need to explore north systematically.
@@ -129,9 +130,9 @@ Response: (Response not recorded)"""
     assert result == expected
 
 
-def test_format_multiple_reasoning(mock_logger, game_config, game_state):
+def test_format_multiple_reasoning():
     """Test _format_recent_reasoning() with multiple entries formats correctly."""
-    manager = SimpleMemoryManager(mock_logger, game_config, game_state)
+    formatter = HistoryFormatter()
 
     entries = [
         {
@@ -153,7 +154,7 @@ def test_format_multiple_reasoning(mock_logger, game_config, game_state):
             "timestamp": "2025-11-03T10:02:00"
         }
     ]
-    result = manager._format_recent_reasoning(entries)
+    result = formatter.format_recent_reasoning(entries)
 
     expected = """Turn 47:
 Reasoning: I need to explore north systematically.
@@ -173,9 +174,9 @@ Response: (Response not recorded)"""
     assert result == expected
 
 
-def test_format_reasoning_missing_fields(mock_logger, game_config, game_state):
+def test_format_reasoning_missing_fields():
     """Test _format_recent_reasoning() handles missing fields with fallbacks."""
-    manager = SimpleMemoryManager(mock_logger, game_config, game_state)
+    formatter = HistoryFormatter()
 
     entries = [
         {
@@ -193,7 +194,7 @@ def test_format_reasoning_missing_fields(mock_logger, game_config, game_state):
             # Missing action
         }
     ]
-    result = manager._format_recent_reasoning(entries)
+    result = formatter.format_recent_reasoning(entries)
 
     # Check fallbacks are used
     assert "Turn 47:" in result
@@ -208,9 +209,9 @@ def test_format_reasoning_missing_fields(mock_logger, game_config, game_state):
     assert "Reasoning: Some reasoning" in result
 
 
-def test_format_reasoning_partial_data(mock_logger, game_config, game_state):
+def test_format_reasoning_partial_data():
     """Test _format_recent_reasoning() with some fields present, some missing."""
-    manager = SimpleMemoryManager(mock_logger, game_config, game_state)
+    formatter = HistoryFormatter()
 
     entries = [
         {
@@ -228,7 +229,7 @@ def test_format_reasoning_partial_data(mock_logger, game_config, game_state):
             "action": "another action"
         }
     ]
-    result = manager._format_recent_reasoning(entries)
+    result = formatter.format_recent_reasoning(entries)
 
     # Check first entry is normal
     assert "Turn 47:" in result
@@ -246,9 +247,9 @@ def test_format_reasoning_partial_data(mock_logger, game_config, game_state):
     assert "Action: another action" in result
 
 
-def test_format_reasoning_non_dict_entries(mock_logger, game_config, game_state):
+def test_format_reasoning_non_dict_entries():
     """Test _format_recent_reasoning() skips non-dict entries gracefully."""
-    manager = SimpleMemoryManager(mock_logger, game_config, game_state)
+    formatter = HistoryFormatter()
 
     entries = [
         {
@@ -264,7 +265,7 @@ def test_format_reasoning_non_dict_entries(mock_logger, game_config, game_state)
             "action": "another action"
         }
     ]
-    result = manager._format_recent_reasoning(entries)
+    result = formatter.format_recent_reasoning(entries)
 
     # Check only valid entries are formatted
     assert "Turn 47:" in result
@@ -272,14 +273,13 @@ def test_format_reasoning_non_dict_entries(mock_logger, game_config, game_state)
     # Check invalid entries are skipped
     assert "not a dict" not in result
 
-    # Check debug logging was called for non-dict entries
-    # The manager should log warnings for skipped entries
-    assert mock_logger.debug.called
+    # Note: HistoryFormatter silently skips non-dict entries
+    # No logging is performed at the formatter level
 
 
-def test_format_reasoning_missing_turn_field(mock_logger, game_config, game_state):
+def test_format_reasoning_missing_turn_field():
     """Test _format_recent_reasoning() uses '?' for missing turn field."""
-    manager = SimpleMemoryManager(mock_logger, game_config, game_state)
+    formatter = HistoryFormatter()
 
     entries = [
         {
@@ -288,7 +288,7 @@ def test_format_reasoning_missing_turn_field(mock_logger, game_config, game_stat
             "action": "some action"
         }
     ]
-    result = manager._format_recent_reasoning(entries)
+    result = formatter.format_recent_reasoning(entries)
 
     # Check fallback for turn
     assert "Turn ?:" in result
@@ -296,9 +296,9 @@ def test_format_reasoning_missing_turn_field(mock_logger, game_config, game_stat
     assert "Action: some action" in result
 
 
-def test_format_reasoning_empty_strings(mock_logger, game_config, game_state):
+def test_format_reasoning_empty_strings():
     """Test _format_recent_reasoning() handles empty string fields correctly."""
-    manager = SimpleMemoryManager(mock_logger, game_config, game_state)
+    formatter = HistoryFormatter()
 
     entries = [
         {
@@ -307,7 +307,7 @@ def test_format_reasoning_empty_strings(mock_logger, game_config, game_state):
             "action": ""  # Empty string (not missing)
         }
     ]
-    result = manager._format_recent_reasoning(entries)
+    result = formatter.format_recent_reasoning(entries)
 
     # Empty strings should be preserved (not replaced with fallback)
     assert "Turn 47:" in result
@@ -318,16 +318,16 @@ def test_format_reasoning_empty_strings(mock_logger, game_config, game_state):
     assert "(No action recorded)" not in result
 
 
-def test_format_reasoning_blank_lines_between_entries(mock_logger, game_config, game_state):
+def test_format_reasoning_blank_lines_between_entries():
     """Test _format_recent_reasoning() adds blank lines between entries but not after last."""
-    manager = SimpleMemoryManager(mock_logger, game_config, game_state)
+    formatter = HistoryFormatter()
 
     entries = [
         {"turn": 47, "reasoning": "First", "action": "action1"},
         {"turn": 48, "reasoning": "Second", "action": "action2"},
         {"turn": 49, "reasoning": "Third", "action": "action3"}
     ]
-    result = manager._format_recent_reasoning(entries)
+    result = formatter.format_recent_reasoning(entries)
 
     # Split by double newline to check blank line spacing
     sections = result.split("\n\n")
@@ -344,9 +344,9 @@ def test_format_reasoning_blank_lines_between_entries(mock_logger, game_config, 
         assert len(lines) == 4, f"Expected 4 lines per entry, got {len(lines)}"
 
 
-def test_format_reasoning_includes_response(mock_logger, game_config, game_state):
+def test_format_reasoning_includes_response():
     """Test that responses are included when action_history provided."""
-    manager = SimpleMemoryManager(mock_logger, game_config, game_state)
+    formatter = HistoryFormatter()
 
     entries = [
         {
@@ -375,7 +375,7 @@ def test_format_reasoning_includes_response(mock_logger, game_config, game_state
         ("go east", "You are in a meadow.")
     ]
 
-    result = manager._format_recent_reasoning(entries, action_history=action_history)
+    result = formatter.format_recent_reasoning(entries, action_history=action_history)
 
     # Verify responses are included from action_history
     assert "Response: You are in a forest clearing." in result
@@ -401,9 +401,9 @@ Response: You are in a meadow."""
     assert result == expected
 
 
-def test_format_reasoning_response_lookup_reverse_iteration(mock_logger, game_config, game_state):
+def test_format_reasoning_response_lookup_reverse_iteration():
     """Test that response lookup matches most recent occurrence when action repeats."""
-    manager = SimpleMemoryManager(mock_logger, game_config, game_state)
+    formatter = HistoryFormatter()
 
     entries = [
         {
@@ -421,16 +421,16 @@ def test_format_reasoning_response_lookup_reverse_iteration(mock_logger, game_co
         ("go north", "Second response (most recent).")
     ]
 
-    result = manager._format_recent_reasoning(entries, action_history=action_history)
+    result = formatter.format_recent_reasoning(entries, action_history=action_history)
 
     # Should match the most recent "go north" response
     assert "Response: Second response (most recent)." in result
     assert "Response: First response." not in result
 
 
-def test_format_reasoning_no_matching_response(mock_logger, game_config, game_state):
+def test_format_reasoning_no_matching_response():
     """Test that fallback is used when no matching response in action_history."""
-    manager = SimpleMemoryManager(mock_logger, game_config, game_state)
+    formatter = HistoryFormatter()
 
     entries = [
         {
@@ -447,22 +447,22 @@ def test_format_reasoning_no_matching_response(mock_logger, game_config, game_st
         ("examine room", "Response 2.")
     ]
 
-    result = manager._format_recent_reasoning(entries, action_history=action_history)
+    result = formatter.format_recent_reasoning(entries, action_history=action_history)
 
     # Should use fallback
     assert "Response: (Response not recorded)" in result
 
 
-def test_format_actions_blank_lines_between_entries(mock_logger, game_config, game_state):
+def test_format_actions_blank_lines_between_entries():
     """Test _format_recent_actions() adds blank lines between entries but not after last."""
-    manager = SimpleMemoryManager(mock_logger, game_config, game_state)
+    formatter = HistoryFormatter()
 
     actions = [
         ("action1", "response1"),
         ("action2", "response2"),
         ("action3", "response3")
     ]
-    result = manager._format_recent_actions(actions, start_turn=47)
+    result = formatter.format_recent_actions(actions, start_turn=47)
 
     # Split by double newline to check blank line spacing
     sections = result.split("\n\n")
