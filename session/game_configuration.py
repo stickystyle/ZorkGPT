@@ -156,6 +156,20 @@ class GameConfiguration(BaseSettings):
         default=8, description="Target count for refined objectives"
     )
 
+    # Objective completion checking
+    enable_objective_completion_llm_check: bool = Field(
+        default=True, description="Enable LLM-based objective completion validation"
+    )
+    completion_check_interval: int = Field(
+        default=1, description="Check completion every N turns (1 = every turn)"
+    )
+    completion_history_window: int = Field(
+        default=3, description="Number of recent turns to include in completion context"
+    )
+    completion_include_memories: bool = Field(
+        default=True, description="Include location-specific memories in completion context"
+    )
+
     # Context management
     max_context_tokens: int = Field(
         default=40000, description="Maximum context tokens for LLM calls"
@@ -375,6 +389,7 @@ class GameConfiguration(BaseSettings):
         aws_config = zorkgpt_config.get("aws", {})
         simple_memory_config = zorkgpt_config.get("simple_memory", {})
         retry_config = zorkgpt_config.get("retry", {})
+        objective_completion_config = zorkgpt_config.get("objective_completion", {})
         loop_break_config = zorkgpt_config.get("loop_break", {})
 
         # Extract sampling parameter sections
@@ -425,6 +440,11 @@ class GameConfiguration(BaseSettings):
             "objective_refinement_interval": orchestrator_config.get("objective_refinement_interval"),
             "max_objectives_before_forced_refinement": orchestrator_config.get("max_objectives_before_forced_refinement"),
             "refined_objectives_target_count": orchestrator_config.get("refined_objectives_target_count"),
+            # Objective completion checking
+            "enable_objective_completion_llm_check": objective_completion_config.get("enable_llm_check"),
+            "completion_check_interval": objective_completion_config.get("check_interval"),
+            "completion_history_window": objective_completion_config.get("history_window"),
+            "completion_include_memories": objective_completion_config.get("include_memories"),
             # Context management
             "max_context_tokens": orchestrator_config.get("max_context_tokens"),
             "context_overflow_threshold": orchestrator_config.get("context_overflow_threshold"),

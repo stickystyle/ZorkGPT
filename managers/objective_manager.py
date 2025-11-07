@@ -509,85 +509,108 @@ Example valid response:
     def check_objective_completion(
         self, action_taken: str, game_response: str, extracted_info
     ) -> None:
-        """Check if any objectives were completed based on the latest action and response."""
+        """
+        Check if any objectives were completed using LLM-based validation.
+
+        Implements every-turn LLM checking with enhanced context (memories + action history).
+        Replaces keyword-based gating to follow LLM-first architectural principle.
+
+        Args:
+            action_taken: Action that was executed
+            game_response: Game's response text
+            extracted_info: Structured info from extractor (score, location, etc.)
+        """
+        # Early exit: No objectives to check
         if not self.game_state.discovered_objectives:
             return
 
-        # Look for completion signals in the game response
-        completion_signals = []
-
-        # Score increase signals
-        if extracted_info and extracted_info.score is not None:
-            if (
-                extracted_info.score
-                and extracted_info.score > self.game_state.previous_zork_score
-            ):
-                completion_signals.append(
-                    f"Score increased from {self.game_state.previous_zork_score} to {extracted_info.score}"
-                )
-
-        # Game response completion signals
-        response_lower = game_response.lower()
-
-        # "Taken" responses indicate successful item acquisition
-        if response_lower.strip() == "taken.":
-            completion_signals.append(
-                f"Successfully acquired item via '{action_taken}'"
-            )
-
-        # Other positive feedback signals
-        if any(
-            signal in response_lower
-            for signal in [
-                "you have earned",
-                "points",
-                "score",
-                "treasure",
-                "valuable",
-                "well done",
-                "excellent",
-                "congratulations",
-                "success",
-                "opened",
-                "unlocked",
-                "activated",
-                "turned on",
-                "lit",
-            ]
-        ):
-            completion_signals.append("Positive feedback in game response")
-
-        if completion_signals:
-            self._evaluate_objective_completion(action_taken, completion_signals)
-
-    def _evaluate_objective_completion(
-        self, action_taken: str, completion_signals: List[str]
-    ) -> None:
-        """Evaluate which objectives might have been completed."""
-        if not self.game_state.discovered_objectives or not completion_signals:
+        # Early exit: Feature disabled in config
+        if not self.config.enable_objective_completion_llm_check:
             return
 
-        # Use LLM to determine which objectives were completed
-        prompt = f"""Based on the recent action and completion signals, determine which of the current objectives have been completed.
+        # Early exit: Not the right turn interval
+        if self.game_state.turn_count % self.config.completion_check_interval != 0:
+            return
+
+        # Call LLM evaluation with full parameters
+        self._evaluate_objective_completion(action_taken, game_response, extracted_info)
+
+    def _evaluate_objective_completion(
+        self, action_taken: str, game_response: str, extracted_info
+    ) -> None:
+        """
+        Evaluate which objectives might have been completed using enhanced LLM context.
+
+        Enhanced context includes:
+        - Recent action history (last N turns)
+        - Location-specific memories (if enabled and available)
+        - Current game state (score, location, inventory)
+        - Before/after state comparison (score change, location change, inventory change)
+
+        Args:
+            action_taken: Action that was executed
+            game_response: Game's response text
+            extracted_info: Structured info from extractor (score, location, etc.)
+        """
+        if not self.game_state.discovered_objectives:
+            return
+
+        # Gather enhanced context
+        action_history = self._get_recent_action_history()
+
+        # Get location-specific memories if enabled
+        memory_context = ""
+        if self.config.completion_include_memories and self.game_state.current_room_id:
+            memory_context = self._get_completion_memory_context(
+                self.game_state.current_room_id
+            )
+
+        # Calculate state changes
+        score_change = ""
+        if extracted_info and extracted_info.score is not None:
+            if extracted_info.score > self.game_state.previous_zork_score:
+                score_change = f"Score increased from {self.game_state.previous_zork_score} to {extracted_info.score} (+{extracted_info.score - self.game_state.previous_zork_score})"
+            else:
+                score_change = f"Score unchanged: {self.game_state.previous_zork_score}"
+
+        # Build enhanced prompt
+        prompt = f"""Based on the recent gameplay context, determine which of the current objectives have been completed.
 
 CURRENT OBJECTIVES:
 {chr(10).join(f"- {obj}" for obj in self.game_state.discovered_objectives)}
 
-ACTION TAKEN: {action_taken}
+## Recent Action History
+{action_history if action_history else "No recent action history available."}
 
-COMPLETION SIGNALS:
-{chr(10).join(f"- {signal}" for signal in completion_signals)}
+## Latest Action and Response
+Action: {action_taken}
+Response: {game_response}
 
-CURRENT SCORE: {self.game_state.previous_zork_score}
-CURRENT LOCATION: {self.game_state.current_room_name_for_map}
+## Current Game State
+Location: {self.game_state.current_room_name_for_map} (ID: {self.game_state.current_room_id})
+Current Score: {self.game_state.previous_zork_score}
+Inventory: {", ".join(self.game_state.current_inventory) if self.game_state.current_inventory else "Empty"}
+
+## State Changes
+{score_change if score_change else "No score change detected."}
+
+## Location-Specific Memories
+{memory_context if memory_context else "No memories available for this location."}
 
 **IMPORTANT ZORK GAME MECHANICS**:
-- "Taken." = Successfully picked up an item (positive completion)
-- Score increases indicate major objective completion
-- Actions like "opened", "unlocked", "activated" often complete specific objectives
-- Item acquisition objectives are completed when you successfully "take" the item
+- Score increases often indicate objective completion (acquiring treasures, solving puzzles)
+- "Taken." response means item successfully acquired
+- Location objectives complete when you reach the target location
+- Action objectives complete when the action succeeds (e.g., "open door" → "The door opens")
+- Multi-step objectives may complete after a sequence of actions
 
-Which objectives (if any) have been completed based on this action and the completion signals?
+**EVALUATION CRITERIA**:
+- Check if the action/response directly achieves an objective
+- Consider if score increase correlates with objective completion
+- Use recent action history to detect multi-step objective completion
+- Use location memories to validate completion (e.g., "I've been here before")
+
+Which objectives (if any) have been completed based on this context?
 
 **CRITICAL - OUTPUT FORMAT:**
 YOU MUST respond with ONLY a valid JSON object. Do not include any text before or after the JSON. Do not include thinking tags or reasoning outside the JSON structure.
@@ -639,7 +662,7 @@ Example valid response:
                     ]
                     if completed_objectives:
                         self._mark_objectives_complete(
-                            completed_objectives, action_taken, completion_signals
+                            completed_objectives, action_taken, game_response
                         )
                 except Exception as e:
                     self.log_error(
@@ -650,13 +673,72 @@ Example valid response:
             except Exception as e:
                 self.log_error(f"Failed to evaluate objective completion: {e}")
 
+    def _get_recent_action_history(self) -> str:
+        """
+        Format recent action history for completion context.
+
+        Returns formatted markdown string with last N turns (configurable).
+        Uses same formatting pattern as SimpleMemoryManager for consistency.
+        """
+        if not self.game_state.action_history:
+            return ""
+
+        # Get window size from config
+        window = self.config.completion_history_window
+
+        # Get last N actions
+        recent_actions = self.game_state.action_history[-window:]
+
+        # Calculate starting turn number
+        start_turn = max(1, self.game_state.turn_count - len(recent_actions) + 1)
+
+        # Format using same pattern as SimpleMemoryManager
+        lines = []
+        for i, (action, response) in enumerate(recent_actions):
+            turn_num = start_turn + i
+            lines.append(f"Turn {turn_num}: {action}")
+            lines.append(f"Response: {response}")
+            # Add blank line between entries (except after last)
+            if i < len(recent_actions) - 1:
+                lines.append("")
+
+        return "\n".join(lines)
+
+    def _get_completion_memory_context(self, location_id: int) -> str:
+        """
+        Get location-specific memories for completion context.
+
+        Args:
+            location_id: Z-machine location ID
+
+        Returns:
+            Formatted memory string or indication if no memories available
+        """
+        if not self.simple_memory or location_id is None:
+            return "No memories available for this location."
+
+        # Get location memories (SimpleMemoryManager handles formatting)
+        memory_text = self.simple_memory.get_location_memory(location_id)
+
+        if not memory_text or memory_text.strip() == "":
+            return "No memories available for this location."
+
+        return memory_text
+
     def _mark_objectives_complete(
         self,
         completed_objectives: List[str],
         action_taken: str,
-        completion_signals: List[str],
+        game_response: str,
     ) -> None:
-        """Mark objectives as completed and track the completion."""
+        """
+        Mark objectives as completed and track the completion.
+
+        Args:
+            completed_objectives: List of objective texts that were completed
+            action_taken: Action that led to completion
+            game_response: Game's response to the action
+        """
         for objective in completed_objectives:
             if objective in self.game_state.discovered_objectives:
                 # Remove from discovered objectives
@@ -667,7 +749,7 @@ Example valid response:
                     "objective": objective,
                     "completed_turn": self.game_state.turn_count,
                     "completion_action": action_taken,
-                    "completion_signals": completion_signals,
+                    "completion_response": game_response,  # Store full game response
                     "completion_location": self.game_state.current_room_name_for_map,
                     "completion_score": self.game_state.previous_zork_score,
                 }

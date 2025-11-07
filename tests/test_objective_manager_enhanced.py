@@ -154,9 +154,9 @@ class TestObjectiveManagerEnhanced:
         """Should filter to ACTIVE memories only."""
         mock_simple_memory.memory_cache = {
             180: [
-                Memory("SUCCESS", "Active memory", 1, "10", 0, "This is active.", status="ACTIVE"),
-                Memory("DANGER", "Tentative memory", 1, "11", 0, "This is tentative.", status="TENTATIVE"),
-                Memory("NOTE", "Superseded memory", 1, "12", 0, "This is superseded.", status="SUPERSEDED"),
+                Memory("SUCCESS", "Active memory", 1, "10", 0, "This is active.", status="ACTIVE", persistence="permanent"),
+                Memory("DANGER", "Tentative memory", 1, "11", 0, "This is tentative.", status="TENTATIVE", persistence="permanent"),
+                Memory("NOTE", "Superseded memory", 1, "12", 0, "This is superseded.", status="SUPERSEDED", persistence="permanent"),
             ]
         }
 
@@ -170,9 +170,9 @@ class TestObjectiveManagerEnhanced:
     def test_get_all_memories_by_distance_sorting(self, objective_manager, mock_simple_memory):
         """Should sort locations by distance (closest first)."""
         mock_simple_memory.memory_cache = {
-            62: [Memory("NOTE", "Far memory", 1, "5", 0, "Kitchen memory.", status="ACTIVE")],
-            79: [Memory("NOTE", "Mid memory", 1, "6", 0, "Behind house memory.", status="ACTIVE")],
-            180: [Memory("NOTE", "Near memory", 1, "7", 0, "West house memory.", status="ACTIVE")],
+            62: [Memory("NOTE", "Far memory", 1, "5", 0, "Kitchen memory.", status="ACTIVE", persistence="permanent")],
+            79: [Memory("NOTE", "Mid memory", 1, "6", 0, "Behind house memory.", status="ACTIVE", persistence="permanent")],
+            180: [Memory("NOTE", "Near memory", 1, "7", 0, "West house memory.", status="ACTIVE", persistence="permanent")],
         }
 
         result = objective_manager._get_all_memories_by_distance(180)
@@ -197,7 +197,7 @@ class TestObjectiveManagerEnhanced:
             mock_map_manager.game_map.rooms[loc_id] = Mock()
             mock_map_manager.game_map.room_names[loc_id] = f"Room {i}"
             mock_simple_memory.memory_cache[loc_id] = [
-                Memory("NOTE", f"Memory {i}", 1, str(i), 0, f"Text {i}", status="ACTIVE")
+                Memory("NOTE", f"Memory {i}", 1, str(i), 0, f"Text {i}", status="ACTIVE", persistence="permanent")
             ]
             # Chain connections: 180 → 101 → 102 → ... → 110
             if i == 1:
@@ -232,8 +232,8 @@ class TestObjectiveManagerEnhanced:
     def test_format_memories_shows_status(self, objective_manager):
         """Should show status markers for non-ACTIVE memories."""
         memories = [
-            Memory("SUCCESS", "Active memory", 1, "10", 0, "Active text.", status="ACTIVE"),
-            Memory("DANGER", "Tentative memory", 1, "11", 0, "Tentative text.", status="TENTATIVE"),
+            Memory("SUCCESS", "Active memory", 1, "10", 0, "Active text.", status="ACTIVE", persistence="permanent"),
+            Memory("DANGER", "Tentative memory", 1, "11", 0, "Tentative text.", status="TENTATIVE", persistence="permanent"),
         ]
 
         result = objective_manager._format_memories(memories)
@@ -249,7 +249,7 @@ class TestObjectiveManagerEnhanced:
     def test_format_memories_limits_to_five(self, objective_manager):
         """Should show only top 5 memories per location."""
         memories = [
-            Memory("NOTE", f"Memory {i}", 1, str(i), 0, f"Text {i}", status="ACTIVE")
+            Memory("NOTE", f"Memory {i}", 1, str(i), 0, f"Text {i}", status="ACTIVE", persistence="permanent")
             for i in range(10)
         ]
 
@@ -396,7 +396,7 @@ class TestObjectiveManagerEnhanced:
 
         # Setup memories
         mock_simple_memory.memory_cache = {
-            180: [Memory("NOTE", "Test memory", 1, "5", 0, "Test text.", status="ACTIVE")]
+            180: [Memory("NOTE", "Test memory", 1, "5", 0, "Test text.", status="ACTIVE", persistence="permanent")]
         }
 
         # Call all helpers

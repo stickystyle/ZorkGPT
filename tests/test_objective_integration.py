@@ -129,7 +129,8 @@ class TestObjectiveManagerOrchestrationIntegration:
                 turns="5",
                 score_change=5,
                 text="Successfully picked up the lamp at West of House.",
-                status="ACTIVE"
+                status="ACTIVE",
+                persistence="permanent"
             )
         ]
 
@@ -225,10 +226,10 @@ class TestObjectiveManagerOrchestrationIntegration:
         """Test that real memory data from SimpleMemoryManager flows through ObjectiveManager helpers."""
         # Add memories at different locations
         simple_memory.memory_cache[180] = [
-            Memory("SUCCESS", "Opened mailbox", 1, "1", 0, "Mailbox contains leaflet.", status="ACTIVE")
+            Memory("SUCCESS", "Opened mailbox", 1, "1", 0, "Mailbox contains leaflet.", status="ACTIVE", persistence="permanent")
         ]
         simple_memory.memory_cache[79] = [
-            Memory("DANGER", "Window warning", 1, "2", 0, "Window is tricky.", status="ACTIVE")
+            Memory("DANGER", "Window warning", 1, "2", 0, "Window is tricky.", status="ACTIVE", persistence="permanent")
         ]
 
         # Setup minimal map for distance calculation
@@ -359,7 +360,8 @@ class TestObjectiveManagerPhase3EnhancedContext:
                 turns="47-49",
                 score_change=0,
                 text="To enter kitchen: (1) open window, (2) enter window. Window must be opened first.",
-                status="ACTIVE"
+                status="ACTIVE",
+                persistence="permanent"
             )
         ]
         memory_mgr.memory_cache[62] = [
@@ -370,7 +372,8 @@ class TestObjectiveManagerPhase3EnhancedContext:
                 turns="50",
                 score_change=0,
                 text="Kitchen contains sack of lunch. Could be useful for troll.",
-                status="ACTIVE"
+                status="ACTIVE",
+                persistence="permanent"
             )
         ]
         return memory_mgr
@@ -480,9 +483,9 @@ class TestObjectiveManagerPhase3EnhancedContext:
         """Only ACTIVE memories should be included in context."""
         # Add TENTATIVE and SUPERSEDED memories
         simple_memory.memory_cache[180] = [
-            Memory("NOTE", "Active memory", 1, "1", 0, "This is active.", status="ACTIVE"),
-            Memory("NOTE", "Tentative memory", 1, "2", 0, "This is tentative.", status="TENTATIVE"),
-            Memory("NOTE", "Superseded memory", 1, "3", 0, "This is superseded.", status="SUPERSEDED"),
+            Memory("NOTE", "Active memory", 1, "1", 0, "This is active.", status="ACTIVE", persistence="permanent"),
+            Memory("NOTE", "Tentative memory", 1, "2", 0, "This is tentative.", status="TENTATIVE", persistence="permanent"),
+            Memory("NOTE", "Superseded memory", 1, "3", 0, "This is superseded.", status="SUPERSEDED", persistence="permanent"),
         ]
 
         memories = objective_manager._get_all_memories_by_distance(180)

@@ -893,6 +893,154 @@ Response: The trees are ordinary pine trees.
 - Location: `context_manager.py:505` (`num_turns=3` parameter)
 - Positioned after game state, before objectives (strategic context flow)
 
+## Objective Completion Checking - Every-Turn LLM Validation
+
+**Problem Solved**: Keyword-based gating violated LLM-first principles and missed completions when keywords didn't match (e.g., "opens" vs "opened", visit objectives with no verbs).
+
+**Solution**: LLM-based completion checking every turn with enhanced context (memories + action history).
+
+### How It Works
+
+**Every turn when objectives exist:**
+1. Check if objectives list is empty → early exit
+2. Check if completion checking is disabled in config → early exit
+3. Check if turn % completion_check_interval != 0 → early exit
+4. Gather enhanced context:
+   - Recent action history (last N turns from config)
+   - Location-specific memories (if enabled in config)
+   - Current state (score, location, inventory)
+5. Call LLM with enhanced prompt
+6. Parse completion response and mark objectives complete
+
+**Context Included:**
+- ✅ Recent action history (default: last 3 turns)
+- ✅ Location-specific memories (active memories only)
+- ✅ Current game state (score, location, inventory)
+- ✅ Before/after comparison (location change, score change)
+- ❌ Knowledge base (excluded for cost optimization)
+
+### Configuration
+
+In `pyproject.toml`:
+```toml
+[tool.zorkgpt.objective_completion]
+enable_llm_check = true    # Toggle LLM validation
+check_interval = 1         # Check every N turns (1 = every turn)
+history_window = 3         # Recent turns for context
+include_memories = true    # Include location memories
+```
+
+### Cost Considerations
+
+- Per check: ~$0.003-0.004 (enhanced context)
+- Episode with objectives for 25 turns: ~$0.10
+- Prevents 1-2 wasted agent turns: **$0.10-0.25 savings**
+- **Net positive ROI**
+
+### Examples
+
+**Location Objective:**
+```
+Objective: "Visit the Kitchen at Location 62"
+Action: "enter window"
+Response: "You climb through the window. Kitchen: You are in a small kitchen."
+LLM detects: Location changed to Kitchen → Objective complete ✅
+```
+
+**Action Objective:**
+```
+Objective: "Open the trap door"
+Action: "open trap door"
+Response: "The trap door opens with a creak."
+LLM detects: Action succeeded, door state changed → Objective complete ✅
+```
+
+**Score Objective:**
+```
+Objective: "Collect the brass lantern for points"
+Action: "take lantern"
+Response: "Taken. Your score has increased by 5 points."
+LLM detects: Score increased, item acquired → Objective complete ✅
+```
+
+### Implementation Details
+
+**Early Exit Logic:**
+```python
+# Early exit: No objectives to check
+if not self.game_state.discovered_objectives:
+    return
+
+# Early exit: Feature disabled in config
+if not self.config.enable_objective_completion_llm_check:
+    return
+
+# Early exit: Not the right turn interval
+if self.game_state.turn_count % self.config.completion_check_interval != 0:
+    return
+```
+
+**Helper Methods:**
+- `_get_recent_action_history()`: Formats last N turns with turn numbers and responses
+- `_get_completion_memory_context(location_id)`: Retrieves location-specific memories
+
+**Enhanced Prompt Sections:**
+1. Current objectives list
+2. Recent action history (formatted)
+3. Latest action and response
+4. Current game state (location, score, inventory)
+5. State changes (score increase detection)
+6. Location-specific memories (if enabled)
+7. Evaluation criteria and game mechanics guidance
+
+### Testing
+
+**Test Coverage:** 8 comprehensive tests in `tests/test_objective_completion.py`
+
+**Key Test Scenarios:**
+1. ✅ Every turn checking when objectives exist
+2. ✅ Skip check when no objectives exist
+3. ✅ Skip check when disabled in config
+4. ✅ Enhanced context includes memories
+5. ✅ Enhanced context includes action history
+6. ✅ Completion removes objective from list
+7. ✅ Multi-objective completion in single turn
+8. ✅ Check interval respects config
+
+**Run tests:**
+```bash
+uv run pytest tests/test_objective_completion.py -xvs
+```
+
+### Architecture Benefits
+
+**LLM-First Compliance:**
+- No hardcoded keyword matching
+- All completion decisions from LLM reasoning
+- Adaptable to new objective types
+
+**Enhanced Context:**
+- Multi-step objective detection via action history
+- Location-specific validation via memories
+- Score correlation analysis
+
+**Performance:**
+- Early exit optimizations (no objectives, disabled, interval)
+- Configurable check frequency (default: every turn)
+- Memory inclusion toggle for cost control
+
+### Common Pitfalls
+
+**Don't:**
+- Disable completion checking for cost savings (net positive ROI)
+- Set check_interval > 5 (objectives missed for too many turns)
+- Exclude memories (critical for location-based objectives)
+
+**Do:**
+- Use default config (every turn, 3-turn history, memories enabled)
+- Monitor completion logs for false positives/negatives
+- Adjust history_window if objectives span many turns (e.g., 5-8 for complex multi-step)
+
 ## Room Description Extraction
 
 **Problem Solved**: The "look" command consumes a precious game turn (~385 turn lantern lifespan in Zork), yet agents need room descriptions for spatial context and decision making.
