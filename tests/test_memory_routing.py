@@ -3,7 +3,8 @@
 
 import pytest
 from pathlib import Path
-from managers.simple_memory_manager import SimpleMemoryManager, Memory, MemoryStatus
+from managers.simple_memory_manager import SimpleMemoryManager
+from managers.memory.models import Memory, MemoryStatus
 from session.game_state import GameState
 from session.game_configuration import GameConfiguration
 

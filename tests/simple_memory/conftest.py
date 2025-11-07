@@ -7,39 +7,11 @@ import pytest
 import logging
 from pathlib import Path
 from unittest.mock import Mock
-from dataclasses import dataclass
-from typing import List, Dict, Optional, Literal
 import json
 
 from session.game_state import GameState
 from session.game_configuration import GameConfiguration
-
-
-# Memory status constants (must match manager implementation)
-MemoryStatusType = Literal["ACTIVE", "TENTATIVE", "SUPERSEDED"]
-
-class MemoryStatus:
-    """Memory status constants."""
-    ACTIVE: MemoryStatusType = "ACTIVE"
-    TENTATIVE: MemoryStatusType = "TENTATIVE"
-    SUPERSEDED: MemoryStatusType = "SUPERSEDED"
-
-
-# Memory dataclass for testing (must match manager implementation)
-@dataclass
-class Memory:
-    """Represents a single location memory entry."""
-    category: str  # SUCCESS, FAILURE, DISCOVERY, DANGER, NOTE
-    title: str  # Short title of the memory
-    episode: int  # Episode number
-    turns: str  # Turn range (e.g., "23-24" or "23")
-    score_change: Optional[int]  # Score change (+5, +0, None if not specified)
-    text: str  # 1-2 sentence synthesized insight
-    persistence: str  # "core" | "permanent" | "ephemeral" - REQUIRED
-    status: MemoryStatusType = MemoryStatus.ACTIVE  # Memory status
-    superseded_by: Optional[str] = None  # Title of memory that superseded this
-    superseded_at_turn: Optional[int] = None  # Turn when superseded
-    invalidation_reason: Optional[str] = None  # Reason for standalone invalidation
+from managers.memory.models import Memory, MemoryStatus, MemoryStatusType
 
 
 # ============================================================================
