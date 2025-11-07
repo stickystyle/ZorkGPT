@@ -50,7 +50,25 @@ Review existing memories above. Does this action outcome:
 
 If yes to any: list specific memory TITLES in supersedes_memory_titles field.
 If contradicting multiple memories: list ALL relevant titles.
-Use EXACT titles from existing memories above. If title is long, unique substring is sufficient.
+
+🚨 CRITICAL TITLE MATCHING RULES:
+• You MUST copy EXACT titles verbatim from "EXISTING MEMORIES" section above
+• Do NOT paraphrase, rephrase, or create variations of titles
+• Do NOT invent plausible-sounding titles that don't exist above
+• Copy-paste only - character-for-character matching required
+
+CORRECT supersession:
+  Existing memory: "Window entry procedure works"
+  Your response: supersedes_memory_titles: ["Window entry procedure works"]  ✅
+
+INCORRECT supersessions (will cause errors):
+  Existing memory: "Window entry procedure works"
+  Your response: supersedes_memory_titles: [
+    "Window entry procedure works",           ✅ (exists)
+    "Window entry from behind house works",   ❌ (doesn't exist - hallucination)
+    "Window procedure for entry",             ❌ (doesn't exist - paraphrase)
+    "Behind house window entry"               ❌ (doesn't exist - variation)
+  ]
 ═══════════════════════════════════════════════════════════════
 
 SUPERSESSION PERSISTENCE RULES:
@@ -501,6 +519,22 @@ class MemorySynthesizer:
 
             # Parse response
             synthesis = MemorySynthesisResponse.model_validate_json(json_content)
+
+            # Hallucination detection: Reject excessive supersession counts
+            # LLM tends to hallucinate memory titles when trying to supersede many memories
+            # Legitimate supersessions typically involve 1-3 memories max
+            if len(synthesis.supersedes_memory_titles) > 3:
+                self.logger.warning(
+                    f"LLM attempted to supersede {len(synthesis.supersedes_memory_titles)} memories - likely title hallucination",
+                    extra={
+                        "location_id": location_id,
+                        "hallucinated_titles": list(synthesis.supersedes_memory_titles),
+                        "action": action,
+                        "suggestion": "LLM is creating non-existent memory title variations. Clearing supersession list to prevent errors."
+                    }
+                )
+                # Clear hallucinated titles to prevent supersession errors
+                synthesis.supersedes_memory_titles = set()
 
             # Check if should remember
             if not synthesis.should_remember:

@@ -635,8 +635,12 @@ class SimpleMemoryManager(BaseManager):
             # Ensure LLM client is initialized (triggers lazy init via property)
             _ = self.llm_client
 
-            # Get existing memories from cache for deduplication
-            existing_memories = self.memory_cache.get(location_id, [])
+            # Get existing memories from BOTH caches for deduplication
+            # CRITICAL: Include ephemeral memories so LLM can see ALL existing memories,
+            # preventing hallucination when trying to supersede ephemeral memories
+            persistent_memories = self.memory_cache.get(location_id, [])
+            ephemeral_memories = self.ephemeral_cache.get(location_id, [])
+            existing_memories = persistent_memories + ephemeral_memories
 
             # Get configurable history window (default: 3 turns, validated >= 1)
             window_size = self.config.get_memory_history_window()
@@ -721,6 +725,33 @@ class SimpleMemoryManager(BaseManager):
             )
 
             for old_memory_title in synthesis.supersedes_memory_titles:
+                # CRITICAL: Prevent ephemeral memories from superseding persistent ones
+                # If ephemeral supersedes persistent → episode reset clears ephemeral → knowledge loss!
+                if synthesis.persistence == "ephemeral":
+                    # Find old memory in both caches to check its persistence
+                    old_memory = None
+                    for mem in self.memory_cache.get(location_id, []):
+                        if mem.title == old_memory_title:
+                            old_memory = mem
+                            break
+                    if not old_memory:
+                        for mem in self.ephemeral_cache.get(location_id, []):
+                            if mem.title == old_memory_title:
+                                old_memory = mem
+                                break
+
+                    if old_memory and old_memory.persistence in ["core", "permanent"]:
+                        self.log_warning(
+                            f"Rejected supersession: ephemeral memory cannot supersede {old_memory.persistence} memory",
+                            location_id=location_id,
+                            old_title=old_memory_title,
+                            old_persistence=old_memory.persistence,
+                            new_title=synthesis.memory_title,
+                            new_persistence=synthesis.persistence,
+                            reason="Would cause knowledge loss after episode reset"
+                        )
+                        continue  # Skip this supersession
+
                 success = self._update_memory_status(
                     location_id=location_id,
                     memory_title=old_memory_title,
