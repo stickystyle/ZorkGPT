@@ -86,10 +86,22 @@ class MemorySynthesisResponse(BaseModel):
     memory_text: Optional[str] = None  # Only required if should_remember=true
     persistence: Optional[str] = None  # "core" | "permanent" | "ephemeral", required if should_remember=true
     status: MemoryStatusType = Field(default=MemoryStatus.ACTIVE)  # Default to ACTIVE
-    supersedes_memory_titles: Set[str] = Field(default_factory=set)  # Titles to mark as superseded
-    invalidate_memory_titles: Set[str] = Field(default_factory=set)  # Titles to invalidate without replacement
+    supersedes_memory_titles: Set[str] = Field(
+        default_factory=set,
+        max_length=3,  # CRITICAL: Max 3 items to prevent hallucination
+        description="Titles to mark as superseded (MAX 3 items)"
+    )
+    invalidate_memory_titles: Set[str] = Field(
+        default_factory=set,
+        max_length=3,  # CRITICAL: Max 3 items to prevent hallucination
+        description="Titles to invalidate without replacement (MAX 3 items)"
+    )
     invalidation_reason: Optional[str] = None  # Reason for invalidation
-    reasoning: str = ""  # Optional reasoning for debugging
+    reasoning: str = Field(
+        default="",
+        max_length=500,  # Limit reasoning to prevent token bloat
+        description="Brief reasoning for debugging (max 500 chars)"
+    )
 
     @model_validator(mode='after')
     def validate_remember_fields(self) -> 'MemorySynthesisResponse':

@@ -56,7 +56,7 @@ def synthesizer(logger, config, formatter, llm_client):
 
 
 def test_excessive_supersession_titles_rejected(synthesizer, llm_client, logger):
-    """Test that >3 supersession titles trigger hallucination detection."""
+    """Test that >3 supersession titles are rejected by Pydantic validation."""
     # Mock LLM response with 5 supersession titles (hallucination)
     mock_response = Mock()
     mock_response.content = '''{
@@ -88,14 +88,13 @@ def test_excessive_supersession_titles_rejected(synthesizer, llm_client, logger)
         z_machine_context={'score_delta': 0, 'location_changed': False, 'inventory_changed': False, 'died': False, 'first_visit': True}
     )
 
-    # Verify warning was logged
-    assert logger.warning.called
-    warning_call = logger.warning.call_args
-    assert "5 memories" in warning_call[0][0]
-    assert "hallucination" in warning_call[0][0].lower()
+    # Pydantic validation should reject this during parse, returning None
+    assert result is None
 
-    # Verify supersession titles were cleared
-    assert len(result.supersedes_memory_titles) == 0
+    # Verify error was logged (not warning, since Pydantic raises exception)
+    assert logger.error.called
+    error_call = logger.error.call_args
+    assert "Failed to synthesize memory" in error_call[0][0]
 
 
 def test_valid_supersession_count_allowed(synthesizer, llm_client, logger):
@@ -195,15 +194,15 @@ def test_four_supersessions_triggers_rejection(synthesizer, llm_client, logger):
         z_machine_context={'score_delta': 0, 'location_changed': False, 'inventory_changed': False, 'died': False, 'first_visit': True}
     )
 
-    # Verify warning was logged
-    assert logger.warning.called
+    # Pydantic validation should reject this, returning None
+    assert result is None
 
-    # Verify titles were cleared
-    assert len(result.supersedes_memory_titles) == 0
+    # Verify error was logged
+    assert logger.error.called
 
 
 def test_hallucination_log_contains_details(synthesizer, llm_client, logger):
-    """Test that hallucination warning includes helpful debugging details."""
+    """Test that Pydantic validation error is logged with details."""
     # Mock LLM response with many titles
     mock_response = Mock()
     mock_response.content = '''{
@@ -223,7 +222,7 @@ def test_hallucination_log_contains_details(synthesizer, llm_client, logger):
     llm_client.chat.completions.create = Mock(return_value=mock_response)
 
     # Call synthesize_memory
-    synthesizer.synthesize_memory(
+    result = synthesizer.synthesize_memory(
         location_id=42,
         location_name="Test Location",
         action="test action here",
@@ -232,18 +231,18 @@ def test_hallucination_log_contains_details(synthesizer, llm_client, logger):
         z_machine_context={'score_delta': 0, 'location_changed': False, 'inventory_changed': False, 'died': False, 'first_visit': True}
     )
 
-    # Verify warning contains location_id and action in extra data
-    warning_call = logger.warning.call_args
-    extra = warning_call[1]['extra']
+    # Should return None due to validation error
+    assert result is None
+
+    # Verify error was logged with location context
+    error_call = logger.error.call_args
+    extra = error_call[1]['extra']
     assert extra['location_id'] == 42
-    assert extra['action'] == "test action here"
-    assert 'hallucinated_titles' in extra
-    assert len(extra['hallucinated_titles']) == 10
 
 
-def test_memory_synthesis_continues_after_clearing_hallucinations(synthesizer, llm_client, logger):
-    """Test that synthesis continues normally after clearing hallucinated titles."""
-    # Mock LLM response with hallucination
+def test_memory_synthesis_with_valid_supersessions_succeeds(synthesizer, llm_client, logger):
+    """Test that synthesis succeeds when supersessions are within limits."""
+    # Mock LLM response with valid supersession count (2 titles)
     mock_response = Mock()
     mock_response.content = '''{
         "should_remember": true,
@@ -252,7 +251,7 @@ def test_memory_synthesis_continues_after_clearing_hallucinations(synthesizer, l
         "memory_text": "This is valid",
         "persistence": "permanent",
         "status": "ACTIVE",
-        "supersedes_memory_titles": ["Fake 1", "Fake 2", "Fake 3", "Fake 4", "Fake 5"],
+        "supersedes_memory_titles": ["Old memory 1", "Old memory 2"],
         "reasoning": "Test"
     }'''
     mock_response.usage = {"completion_tokens": 100}
@@ -268,14 +267,14 @@ def test_memory_synthesis_continues_after_clearing_hallucinations(synthesizer, l
         z_machine_context={'score_delta': 0, 'location_changed': False, 'inventory_changed': False, 'died': False, 'first_visit': True}
     )
 
-    # Verify synthesis succeeded and returned valid memory (despite hallucination)
+    # Verify synthesis succeeded
     assert result is not None
     assert result.should_remember is True
     assert result.category == "SUCCESS"
     assert result.memory_title == "Valid memory"
     assert result.memory_text == "This is valid"
-    # Hallucinated titles were cleared
-    assert len(result.supersedes_memory_titles) == 0
+    # Valid supersession titles preserved
+    assert len(result.supersedes_memory_titles) == 2
 
 
 def test_zero_supersessions_not_flagged(synthesizer, llm_client, logger):

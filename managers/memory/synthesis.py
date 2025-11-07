@@ -350,10 +350,23 @@ The MapGraph system ALREADY tracks all spatial navigation. DO NOT create memorie
 **CRITICAL - OUTPUT FORMAT:**
 YOU MUST respond with ONLY a valid JSON object. Do not include any text before or after the JSON. Do not include thinking tags, reasoning outside the JSON structure, or markdown fences.
 
+🚨 CRITICAL ARRAY SIZE LIMITS 🚨
+• supersedes_memory_titles: MAX 3 items (typically 0-1)
+• invalidate_memory_titles: MAX 3 items (typically 0-1)
+• If you find yourself listing more than 3 titles, you are hallucinating - STOP
+• When should_remember=false: DO NOT include supersedes/invalidate fields at all
+
 If should_remember=false (duplicate/navigation/not actionable):
 {{
   "should_remember": false,
   "reasoning": "explain why not remembering (semantic duplicate, navigation, etc.)"
+}}
+
+⚠️  WRONG - DO NOT include supersedes when should_remember=false:
+{{
+  "should_remember": false,
+  "supersedes_memory_titles": [...],  ❌ Remove this!
+  "reasoning": "..."
 }}
 
 If should_remember=true (new actionable insight):
@@ -535,6 +548,20 @@ class MemorySynthesizer:
                 )
                 # Clear hallucinated titles to prevent supersession errors
                 synthesis.supersedes_memory_titles = set()
+
+            # Hallucination detection: Reject excessive invalidation counts
+            if len(synthesis.invalidate_memory_titles) > 3:
+                self.logger.warning(
+                    f"LLM attempted to invalidate {len(synthesis.invalidate_memory_titles)} memories - likely title hallucination",
+                    extra={
+                        "location_id": location_id,
+                        "hallucinated_titles": list(synthesis.invalidate_memory_titles),
+                        "action": action,
+                        "suggestion": "LLM is creating non-existent memory title variations. Clearing invalidation list to prevent errors."
+                    }
+                )
+                # Clear hallucinated titles to prevent invalidation errors
+                synthesis.invalidate_memory_titles = set()
 
             # Check if should remember
             if not synthesis.should_remember:
