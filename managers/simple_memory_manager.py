@@ -1748,12 +1748,19 @@ EXISTING MEMORIES AT THIS LOCATION:
 🚨 CRITICAL DEDUPLICATION CHECK 🚨
 
 Before remembering ANYTHING, compare against existing memories above.
+
 These are SEMANTICALLY DUPLICATE (DO NOT remember):
   ❌ "Leaflet reveals message" vs "Leaflet provides message"
   ❌ "Mailbox contains leaflet" vs "Leaflet found in mailbox"
   ❌ "Egg can be taken" vs "Taking egg succeeds"
 
-Only remember if this provides NEW information not semantically captured above.
+These are NOT ACTIONABLE - handled by MapGraph (DO NOT remember):
+  ❌ "Forest path leads north south" (exit information)
+  ❌ "Path accessible from north house" (room connections)
+  ❌ "Canyon View location discovered" (location tracking)
+  ❌ "Can go west from here" (navigation)
+
+Only remember if this provides NEW actionable information not semantically captured above.
 ═══════════════════════════════════════════════════════════════
 
 CONTRADICTION CHECK:
@@ -2015,18 +2022,50 @@ Review the RECENT ACTION SEQUENCE above. Does the current outcome depend on prev
 
 ═══════════════════════════════════════════════════════════════
 
-REMEMBER (actionable game mechanics):
-✅ Object interactions (how to use items, what works/fails)
-✅ Item discoveries (finding items, understanding purpose)
-✅ Dangers (death, hazards, threats)
-✅ Puzzle mechanics (how things operate)
-✅ Score-earning actions
+🚨 CRITICAL - DO NOT REMEMBER THESE (handled by MapGraph) 🚨
+═══════════════════════════════════════════════════════════════
+The MapGraph system ALREADY tracks all spatial navigation. DO NOT create memories for:
 
-SKIP (handled elsewhere or not actionable):
-❌ Navigation/directions (tracked by MapGraph)
-❌ Room descriptions (in game output)
-❌ Movement commands (north/south/etc.)
+❌ Exits and directions
+   Examples: "path leads north/south", "exits are north/east/west", "can go north"
+   WHY: MapGraph tracks all room connections and exits automatically
+
+❌ Location discovery
+   Examples: "found Forest", "discovered Canyon View", "reached Kitchen", "Forest location discovered"
+   WHY: MapGraph marks locations as visited automatically
+
+❌ Room connections
+   Examples: "path accessible from north house", "forest connects to clearing"
+   WHY: MapGraph builds connection graph from movement
+
+❌ Simple movement success
+   Examples: "went north successfully", "moved to next room", "entered new area"
+   WHY: Movement is not actionable knowledge, just navigation
+
 ❌ DUPLICATES (semantically similar to existing memories)
+   Examples: "Leaflet reveals message" vs "Leaflet provides message"
+   WHY: Existing memory already captures the insight
+═══════════════════════════════════════════════════════════════
+
+✅ REMEMBER (actionable game mechanics NOT handled by other systems):
+═══════════════════════════════════════════════════════════════
+✅ Object interactions (how to use items, what works/fails)
+   WHY: MapGraph doesn't track object mechanics or puzzle solutions
+
+✅ Dangers (death, hazards, threats)
+   WHY: Critical survival information, not captured by navigation
+
+✅ Puzzle mechanics (how things operate, constraints)
+   WHY: Game rules and mechanics, not spatial data
+   Example: "Window must be opened before entering" (constraint)
+   NOT: "Window leads to kitchen" (navigation)
+
+✅ Item discoveries (finding items, understanding purpose)
+   WHY: Item properties and uses, not just location
+
+✅ Score-earning actions
+   WHY: Learning which actions grant points
+═══════════════════════════════════════════════════════════════
 
 **CRITICAL - OUTPUT FORMAT:**
 YOU MUST respond with ONLY a valid JSON object. Do not include any text before or after the JSON. Do not include thinking tags, reasoning outside the JSON structure, or markdown fences.
