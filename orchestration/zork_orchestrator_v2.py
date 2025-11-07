@@ -1564,7 +1564,26 @@ SURVIVAL DEPENDS ON SCORE INCREASE.
         # Map manager periodic check (currently no-op; map updates happen in real-time)
         self.map_manager.process_turn()
 
-        # Objective updates
+        # Turn 1: Generate initial objectives if memories exist from prior episodes
+        if self.game_state.turn_count == 1:
+            has_memories = self.simple_memory.get_persistent_count() > 0
+            if has_memories:
+                self.logger.info(
+                    "Turn 1: Running objective generation from memories and knowledgebase",
+                    extra={
+                        "event_type": "turn_1_objective_generation",
+                        "episode_id": self.game_state.episode_id,
+                        "memory_count": self.simple_memory.get_persistent_count(),
+                    }
+                )
+                current_reasoning = ""
+                if self.game_state.action_reasoning_history:
+                    current_reasoning = self.game_state.action_reasoning_history[-1].get(
+                        "reasoning", ""
+                    )
+                self.objective_manager.process_periodic_updates(current_reasoning)
+
+        # Objective updates (normal periodic check at interval)
         if self.objective_manager.should_process_turn():
             current_reasoning = ""
             if self.game_state.action_reasoning_history:
