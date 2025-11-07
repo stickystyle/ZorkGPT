@@ -108,8 +108,6 @@ min_knowledge_quality = 7.0
 critic_rejection_threshold = -0.1
 enable_exit_pruning = true
 exit_failure_threshold = 3
-enable_knowledge_condensation = true
-knowledge_condensation_threshold = 20000
 zork_save_filename_template = "test_save_{timestamp}"
 zork_game_workdir = "test_game_files"
 
@@ -128,7 +126,6 @@ critic_model = "test-critic"
 info_ext_model = "test-extractor"
 analysis_model = "test-analysis"
 memory_model = "test-memory"
-condensation_model = "test-condensation"
 
 [tool.zorkgpt.aws]
 s3_key_prefix = "test-prefix/"
@@ -314,8 +311,6 @@ min_knowledge_quality = 7.0
 critic_rejection_threshold = -0.1
 enable_exit_pruning = true
 exit_failure_threshold = 3
-enable_knowledge_condensation = true
-knowledge_condensation_threshold = 20000
 zork_save_filename_template = "test_save_{timestamp}"
 zork_game_workdir = "test_game_files"
 
@@ -334,7 +329,6 @@ critic_model = "test-critic"
 info_ext_model = "test-extractor"
 analysis_model = "test-analysis"
 memory_model = "test-memory"
-condensation_model = "test-condensation"
 
 [tool.zorkgpt.aws]
 s3_key_prefix = "test-prefix/"

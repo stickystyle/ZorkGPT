@@ -34,14 +34,11 @@ dev = [
 # LLM Configuration
 client_base_url = "https://openrouter.ai/api/v1"
 agent_model = "deepseek/deepseek-v3.2-exp"
-#info_ext_model = "gemma-3-12b-it-qat"
-info_ext_model = "google/gemma-3-12b-it"
-#critic_model = "gemma-3-12b-it-qat"
+info_ext_model = "deepseek/deepseek-v3.2-exp"
 #critic_model = "google/gemma-3-12b-it"  # Too small - fails to follow movement validation logic
-critic_model = "google/gemma-3-27b-it"   # Correctly validates movements against available exits
-analysis_model = "deepseek/deepseek-r1-0528"  # Superior reasoning depth and actionable pattern extraction vs llama-4-scout
-memory_model = "qwen/qwq-32b"
-condensation_model = "qwen/qwq-32b"
+critic_model = "deepseek/deepseek-v3.2-exp"
+analysis_model = "deepseek/deepseek-v3.2-exp"
+memory_model = "deepseek/deepseek-v3.2-exp"
 
 # Per-model base URLs (optional, for cost optimization)
 # If not specified, will fall back to client_base_url
@@ -119,14 +116,6 @@ top_k = 20     # Optional - leave commented for default
 min_p = 0.0     # Optional - leave commented for default
 max_tokens = 5000  # Optional - leave commented to use default
 
-[tool.zorkgpt.condensation_sampling]
-# Knowledge Condensation LLM Sampling Parameters
-temperature = 0.3
-top_p = 0.8
-top_k = 20
-min_p = 0.0
-max_tokens = 5000
-
 [tool.zorkgpt.gameplay]
 # Gameplay Configuration
 turn_delay_seconds = 3.0
@@ -136,9 +125,6 @@ critic_rejection_threshold = -0.2  # More permissive from -0.05 to allow more ex
 # Exit pruning configuration
 enable_exit_pruning = true
 exit_failure_threshold = 2  # Reduced from 3 to more quickly abandon failed directions
-# Knowledge base condensation configuration  
-enable_knowledge_condensation = true
-knowledge_condensation_threshold = 15000  # Characters before triggering condensation
 # Save/restore configuration
 zork_save_filename_template = "zorkgpt_save_{timestamp}"
 zork_game_workdir = "game_files"

@@ -1,12 +1,12 @@
 # ABOUTME: Main orchestrator for adaptive knowledge management in ZorkGPT
-# ABOUTME: Coordinates quality assessment, turn extraction, generation, condensation, and synthesis
+# ABOUTME: Coordinates quality assessment, turn extraction, generation, and synthesis
 
 """
 Adaptive knowledge manager for ZorkGPT.
 
 Main orchestrator class that coordinates all knowledge management operations
 using the modular components for quality assessment, turn extraction,
-knowledge generation, condensation, and cross-episode synthesis.
+knowledge generation, and cross-episode synthesis.
 """
 
 import os
@@ -19,7 +19,6 @@ from session.game_configuration import GameConfiguration
 from knowledge import quality_assessment
 from knowledge import turn_extraction
 from knowledge import knowledge_generation
-from knowledge import knowledge_condensation
 from knowledge import cross_episode_synthesis
 from knowledge import section_utils
 
@@ -69,19 +68,13 @@ class AdaptiveKnowledgeManager:
 
         # Models for different tasks
         self.analysis_model = self.config.analysis_model
-        self.condensation_model = self.config.condensation_model
 
         # Load sampling parameters from configuration
         self.analysis_sampling = self.config.analysis_sampling
-        self.condensation_sampling = self.config.condensation_sampling
 
         # Turn-based configuration
         self.turn_window_size = self.config.turn_window_size
         self.min_quality_threshold = self.config.min_knowledge_quality
-
-        # Knowledge base condensation configuration
-        self.enable_condensation = self.config.enable_knowledge_condensation
-        self.condensation_threshold = self.config.knowledge_condensation_threshold
 
         # Load agent instructions to avoid duplication
         self.agent_instructions = self._load_agent_instructions()

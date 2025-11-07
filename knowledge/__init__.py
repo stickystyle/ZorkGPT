@@ -7,7 +7,6 @@ This package handles all knowledge-related functionality including:
 - Quality assessment for knowledge updates
 - Turn-based data extraction from episode logs
 - LLM-based knowledge generation and synthesis
-- Knowledge condensation for token efficiency
 - Cross-episode wisdom synthesis
 - Section-based knowledge management utilities
 
@@ -18,7 +17,6 @@ Modules:
 - quality_assessment: Knowledge update quality checks
 - turn_extraction: Turn-based data extraction from logs
 - knowledge_generation: LLM-based knowledge generation
-- knowledge_condensation: Knowledge condensation for efficiency
 - cross_episode_synthesis: Cross-episode wisdom synthesis
 - section_utils: Section-based utilities
 - adaptive_manager: Main orchestrator class

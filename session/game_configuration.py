@@ -104,9 +104,6 @@ class GameConfiguration(BaseSettings):
     memory_model: str = Field(
         default="qwen/qwq-32b", description="Model name for memory synthesis"
     )
-    condensation_model: str = Field(
-        default="qwen/qwq-32b", description="Model name for knowledge condensation"
-    )
 
     # Per-model base URLs (optional)
     agent_base_url: Optional[str] = Field(
@@ -123,9 +120,6 @@ class GameConfiguration(BaseSettings):
     )
     memory_base_url: Optional[str] = Field(
         default=None, description="Optional base URL for memory model"
-    )
-    condensation_base_url: Optional[str] = Field(
-        default=None, description="Optional base URL for condensation model"
     )
 
     # Retry configuration
@@ -201,12 +195,6 @@ class GameConfiguration(BaseSettings):
     )
     exit_failure_threshold: int = Field(
         default=2, description="Number of failures before pruning an exit"
-    )
-    enable_knowledge_condensation: bool = Field(
-        default=True, description="Enable knowledge base condensation"
-    )
-    knowledge_condensation_threshold: int = Field(
-        default=15000, description="Character count threshold for triggering condensation"
     )
     zork_save_filename_template: str = Field(
         default="zorkgpt_save_{timestamp}", description="Template for save file names"
@@ -302,9 +290,6 @@ class GameConfiguration(BaseSettings):
     memory_sampling: dict = Field(
         default_factory=dict, description="Sampling parameters for memory"
     )
-    condensation_sampling: dict = Field(
-        default_factory=dict, description="Sampling parameters for condensation"
-    )
 
     model_config = SettingsConfigDict(
         env_prefix="ZORKGPT_",
@@ -398,7 +383,6 @@ class GameConfiguration(BaseSettings):
         extractor_sampling = zorkgpt_config.get("extractor_sampling", {})
         analysis_sampling = zorkgpt_config.get("analysis_sampling", {})
         memory_sampling = zorkgpt_config.get("memory_sampling", {})
-        condensation_sampling = zorkgpt_config.get("condensation_sampling", {})
 
         # Build flat configuration dictionary for Pydantic validation
         config_dict = {
@@ -422,14 +406,12 @@ class GameConfiguration(BaseSettings):
             "info_ext_model": llm_config.get("info_ext_model"),
             "analysis_model": llm_config.get("analysis_model"),
             "memory_model": llm_config.get("memory_model"),
-            "condensation_model": llm_config.get("condensation_model"),
             # Per-model base URLs (optional)
             "agent_base_url": llm_config.get("agent_base_url"),
             "info_ext_base_url": llm_config.get("info_ext_base_url"),
             "critic_base_url": llm_config.get("critic_base_url"),
             "analysis_base_url": llm_config.get("analysis_base_url"),
             "memory_base_url": llm_config.get("memory_base_url"),
-            "condensation_base_url": llm_config.get("condensation_base_url"),
             # Retry configuration
             "retry": retry_config,
             # Update intervals
@@ -456,8 +438,6 @@ class GameConfiguration(BaseSettings):
             "min_knowledge_quality": gameplay_config.get("min_knowledge_quality"),
             "enable_exit_pruning": gameplay_config.get("enable_exit_pruning"),
             "exit_failure_threshold": gameplay_config.get("exit_failure_threshold"),
-            "enable_knowledge_condensation": gameplay_config.get("enable_knowledge_condensation"),
-            "knowledge_condensation_threshold": gameplay_config.get("knowledge_condensation_threshold"),
             "zork_save_filename_template": gameplay_config.get("zork_save_filename_template"),
             # Orchestrator settings
             "enable_inter_episode_synthesis": orchestrator_config.get("enable_inter_episode_synthesis"),
@@ -470,7 +450,6 @@ class GameConfiguration(BaseSettings):
             "extractor_sampling": extractor_sampling,
             "analysis_sampling": analysis_sampling,
             "memory_sampling": memory_sampling,
-            "condensation_sampling": condensation_sampling,
         }
 
         # Add optional progress velocity detection settings (only if present in TOML)
@@ -511,7 +490,7 @@ class GameConfiguration(BaseSettings):
         Get the effective base URL for a specific model type.
 
         Args:
-            model_type: One of 'agent', 'critic', 'info_ext', 'analysis', 'memory', 'condensation'
+            model_type: One of 'agent', 'critic', 'info_ext', 'analysis', 'memory'
 
         Returns:
             Base URL for the model type
@@ -522,7 +501,6 @@ class GameConfiguration(BaseSettings):
             "info_ext": self.info_ext_base_url,
             "analysis": self.analysis_base_url,
             "memory": self.memory_base_url,
-            "condensation": self.condensation_base_url,
         }
 
         # Return model-specific URL if available, otherwise fall back to client_base_url

@@ -180,7 +180,6 @@ def game_config(tmp_path):
         info_ext_model="test-extractor-model",
         analysis_model="test-analysis-model",
         memory_model="test-memory-model",
-        condensation_model="test-condensation-model",
         knowledge_update_interval=100,
         objective_update_interval=20,
         enable_objective_refinement=True,
@@ -201,7 +200,6 @@ def game_config(tmp_path):
         extractor_sampling={},
         analysis_sampling={},
         memory_sampling={'temperature': 0.3, 'max_tokens': 1000},
-        condensation_sampling={},
     )
 
 

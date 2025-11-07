@@ -41,7 +41,6 @@ def test_config():
         info_ext_model="test-extractor",
         analysis_model="test-analysis",
         memory_model="test-memory",
-        condensation_model="test-condensation",
         knowledge_update_interval=100,
         objective_update_interval=20,
         enable_objective_refinement=True,
@@ -62,7 +61,6 @@ def test_config():
         extractor_sampling={},
         analysis_sampling={},
         memory_sampling={},
-        condensation_sampling={},
         retry={
             "max_retries": 5,
             "initial_delay": 1.0,

@@ -53,7 +53,6 @@ class TestBaseManagerSetup:
             info_ext_model="test-extractor-model",
             analysis_model="test-analysis-model",
             memory_model="test-memory-model",
-            condensation_model="test-condensation-model",
             # Update intervals
             knowledge_update_interval=100,
             objective_update_interval=20,
@@ -81,7 +80,6 @@ class TestBaseManagerSetup:
             extractor_sampling={},
             analysis_sampling={},
             memory_sampling={},
-            condensation_sampling={},
             # Retry configuration
             retry={
                 "max_retries": 5,
