@@ -157,14 +157,14 @@ objective_refinement_interval = 50
 max_objectives_before_forced_refinement = 15
 refined_objectives_target_count = 8
 
+# Inter-episode synthesis configuration
+enable_inter_episode_synthesis = true
+
 [tool.zorkgpt.objective_completion]
 enable_llm_check = true
 check_interval = 1
 history_window = 3
 include_memories = true
-
-# Inter-episode synthesis configuration
-enable_inter_episode_synthesis = true
 
 [tool.zorkgpt.simple_memory]
 # Simple Memory System Configuration
