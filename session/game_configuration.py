@@ -423,10 +423,10 @@ class GameConfiguration(BaseSettings):
             "max_objectives_before_forced_refinement": orchestrator_config.get("max_objectives_before_forced_refinement"),
             "refined_objectives_target_count": orchestrator_config.get("refined_objectives_target_count"),
             # Objective completion checking
-            "enable_objective_completion_llm_check": objective_completion_config.get("enable_llm_check"),
-            "completion_check_interval": objective_completion_config.get("check_interval"),
-            "completion_history_window": objective_completion_config.get("history_window"),
-            "completion_include_memories": objective_completion_config.get("include_memories"),
+            "enable_objective_completion_llm_check": objective_completion_config.get("enable_llm_check", True),
+            "completion_check_interval": objective_completion_config.get("check_interval", 1),
+            "completion_history_window": objective_completion_config.get("history_window", 3),
+            "completion_include_memories": objective_completion_config.get("include_memories", True),
             # Context management
             "max_context_tokens": orchestrator_config.get("max_context_tokens"),
             "context_overflow_threshold": orchestrator_config.get("context_overflow_threshold"),
