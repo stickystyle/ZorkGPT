@@ -217,7 +217,9 @@ class RejectionManager(BaseManager):
 
     def get_status(self) -> dict:
         """Get current status of rejection tracking."""
-        return {
+        status = super().get_status()
+
+        status.update({
             "trust_level": self.state.trust_level,
             "rejection_threshold": self.get_rejection_threshold(),
             "correct_rejections": self.state.correct_rejections,
@@ -226,4 +228,6 @@ class RejectionManager(BaseManager):
             "turns_since_movement": self.state.turns_since_movement,
             "rejected_this_turn": len(self.rejected_actions_this_turn),
             "should_be_conservative": self.state.trust_level < 0.5,
-        }
+        })
+
+        return status
