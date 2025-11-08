@@ -146,7 +146,10 @@ class TestZorkOrchestratorV2Integration:
         """Test a complete episode workflow with Jericho."""
         # Setup mocks
         mock_agent = Mock()
-        mock_agent.get_action_with_reasoning.return_value = mock_llm_responses["agent_action"]
+        # Add new_objective field to agent response
+        agent_response = mock_llm_responses["agent_action"].copy()
+        agent_response["new_objective"] = None
+        mock_agent.get_action_with_reasoning.return_value = agent_response
         mock_agent.client = Mock()
         mock_agent_class.return_value = mock_agent
 
@@ -486,6 +489,128 @@ class TestManagerInteractions:
 
         # Verify state manager was called for export
         assert episode_synthesizer.state_manager is not None
+
+    def test_orchestrator_extracts_agent_objectives(self):
+        """Orchestrator correctly extracts and adds agent objectives from agent responses."""
+        import time
+
+        # Create orchestrator with short episode
+        episode_id = f"test_extract_objective_{int(time.time())}"
+        orchestrator = ZorkOrchestratorV2(
+            episode_id=episode_id,
+            max_turns_per_episode=1,  # Only 1 turn
+        )
+
+        # Mock agent response with new_objective
+        agent_response = {
+            "action": "take lamp",
+            "reasoning": "I should collect the lamp for lighting",
+            "new_objective": "collect all treasures for trophy case",
+        }
+
+        # Mock critic response
+        mock_critic_result = Mock()
+        mock_critic_result.score = 0.8
+        mock_critic_result.confidence = 0.9
+        mock_critic_result.justification = "Good action"
+
+        # Mock extractor response
+        mock_extracted_info = Mock()
+        mock_extracted_info.current_location_name = "West of House"
+        mock_extracted_info.inventory = []
+        mock_extracted_info.visible_objects = []
+        mock_extracted_info.visible_characters = []
+        mock_extracted_info.exits = ["north", "south"]
+        mock_extracted_info.important_messages = []
+        mock_extracted_info.in_combat = False
+        mock_extracted_info.score = 0
+        mock_extracted_info.moves = None
+        mock_extracted_info.game_over = False
+
+        # Mock Jericho send_command
+        with patch.object(orchestrator.jericho_interface, 'send_command', return_value="You moved north."):
+            with patch.object(orchestrator.agent, 'get_action_with_reasoning', return_value=agent_response):
+                with patch.object(orchestrator.critic, 'evaluate_action', return_value=mock_critic_result):
+                    with patch.object(orchestrator.extractor, 'extract_info', return_value=mock_extracted_info):
+                        with patch.object(orchestrator.extractor, 'get_clean_game_text', return_value="You moved north."):
+                            # Run episode (will run exactly 1 turn due to max_turns_per_episode)
+                            orchestrator.play_episode()
+
+                            # Verify objective was added to ObjectiveManager
+                            objectives = orchestrator.objective_manager.game_state.discovered_objectives
+                            assert "collect all treasures for trophy case" in objectives, \
+                                f"Expected objective not found in {objectives}"
+
+    def test_agent_objective_completion_workflow(self):
+        """Agent-declared objectives are tracked through completion lifecycle."""
+        import time
+
+        # Create orchestrator with short episode
+        episode_id = f"test_objective_workflow_{int(time.time())}"
+        orchestrator = ZorkOrchestratorV2(
+            episode_id=episode_id,
+            max_turns_per_episode=4,  # 4 turns total
+        )
+
+        # Track which turn we're on
+        turn_counter = {"count": 0}
+
+        # Mock agent response - different for each turn
+        def mock_get_action(**kwargs):
+            turn_counter["count"] += 1
+            if turn_counter["count"] == 1:
+                # First turn: declare objective
+                return {
+                    "action": "look",
+                    "reasoning": "I should look around first",
+                    "new_objective": "find the lamp",
+                }
+            else:
+                # Subsequent turns: no new objective
+                return {
+                    "action": "north",
+                    "reasoning": "I should explore north",
+                    "new_objective": None,
+                }
+
+        # Mock critic response
+        mock_critic_result = Mock()
+        mock_critic_result.score = 0.8
+        mock_critic_result.confidence = 0.9
+        mock_critic_result.justification = "Good action"
+
+        # Mock extractor response
+        mock_extracted_info = Mock()
+        mock_extracted_info.current_location_name = "West of House"
+        mock_extracted_info.inventory = []
+        mock_extracted_info.visible_objects = []
+        mock_extracted_info.visible_characters = []
+        mock_extracted_info.exits = ["north", "south"]
+        mock_extracted_info.important_messages = []
+        mock_extracted_info.in_combat = False
+        mock_extracted_info.score = 0
+        mock_extracted_info.moves = None
+        mock_extracted_info.game_over = False
+
+        # Mock Jericho send_command
+        with patch.object(orchestrator.jericho_interface, 'send_command', return_value="You moved north."):
+            with patch.object(orchestrator.agent, 'get_action_with_reasoning', side_effect=mock_get_action):
+                with patch.object(orchestrator.critic, 'evaluate_action', return_value=mock_critic_result):
+                    with patch.object(orchestrator.extractor, 'extract_info', return_value=mock_extracted_info):
+                        with patch.object(orchestrator.extractor, 'get_clean_game_text', return_value="You moved north."):
+                            # Run full episode (4 turns)
+                            orchestrator.play_episode()
+
+                            # Verify objective was added on turn 1
+                            objectives = orchestrator.objective_manager.game_state.discovered_objectives
+                            assert "find the lamp" in objectives, \
+                                f"Expected objective not found after declaration in {objectives}"
+
+                            # Verify objective persists but wasn't duplicated
+                            # (we declared it once, it should still be in the list exactly once)
+                            objective_count = sum(1 for obj in objectives if obj == "find the lamp")
+                            assert objective_count == 1, \
+                                f"Expected objective to appear exactly once, found {objective_count} times"
 
 
 if __name__ == "__main__":

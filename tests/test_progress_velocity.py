@@ -132,7 +132,7 @@ class TestProgressVelocityDetection:
 
         # Mock agent/critic to return valid actions
         orchestrator.agent.get_action_with_reasoning = Mock(
-            return_value={"action": "look", "reasoning": "test"}
+            return_value={"action": "look", "reasoning": "test", "new_objective": None}
         )
         orchestrator.critic.evaluate_action = Mock(
             return_value=Mock(score=0.5, justification="OK", confidence=0.8)
@@ -367,7 +367,7 @@ stuck_check_interval = 5
                     mock_info.is_room_description = False
                     mock_extract.return_value = mock_info
 
-                    with patch.object(orchestrator.agent, 'get_action_with_reasoning', return_value={"action": "look", "reasoning": "test"}):
+                    with patch.object(orchestrator.agent, 'get_action_with_reasoning', return_value={"action": "look", "reasoning": "test", "new_objective": None}):
                         with patch.object(orchestrator.critic, 'evaluate_action') as mock_critic:
                             mock_result = Mock()
                             mock_result.confidence = 0.9

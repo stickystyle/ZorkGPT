@@ -76,7 +76,7 @@ class TestTurnLevelTraceCreation:
             # Mock the game interface and components to avoid actual LLM calls
             with patch.object(orchestrator.jericho_interface, 'send_command', return_value="You are in a forest."):
                 with patch.object(orchestrator.jericho_interface, 'is_game_over', return_value=(False, "")):
-                    with patch.object(orchestrator.agent, 'get_action_with_reasoning', return_value={"action": "look", "reasoning": "test"}):
+                    with patch.object(orchestrator.agent, 'get_action_with_reasoning', return_value={"action": "look", "reasoning": "test", "new_objective": None}):
                         with patch.object(orchestrator.critic, 'evaluate_action') as mock_critic:
                             # Create proper CriticResult mock
                             mock_critic_result = MagicMock()
@@ -141,7 +141,7 @@ class TestTurnLevelTraceCreation:
             # Mock components
             with patch.object(orchestrator.jericho_interface, 'send_command', return_value="You picked up the lamp."):
                 with patch.object(orchestrator.jericho_interface, 'is_game_over', return_value=(False, "")):
-                    with patch.object(orchestrator.agent, 'get_action_with_reasoning', return_value={"action": "take lamp", "reasoning": "test"}):
+                    with patch.object(orchestrator.agent, 'get_action_with_reasoning', return_value={"action": "take lamp", "reasoning": "test", "new_objective": None}):
                         with patch.object(orchestrator.critic, 'evaluate_action') as mock_critic:
                             mock_critic_result = MagicMock()
                             mock_critic_result.score = 0.9
@@ -386,7 +386,7 @@ class TestGracefulDegradation:
                 # Mock components and run one turn
                 with patch.object(orchestrator.jericho_interface, 'send_command', return_value="You are in a forest."):
                     with patch.object(orchestrator.jericho_interface, 'is_game_over', return_value=(False, "")):
-                        with patch.object(orchestrator.agent, 'get_action_with_reasoning', return_value={"action": "look", "reasoning": "test"}):
+                        with patch.object(orchestrator.agent, 'get_action_with_reasoning', return_value={"action": "look", "reasoning": "test", "new_objective": None}):
                             with patch.object(orchestrator.critic, 'evaluate_action') as mock_critic:
                                 mock_critic_result = MagicMock()
                                 mock_critic_result.score = 0.8
@@ -423,7 +423,7 @@ class TestErrorResilience:
             # Mock components and run one turn - should not crash
             with patch.object(orchestrator.jericho_interface, 'send_command', return_value="You are in a forest."):
                 with patch.object(orchestrator.jericho_interface, 'is_game_over', return_value=(False, "")):
-                    with patch.object(orchestrator.agent, 'get_action_with_reasoning', return_value={"action": "look", "reasoning": "test"}):
+                    with patch.object(orchestrator.agent, 'get_action_with_reasoning', return_value={"action": "look", "reasoning": "test", "new_objective": None}):
                         with patch.object(orchestrator.critic, 'evaluate_action') as mock_critic:
                             mock_critic_result = MagicMock()
                             mock_critic_result.score = 0.8

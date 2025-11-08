@@ -7,10 +7,12 @@ from typing import Optional, List, Tuple, Dict
 from collections import Counter
 import os
 from pathlib import Path
+from pydantic import BaseModel, Field
 from map_graph import MapGraph
 from hybrid_zork_extractor import ExtractorResponse
 from llm_client import LLMClientWrapper
 from session.game_configuration import GameConfiguration
+from shared_utils import create_json_schema
 
 try:
     from langfuse.decorators import observe
@@ -22,6 +24,24 @@ except ImportError:
             return func
         return decorator
     LANGFUSE_AVAILABLE = False
+
+
+class AgentResponse(BaseModel):
+    """Structured response from the ZorkAgent LLM.
+
+    This model defines the expected JSON structure for agent responses,
+    including reasoning, action commands, and optional objective tracking.
+    """
+    thinking: str = Field(
+        description="Your reasoning - what you observe, plan, and why"
+    )
+    action: str = Field(
+        description="Single game command to execute"
+    )
+    new_objective: Optional[str] = Field(
+        default=None,
+        description="Optional multi-step objective to track. Only set when starting a new multi-turn plan. Should reference specific locations (e.g., 'get lamp from L124')"
+    )
 
 
 class ZorkAgent:
@@ -216,129 +236,33 @@ The following strategic guide has been compiled from analyzing previous episodes
                 min_p=self.min_p,
                 max_tokens=self.max_tokens,
                 name="Agent",
+                response_format=create_json_schema(AgentResponse),
             )
 
             response = self.client.chat.completions.create(**client_args)
             raw_response = response.content.strip()
 
-            # Extract reasoning from thinking tags
-            reasoning_parts = []
-
-            # Extract <think> tags
-            think_matches = re.findall(
-                r"<think>(.*?)</think>", raw_response, flags=re.DOTALL
-            )
-            reasoning_parts.extend(think_matches)
-
-            # Extract <thinking> tags
-            thinking_matches = re.findall(
-                r"<thinking>(.*?)</thinking>", raw_response, flags=re.DOTALL
-            )
-            reasoning_parts.extend(thinking_matches)
-
-            # Extract <reflection> tags
-            reflection_matches = re.findall(
-                r"<reflection>(.*?)</reflection>", raw_response, flags=re.DOTALL
-            )
-            reasoning_parts.extend(reflection_matches)
-
-            # Fallback: if no reasoning found in tags, try to extract reasoning from the response
-            if not reasoning_parts:
-                # Look for reasoning patterns that might not be in tags
-                lines = raw_response.split("\n")
-                potential_reasoning = []
-
-                for line in lines:
-                    line = line.strip()
-                    # Skip if it looks like a command
-                    if len(line.split()) <= 3 and any(
-                        word.lower() in line.lower()
-                        for word in [
-                            "north",
-                            "south",
-                            "east",
-                            "west",
-                            "up",
-                            "down",
-                            "look",
-                            "examine",
-                            "take",
-                            "open",
-                            "close",
-                            "enter",
-                            "exit",
-                            "climb",
-                            "go",
-                        ]
-                    ):
-                        continue
-                    # Skip empty lines
-                    if not line:
-                        continue
-                    # If it's a longer explanatory line, consider it reasoning
-                    if len(line) > 20 or any(
-                        reasoning_word in line.lower()
-                        for reasoning_word in [
-                            "should",
-                            "need",
-                            "want",
-                            "will",
-                            "can",
-                            "might",
-                            "could",
-                            "seems",
-                            "appears",
-                            "because",
-                            "since",
-                            "to explore",
-                            "to find",
-                        ]
-                    ):
-                        potential_reasoning.append(line)
-
-                if potential_reasoning:
-                    reasoning_parts.extend(potential_reasoning)
-
-            # Combine all reasoning
-            reasoning = "\n\n".join(
-                part.strip() for part in reasoning_parts if part.strip()
-            )
-
-            # Clean up the action: remove any thinking
-            action = re.sub(r"<think>.*?</think>\s*", "", raw_response, flags=re.DOTALL)
-            action = re.sub(r"<thinking>.*?</thinking>\s*", "", action, flags=re.DOTALL)
-            action = re.sub(
-                r"<reflection>.*?</reflection>\s*", "", action, flags=re.DOTALL
-            )
-
-            # Remove any remaining markup tags (like <s>, </s>, etc.)
-            action = re.sub(r"<[^>]*>", "", action)
-
-            # Remove backticks and other formatting
-            action = re.sub(
-                r"`([^`]*)`", r"\1", action
-            )  # Remove backticks but keep content
-            action = re.sub(
-                r"```[^`]*```", "", action, flags=re.DOTALL
-            )  # Remove code blocks
-
-            # Basic cleaning: Zork commands are usually lowercase
-            action = action.lower().strip()
-
-            # Remove any leading/trailing punctuation that might interfere
-            action = action.strip(".,!?;:")
-
-            # Validate action is not empty
-            if not action or action.isspace():
+            # Parse structured JSON response
+            try:
+                agent_response = AgentResponse.model_validate_json(raw_response)
+            except Exception as e:
+                # Fallback to safe defaults on parsing error
                 if self.logger:
-                    self.logger.warning(
-                        "Agent returned empty action, using 'look' as fallback"
-                    )
-                action = "look"
+                    self.logger.error(f"Failed to parse agent response: {e}")
+                    self.logger.error(f"Raw response: {raw_response}")
+                agent_response = AgentResponse(
+                    thinking="[Error parsing response]",
+                    action="look",
+                    new_objective=None
+                )
+
+            # Clean and validate action
+            cleaned_action = self._clean_action(agent_response.action)
 
             return {
-                "action": action,
-                "reasoning": reasoning if reasoning else None,
+                "action": cleaned_action,
+                "reasoning": agent_response.thinking,
+                "new_objective": agent_response.new_objective,
                 "raw_response": raw_response,
             }
         except Exception as e:
@@ -350,8 +274,38 @@ The following strategic guide has been compiled from analyzing previous episodes
             return {
                 "action": "look",
                 "reasoning": None,
+                "new_objective": None,
                 "raw_response": None,
             }  # Default safe action on error
+
+    def _clean_action(self, action: str) -> str:
+        """Clean and validate an action command from the agent.
+
+        Args:
+            action: Raw action string from agent response
+
+        Returns:
+            Cleaned action string (lowercase, trimmed, validated)
+        """
+        # Remove any remaining tags or formatting
+        cleaned = action.strip()
+        cleaned = re.sub(r"```.*?```", "", cleaned, flags=re.DOTALL)
+        cleaned = re.sub(r"`", "", cleaned)
+        cleaned = cleaned.strip()
+
+        # Convert to lowercase for game compatibility
+        cleaned = cleaned.lower()
+
+        # Remove leading/trailing punctuation (defensive)
+        cleaned = cleaned.strip(".,!?;:")
+
+        # Ensure non-empty
+        if not cleaned:
+            if self.logger:
+                self.logger.warning("Agent returned empty action, defaulting to 'look'")
+            cleaned = "look"
+
+        return cleaned
 
     def update_episode_id(self, episode_id: str) -> None:
         """Update the episode ID for logging purposes."""

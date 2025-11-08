@@ -682,7 +682,8 @@ class TestPhase5OrchestratorIntegration:
         mock_agent.client = Mock()
         mock_agent.get_action_with_reasoning.return_value = {
             'action': 'look',
-            'reasoning': 'Testing'
+            'reasoning': 'Testing',
+            'new_objective': None
         }
         mock_agent_class.return_value = mock_agent
 
@@ -742,7 +743,8 @@ class TestPhase5OrchestratorIntegration:
         mock_agent.client = Mock()
         mock_agent.get_action_with_reasoning.return_value = {
             'action': 'take mailbox',  # Invalid action
-            'reasoning': 'Testing'
+            'reasoning': 'Testing',
+            'new_objective': None
         }
         mock_agent_class.return_value = mock_agent
 
@@ -807,7 +809,8 @@ class TestPhase5OrchestratorIntegration:
             agent_context_data = kwargs.get('relevant_memories', '')
             return {
                 'action': 'open mailbox',
-                'reasoning': 'To get the leaflet'
+                'reasoning': 'To get the leaflet',
+                'new_objective': None
             }
 
         mock_agent.get_action_with_reasoning = mock_get_action

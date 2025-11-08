@@ -115,7 +115,7 @@ class TestInventorySyncFix:
                         with patch.object(orchestrator.jericho_interface, 'get_location_structured') as mock_location:
                             mock_location.return_value = Mock(num=1, name="Test Room")
                             with patch.object(orchestrator.jericho_interface, 'get_inventory_structured', return_value=[]):
-                                with patch.object(orchestrator.agent, 'get_action_with_reasoning', return_value={"action": "look", "reasoning": "test"}):
+                                with patch.object(orchestrator.agent, 'get_action_with_reasoning', return_value={"action": "look", "reasoning": "test", "new_objective": None}):
                                     with patch.object(orchestrator.critic, 'evaluate_action') as mock_critic:
                                         mock_critic_result = Mock(score=0.8, justification="test", confidence=0.9)
                                         mock_critic.return_value = mock_critic_result
