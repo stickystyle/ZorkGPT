@@ -974,7 +974,7 @@ SURVIVAL DEPENDS ON SCORE INCREASE.
                         if hasattr(entry, "current_location_name")
                     ],
                     "recent_actions": [
-                        action for action, _ in self.game_state.action_history[-8:]
+                        entry.action for entry in self.game_state.action_history[-8:]
                     ],
                     "previous_actions_and_responses": self.game_state.action_history[-8:],
                     "turns_since_movement": self.rejection_manager.state.turns_since_movement,

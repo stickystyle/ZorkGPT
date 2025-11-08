@@ -372,16 +372,22 @@ If should_remember=false (duplicate/navigation/not actionable):
 If should_remember=true (new actionable insight):
 {{
   "should_remember": true,
-  "category": "SUCCESS"|"FAILURE"|"DISCOVERY"|"DANGER"|"NOTE",
-  "memory_title": "3-6 words, evergreen",
-  "memory_text": "1-2 sentences, actionable insight",
-  "persistence": "core"|"permanent"|"ephemeral",
-  "status": "ACTIVE"|"TENTATIVE",
-  "supersedes_memory_titles": ["Title1", "Title2"],
-  "invalidate_memory_titles": ["Title3", "Title4"],
-  "invalidation_reason": "explanation for why invalidated memories are wrong",
-  "reasoning": "explain semantic comparison, contradiction detection, status choice, persistence choice"
+  "category": "SUCCESS"|"FAILURE"|"DISCOVERY"|"DANGER"|"NOTE",  // REQUIRED
+  "memory_title": "3-6 words, evergreen",  // REQUIRED
+  "memory_text": "1-2 sentences, actionable insight",  // REQUIRED
+  "persistence": "core"|"permanent"|"ephemeral",  // REQUIRED
+  "status": "ACTIVE"|"TENTATIVE",  // OPTIONAL (defaults to ACTIVE)
+  "supersedes_memory_titles": ["Title1", "Title2"],  // OPTIONAL (default: [])
+  "invalidate_memory_titles": ["Title3", "Title4"],  // OPTIONAL (default: [])
+  "invalidation_reason": "explanation for why invalidated memories are wrong",  // REQUIRED if invalidate_memory_titles is not empty
+  "reasoning": "explain semantic comparison, contradiction detection, status choice, persistence choice"  // OPTIONAL
 }}
+
+🚨 CRITICAL: When should_remember=true, you MUST include:
+  • category (one of: SUCCESS, FAILURE, DISCOVERY, DANGER, NOTE)
+  • memory_title (3-6 words, evergreen phrasing)
+  • memory_text (1-2 sentences, actionable insight)
+  • persistence (one of: core, permanent, ephemeral)
 
 Example valid response for NOT remembering:
 {{

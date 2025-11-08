@@ -421,12 +421,13 @@ class ContextManager(BaseManager):
             outcomes = []
             recent_actions = self.get_recent_actions(n)
 
-            for action, response in recent_actions:
+            for entry in recent_actions:
+                # entry is an ActionHistoryEntry object, not a tuple
                 # Analyze the outcome
                 outcome = {
-                    "action": action,
-                    "success": self.is_successful_action(response),
-                    "response_summary": response[:100],  # Truncated response
+                    "action": entry.action,
+                    "success": self.is_successful_action(entry.response),
+                    "response_summary": entry.response[:100],  # Truncated response
                 }
                 outcomes.append(outcome)
 
