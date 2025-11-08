@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from collections import Counter
 from llm_client import LLMClientWrapper
 from session.game_configuration import GameConfiguration
+from session.game_state import ActionHistoryEntry
 
 # Import shared utilities
 from shared_utils import create_json_schema, strip_markdown_json_fences
@@ -736,7 +737,7 @@ class ZorkCritic:
         proposed_action: str,
         available_exits: Optional[List[str]] = None,
         action_counts: Optional[Counter] = None,
-        previous_actions_and_responses: Optional[List[Tuple[str, str]]] = None,
+        previous_actions_and_responses: Optional[List[ActionHistoryEntry]] = None,
         current_location_name: Optional[str] = None,
         failed_actions_by_location: Optional[Dict[str, set]] = None,
         jericho_interface=None,  # NEW: Optional JerichoInterface for validation
@@ -821,8 +822,10 @@ class ZorkCritic:
         recent_context = ""
         if previous_actions_and_responses and len(previous_actions_and_responses) > 0:
             recent_context = "\nRecent actions and responses:\n"
-            for act, resp in previous_actions_and_responses[-3:]:
-                recent_context += f"Command: {act}\nResult: {resp.strip()}\n"
+            for entry in previous_actions_and_responses[-3:]:
+                recent_context += f"Location: {entry.location_name} (ID: {entry.location_id})\n"
+                recent_context += f"Command: {entry.action}\n"
+                recent_context += f"Result: {entry.response.strip()}\n\n"
 
         # Add spatial context if available
         spatial_context = ""

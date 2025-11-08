@@ -3,7 +3,8 @@ ABOUTME: History formatting helpers for ZorkGPT memory synthesis prompts.
 ABOUTME: Provides HistoryFormatter class for action and reasoning history markdown generation.
 """
 
-from typing import List, Tuple, Dict, Any, Optional
+from typing import List, Tuple, Dict, Any, Optional, Union
+from session.game_state import ActionHistoryEntry
 
 
 class HistoryFormatter:
@@ -11,7 +12,7 @@ class HistoryFormatter:
 
     def format_recent_actions(
         self,
-        actions: List[Tuple[str, str]],
+        actions: List[Union[ActionHistoryEntry, Tuple[str, str]]],
         start_turn: int
     ) -> str:
         """
@@ -21,7 +22,7 @@ class HistoryFormatter:
         Matches ContextManager formatting conventions for consistency across systems.
 
         Args:
-            actions: List of (action, response) tuples from game_state.action_history
+            actions: List of ActionHistoryEntry or (action, response) tuples from game_state.action_history
             start_turn: Turn number of the first action in the list
 
         Returns:
@@ -43,8 +44,14 @@ class HistoryFormatter:
             return ""
 
         lines = []
-        for i, (action, response) in enumerate(actions):
+        for i, entry in enumerate(actions):
             turn_num = start_turn + i
+            # Handle both ActionHistoryEntry and tuple formats
+            if isinstance(entry, ActionHistoryEntry):
+                action = entry.action
+                response = entry.response
+            else:
+                action, response = entry
             lines.append(f"Turn {turn_num}: {action}")
             lines.append(f"Response: {response}")
             # Add blank line between entries (except after last entry)
@@ -56,7 +63,7 @@ class HistoryFormatter:
     def format_recent_reasoning(
         self,
         reasoning_entries: List[Dict[str, Any]],
-        action_history: Optional[List[Tuple[str, str]]] = None
+        action_history: Optional[List[Union[ActionHistoryEntry, Tuple[str, str]]]] = None
     ) -> str:
         """
         Format recent reasoning history into markdown for multi-step synthesis.
@@ -68,7 +75,7 @@ class HistoryFormatter:
         Args:
             reasoning_entries: List of reasoning history dicts from game_state.action_reasoning_history
                 Each dict has: turn, reasoning, action, timestamp
-            action_history: Optional list of (action, response) tuples for response lookup
+            action_history: Optional list of ActionHistoryEntry or (action, response) tuples for response lookup
                 Uses reverse iteration to handle duplicate actions correctly
 
         Returns:
@@ -110,7 +117,14 @@ class HistoryFormatter:
             # Iterate in reverse to match the most recent occurrence
             response = "(Response not recorded)"
             if action_history:
-                for hist_action, hist_response in reversed(action_history):
+                for hist_entry in reversed(action_history):
+                    # Handle both ActionHistoryEntry and tuple formats
+                    if isinstance(hist_entry, ActionHistoryEntry):
+                        hist_action = hist_entry.action
+                        hist_response = hist_entry.response
+                    else:
+                        hist_action, hist_response = hist_entry
+
                     if hist_action == action:
                         response = hist_response
                         break

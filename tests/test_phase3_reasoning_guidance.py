@@ -221,7 +221,15 @@ class TestReasoningGuidanceIntegration:
             "action": "go north",
             "timestamp": "2025-11-02T10:00:00"
         })
-        game_state.action_history.append(("go north", "You enter a dark room."))
+        from session.game_state import ActionHistoryEntry
+        game_state.action_history.append(
+            ActionHistoryEntry(
+                action="go north",
+                response="You enter a dark room.",
+                location_id=10,
+                location_name="Test Location"
+            )
+        )
 
         # Create context manager and agent
         context_manager = ContextManager(mock_logger, test_config, game_state)

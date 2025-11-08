@@ -9,6 +9,15 @@ from dataclasses import dataclass, field
 from typing import List, Dict, Set, Optional, Tuple, Any
 from datetime import datetime
 from collections import Counter
+from pydantic import BaseModel, Field
+
+
+class ActionHistoryEntry(BaseModel):
+    """Single entry in action history with location context."""
+    action: str = Field(description="The command executed")
+    response: str = Field(description="Game's response text")
+    location_id: int = Field(description="Z-machine location ID where action was taken")
+    location_name: str = Field(description="Human-readable location name")
 
 
 @dataclass
@@ -42,9 +51,9 @@ class GameState:
 
     # Action and memory tracking
     action_counts: Counter = field(default_factory=Counter)
-    action_history: List[Tuple[str, str]] = field(
+    action_history: List[ActionHistoryEntry] = field(
         default_factory=list
-    )  # (action, response)
+    )  # Action history with location context
     action_reasoning_history: List[Dict[str, Any]] = field(default_factory=list)  # Each entry: {"turn": int, "reasoning": str, "action": str, "timestamp": str}
     memory_log_history: List[Dict[str, Any]] = field(default_factory=list)
     failed_actions_by_location: Dict[str, List[str]] = field(default_factory=dict)

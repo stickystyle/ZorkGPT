@@ -474,8 +474,14 @@ class TestReasoningHistoryFormatting:
         })
 
         # Add matching action history
+        from session.game_state import ActionHistoryEntry
         game_state.action_history.append(
-            ("go north", "You are in a forest clearing.")
+            ActionHistoryEntry(
+                action="go north",
+                response="You are in a forest clearing.",
+                location_id=10,
+                location_name="Test Location"
+            )
         )
 
         formatted = context_manager.get_recent_reasoning_formatted(num_turns=3)
@@ -516,10 +522,11 @@ class TestReasoningHistoryFormatting:
             game_state.action_reasoning_history.append(entry)
 
         # Add matching action history
+        from session.game_state import ActionHistoryEntry
         game_state.action_history.extend([
-            ("go north", "You are in a forest clearing. Trees surround you."),
-            ("examine trees", "The trees are ordinary pine trees."),
-            ("go east", "You are in a meadow.")
+            ActionHistoryEntry(action="go north", response="You are in a forest clearing. Trees surround you.", location_id=47, location_name="Location 47"),
+            ActionHistoryEntry(action="examine trees", response="The trees are ordinary pine trees.", location_id=48, location_name="Location 48"),
+            ActionHistoryEntry(action="go east", response="You are in a meadow.", location_id=49, location_name="Location 49")
         ])
 
         formatted = context_manager.get_recent_reasoning_formatted(num_turns=3)
@@ -549,6 +556,7 @@ class TestReasoningHistoryFormatting:
     ):
         """Test that formatting limits to num_turns entries."""
         # Add 5 reasoning entries
+        from session.game_state import ActionHistoryEntry
         for i in range(1, 6):
             game_state.action_reasoning_history.append({
                 "turn": i,
@@ -556,7 +564,14 @@ class TestReasoningHistoryFormatting:
                 "action": f"action {i}",
                 "timestamp": "2025-11-02T10:00:00"
             })
-            game_state.action_history.append((f"action {i}", f"response {i}"))
+            game_state.action_history.append(
+                ActionHistoryEntry(
+                    action=f"action {i}",
+                    response=f"response {i}",
+                    location_id=10 + i,
+                    location_name=f"Location {i}"
+                )
+            )
 
         # Request only last 3
         formatted = context_manager.get_recent_reasoning_formatted(num_turns=3)
@@ -640,7 +655,15 @@ class TestReasoningHistoryFormatting:
             "timestamp": "2025-11-02T10:00:00"
         })
 
-        game_state.action_history.append(("go north", "You go north."))
+        from session.game_state import ActionHistoryEntry
+        game_state.action_history.append(
+            ActionHistoryEntry(
+                action="go north",
+                response="You go north.",
+                location_id=10,
+                location_name="Test Location"
+            )
+        )
 
         formatted = context_manager.get_recent_reasoning_formatted(num_turns=10)
 
@@ -696,6 +719,7 @@ class TestReasoningHistoryFormatting:
     ):
         """Test that blank lines separate turns for readability."""
         # Add two reasoning entries
+        from session.game_state import ActionHistoryEntry
         for i in range(1, 3):
             game_state.action_reasoning_history.append({
                 "turn": i,
@@ -703,7 +727,14 @@ class TestReasoningHistoryFormatting:
                 "action": f"action {i}",
                 "timestamp": "2025-11-02T10:00:00"
             })
-            game_state.action_history.append((f"action {i}", f"response {i}"))
+            game_state.action_history.append(
+                ActionHistoryEntry(
+                    action=f"action {i}",
+                    response=f"response {i}",
+                    location_id=10 + i,
+                    location_name=f"Location {i}"
+                )
+            )
 
         formatted = context_manager.get_recent_reasoning_formatted(num_turns=3)
 
@@ -722,12 +753,13 @@ class TestReasoningHistoryFormatting:
     ):
         """Test that duplicate actions match the most recent response, not the first."""
         # Add same action multiple times with different responses
+        from session.game_state import ActionHistoryEntry
         game_state.action_history.extend([
-            ("go north", "You enter a forest."),
-            ("examine tree", "It's a pine tree."),
-            ("go north", "You enter a clearing."),
-            ("examine leaf", "It's green."),
-            ("go north", "You enter a cave."),
+            ActionHistoryEntry(action="go north", response="You enter a forest.", location_id=10, location_name="Location 1"),
+            ActionHistoryEntry(action="examine tree", response="It's a pine tree.", location_id=11, location_name="Location 2"),
+            ActionHistoryEntry(action="go north", response="You enter a clearing.", location_id=12, location_name="Location 3"),
+            ActionHistoryEntry(action="examine leaf", response="It's green.", location_id=13, location_name="Location 4"),
+            ActionHistoryEntry(action="go north", response="You enter a cave.", location_id=14, location_name="Location 5"),
         ])
 
         # Add reasoning for the LAST "go north" (the cave one)
@@ -768,7 +800,15 @@ class TestFormattedPromptWithReasoning:
             "action": "go north",
             "timestamp": "2025-11-02T10:00:00"
         })
-        game_state.action_history.append(("go north", "You go north."))
+        from session.game_state import ActionHistoryEntry
+        game_state.action_history.append(
+            ActionHistoryEntry(
+                action="go north",
+                response="You go north.",
+                location_id=10,
+                location_name="Test Location"
+            )
+        )
 
         # Get context and format it
         context = context_manager.get_agent_context(
@@ -817,7 +857,15 @@ class TestFormattedPromptWithReasoning:
             "action": "test action",
             "timestamp": "2025-11-02T10:00:00"
         })
-        game_state.action_history.append(("test action", "test response"))
+        from session.game_state import ActionHistoryEntry
+        game_state.action_history.append(
+            ActionHistoryEntry(
+                action="test action",
+                response="test response",
+                location_id=10,
+                location_name="Test Location"
+            )
+        )
 
         # Add objectives
         game_state.discovered_objectives.append("Find treasure")

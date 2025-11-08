@@ -65,10 +65,26 @@ class TestObjectiveCompletionEveryTurn:
         ]
         state.completed_objectives = []
         # Add action history
+        from session.game_state import ActionHistoryEntry
         state.action_history = [
-            ("go north", "You are at a forest clearing."),
-            ("examine trees", "The trees are ordinary pine trees."),
-            ("take lantern", "Taken.")
+            ActionHistoryEntry(
+                action="go north",
+                response="You are at a forest clearing.",
+                location_id=10,
+                location_name="Forest Path"
+            ),
+            ActionHistoryEntry(
+                action="examine trees",
+                response="The trees are ordinary pine trees.",
+                location_id=10,
+                location_name="Forest Path"
+            ),
+            ActionHistoryEntry(
+                action="take lantern",
+                response="Taken.",
+                location_id=180,
+                location_name="West of House"
+            )
         ]
         return state
 
@@ -90,11 +106,17 @@ class TestObjectiveCompletionEveryTurn:
     @pytest.fixture
     def simple_memory(self, mock_logger, game_config, game_state):
         """Create SimpleMemoryManager with test memories."""
+        from managers.memory import MemoryCacheManager
+
         memory_mgr = SimpleMemoryManager.__new__(SimpleMemoryManager)
         memory_mgr.logger = mock_logger
         memory_mgr.config = game_config
         memory_mgr.game_state = game_state
         memory_mgr._llm_client = None
+
+        # Initialize cache_manager BEFORE setting caches
+        memory_mgr.cache_manager = MemoryCacheManager()
+
         memory_mgr.memory_cache = {
             180: [
                 Memory(

@@ -1267,6 +1267,12 @@ SURVIVAL DEPENDS ON SCORE INCREASE.
         # Add reasoning to context
         self.context_manager.add_reasoning(agent_reasoning, proposed_action)
 
+        # Extract and process agent-declared objective (if any)
+        new_objective = agent_result.get("new_objective")
+        if new_objective:
+            self.objective_manager.add_agent_objective(new_objective)
+            self.logger.info(f"Agent declared new objective: {new_objective}")
+
         # Execute critic evaluation with optional tracing
         action_to_take, final_critic_score, final_critic_justification, final_critic_confidence, was_overridden, override_reason, rejected_actions_this_turn = (
             self._execute_critic_evaluation_loop(
@@ -1373,8 +1379,13 @@ SURVIVAL DEPENDS ON SCORE INCREASE.
             },
         )
 
-        # Add action to history
-        self.context_manager.add_action(action_to_take, clean_response)
+        # Add action to history with source location (where action was taken)
+        self.context_manager.add_action(
+            action_to_take,
+            clean_response,
+            location_id_before,
+            location_name_before
+        )
 
         # Extract information from response
         extracted_info = self.extractor.extract_info(next_game_state)

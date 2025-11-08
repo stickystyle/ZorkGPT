@@ -347,7 +347,7 @@ OBJECTIVES DISCOVERED: {len(self.game_state.discovered_objectives)}
 OBJECTIVES COMPLETED: {len(self.game_state.completed_objectives)}
 
 RECENT ACTIONS:
-{chr(10).join([f"{action} -> {response[:100]}..." for action, response in recent_actions[-5:]])}
+{chr(10).join([f"{entry.action} -> {entry.response[:100]}..." for entry in recent_actions[-5:]])}
 
 Provide a brief 2-3 sentence summary focusing on:
 1. Key achievements or progress made

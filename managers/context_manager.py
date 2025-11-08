@@ -62,16 +62,30 @@ class ContextManager(BaseManager):
         except Exception as e:
             self.log_error(f"Failed to add memory: {e}")
 
-    def add_action(self, action: str, response: str) -> None:
-        """Add action and response to action history."""
+    def add_action(self, action: str, response: str, location_id: int, location_name: str) -> None:
+        """Add action, response, and location context to action history.
+
+        Args:
+            action: The command executed
+            response: Game's response text
+            location_id: Z-machine location ID where action was taken
+            location_name: Human-readable location name
+        """
         try:
-            self.game_state.action_history.append((action, response))
+            from session.game_state import ActionHistoryEntry
+
+            entry = ActionHistoryEntry(
+                action=action,
+                response=response,
+                location_id=location_id,
+                location_name=location_name
+            )
+            self.game_state.action_history.append(entry)
 
             self.log_debug(
-                f"Added action to history: {action[:50]}...",
-                details=f"Action: {action}, Response length: {len(response)}",
+                f"Added action to history: {action[:50]}... at {location_name} ({location_id})",
+                details=f"Action: {action}, Response length: {len(response)}, Location: {location_name}",
             )
-
         except Exception as e:
             self.log_error(f"Failed to add action: {e}")
 
@@ -305,7 +319,7 @@ class ContextManager(BaseManager):
             self.log_error(f"Failed to prepare objective analysis context: {e}")
             return ""
 
-    def get_recent_actions(self, n: int = 5) -> List[Tuple[str, str]]:
+    def get_recent_actions(self, n: int = 5) -> List[Any]:
         """Get last n actions with responses."""
         try:
             return (
@@ -382,9 +396,9 @@ class ContextManager(BaseManager):
                 # Find matching game response from action_history
                 # Iterate in reverse to match the most recent occurrence
                 response = "(Response not recorded)"
-                for hist_action, hist_response in reversed(self.game_state.action_history):
-                    if hist_action == action:
-                        response = hist_response
+                for entry in reversed(self.game_state.action_history):
+                    if entry.action == action:
+                        response = entry.response
                         break
 
                 # Format this turn's entry

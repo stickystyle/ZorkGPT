@@ -194,8 +194,8 @@ class StateManager(BaseManager):
                     total_chars += len(str(memory))
 
             # Count characters in action history
-            for action, response in self.game_state.action_history:
-                total_chars += len(action) + len(response)
+            for entry in self.game_state.action_history:
+                total_chars += len(entry.action) + len(entry.response)
 
             # Rough conversion: 4 characters per token
             estimated_tokens = total_chars // 4
@@ -287,7 +287,7 @@ CURRENT LOCATION: {self.game_state.current_room_name_for_map}
 CURRENT INVENTORY: {self.game_state.current_inventory}
 
 RECENT ACTIONS ({len(recent_actions)} actions):
-{chr(10).join([f"Turn {i}: {action} -> {response[:100]}..." for i, (action, response) in enumerate(recent_actions, start=max(1, self.game_state.turn_count - len(recent_actions) + 1))])}
+{chr(10).join([f"Turn {i}: {entry.action} -> {entry.response[:100]}..." for i, entry in enumerate(recent_actions, start=max(1, self.game_state.turn_count - len(recent_actions) + 1))])}
 
 DISCOVERED OBJECTIVES:
 {chr(10).join([f"- {obj}" for obj in self.game_state.discovered_objectives])}
@@ -562,7 +562,7 @@ Keep the summary under 500 words and focus on actionable information for continu
                 -num_entries:
             ]
 
-            for i, (action, response) in enumerate(recent_actions):
+            for i, entry in enumerate(recent_actions):
                 reasoning_data = (
                     recent_reasoning[i] if i < len(recent_reasoning) else {}
                 )
@@ -574,9 +574,11 @@ Keep the summary under 500 words and focus on actionable information for continu
 
                 log_entry = {
                     "turn": self.game_state.turn_count - len(recent_actions) + i + 1,
-                    "action": action,
-                    "zork_response": response,  # Viewer expects 'zork_response'
+                    "action": entry.action,
+                    "zork_response": entry.response,  # Viewer expects 'zork_response'
                     "reasoning": reasoning_text,
+                    "location_id": entry.location_id,
+                    "location_name": entry.location_name,
                 }
 
                 # Add critic data if available
@@ -651,7 +653,7 @@ Keep the summary under 500 words and focus on actionable information for continu
         """Get summary of recent actions."""
         try:
             recent_actions = self.game_state.action_history[-num_actions:]
-            return [action for action, _ in recent_actions]
+            return [entry.action for entry in recent_actions]
 
         except Exception as e:
             self.log_error(f"Failed to get recent action summary: {e}")

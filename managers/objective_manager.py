@@ -537,6 +537,31 @@ Example valid response:
                 },
             )
 
+    def add_agent_objective(self, objective_text: str) -> None:
+        """
+        Add an objective directly declared by the agent during reasoning.
+
+        This provides a fast path for agent self-direction without waiting
+        for periodic LLM-driven discovery.
+
+        Args:
+            objective_text: The objective description from agent response
+        """
+        # Basic validation
+        if not objective_text or len(objective_text.strip()) == 0:
+            self.log_warning("Agent provided empty objective, ignoring")
+            return
+
+        # Check if already exists (case-insensitive deduplication)
+        for existing_obj in self.game_state.discovered_objectives:
+            if existing_obj.lower() == objective_text.lower():
+                self.log_info(f"Objective already exists: {objective_text}")
+                return
+
+        # Add to objectives list (simple string)
+        self.game_state.discovered_objectives.append(objective_text)
+        self.log_info(f"Added agent-declared objective: {objective_text}")
+
     def _prepare_objective_analysis_context(
         self, recent_memory, recent_actions, current_agent_reasoning
     ) -> str:
@@ -798,10 +823,10 @@ Example valid response:
 
         # Format using same pattern as SimpleMemoryManager
         lines = []
-        for i, (action, response) in enumerate(recent_actions):
+        for i, entry in enumerate(recent_actions):
             turn_num = start_turn + i
-            lines.append(f"Turn {turn_num}: {action}")
-            lines.append(f"Response: {response}")
+            lines.append(f"Turn {turn_num}: {entry.action}")
+            lines.append(f"Response: {entry.response}")
             # Add blank line between entries (except after last)
             if i < len(recent_actions) - 1:
                 lines.append("")
@@ -1311,12 +1336,12 @@ Example valid response:
         recent_actions = self.game_state.action_history[-10:] if self.game_state.action_history else []
         if recent_actions:
             lines.append("## Recent Actions (Last 10 Turns)")
-            for i, (action, response) in enumerate(recent_actions, start=1):
+            for i, entry in enumerate(recent_actions, start=1):
                 turn_num = self.game_state.turn_count - len(recent_actions) + i
                 lines.append(f"\nTurn {turn_num}:")
-                lines.append(f"  Action: {action}")
+                lines.append(f"  Action: {entry.action}")
                 # Truncate long responses to avoid token bloat
-                response_preview = response[:200] + "..." if len(response) > 200 else response
+                response_preview = entry.response[:200] + "..." if len(entry.response) > 200 else entry.response
                 lines.append(f"  Response: {response_preview}")
         else:
             lines.append("## Recent Actions\n(No actions yet - start of episode)")

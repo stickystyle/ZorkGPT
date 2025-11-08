@@ -328,9 +328,10 @@ class TestObjectiveManagerEnhanced:
     # Test 22: _get_gameplay_context - formats recent actions
     def test_get_gameplay_context_formats_recent_actions(self, objective_manager, mock_game_state):
         """Should format recent action/response pairs."""
+        from session.game_state import ActionHistoryEntry
         mock_game_state.action_history = [
-            ("go north", "You are in a forest."),
-            ("examine tree", "The tree is an oak tree."),
+            ActionHistoryEntry(action="go north", response="You are in a forest.", location_id=10, location_name="Test"),
+            ActionHistoryEntry(action="examine tree", response="The tree is an oak tree.", location_id=11, location_name="Test 2"),
         ]
         mock_game_state.turn_count = 10
 
@@ -346,8 +347,9 @@ class TestObjectiveManagerEnhanced:
     # Test 23: _get_gameplay_context - truncates long responses
     def test_get_gameplay_context_truncates_long_responses(self, objective_manager, mock_game_state):
         """Should truncate responses longer than 200 characters."""
+        from session.game_state import ActionHistoryEntry
         long_response = "A" * 250
-        mock_game_state.action_history = [("look", long_response)]
+        mock_game_state.action_history = [ActionHistoryEntry(action="look", response=long_response, location_id=10, location_name="Test")]
         mock_game_state.turn_count = 10
 
         result = objective_manager._get_gameplay_context()
@@ -372,8 +374,9 @@ class TestObjectiveManagerEnhanced:
     # Test 25: _get_gameplay_context - limits to 10 actions
     def test_get_gameplay_context_limits_to_ten_actions(self, objective_manager, mock_game_state):
         """Should include only last 10 actions."""
+        from session.game_state import ActionHistoryEntry
         mock_game_state.action_history = [
-            (f"step_{i:03d}", f"result_{i:03d}") for i in range(20)
+            ActionHistoryEntry(action=f"step_{i:03d}", response=f"result_{i:03d}", location_id=i, location_name=f"Loc {i}") for i in range(20)
         ]
         mock_game_state.turn_count = 20
 

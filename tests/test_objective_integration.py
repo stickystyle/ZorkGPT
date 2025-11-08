@@ -65,12 +65,18 @@ class TestObjectiveManagerOrchestrationIntegration:
     @pytest.fixture
     def simple_memory(self, mock_logger, mock_config, game_state):
         """Create real SimpleMemoryManager instance (without LLM client)."""
+        from managers.memory import MemoryCacheManager
+
         # Create without LLM client for testing
         memory_mgr = SimpleMemoryManager.__new__(SimpleMemoryManager)
         memory_mgr.logger = mock_logger
         memory_mgr.config = mock_config
         memory_mgr.game_state = game_state
         memory_mgr._llm_client = None  # Use private attribute to bypass property
+
+        # Initialize cache_manager BEFORE setting caches
+        memory_mgr.cache_manager = MemoryCacheManager()
+
         memory_mgr.memory_cache = {}
         memory_mgr.pending_actions = []
         memory_mgr.synthesis_cooldown = 0
@@ -308,10 +314,26 @@ class TestObjectiveManagerPhase3EnhancedContext:
         state.current_room_name = "West of House"
         state.turn_count = 20
         state.objective_update_turn = 0
+        from session.game_state import ActionHistoryEntry
         state.action_history = [
-            ("north", "Behind House\nYou are behind the white house."),
-            ("enter window", "You can't reach the window."),
-            ("open window", "With some effort, you open the window."),
+            ActionHistoryEntry(
+                action="north",
+                response="Behind House\nYou are behind the white house.",
+                location_id=79,
+                location_name="Behind House"
+            ),
+            ActionHistoryEntry(
+                action="enter window",
+                response="You can't reach the window.",
+                location_id=79,
+                location_name="Behind House"
+            ),
+            ActionHistoryEntry(
+                action="open window",
+                response="With some effort, you open the window.",
+                location_id=79,
+                location_name="Behind House"
+            ),
         ]
         return state
 
@@ -342,11 +364,17 @@ class TestObjectiveManagerPhase3EnhancedContext:
     @pytest.fixture
     def simple_memory(self, mock_logger, mock_config, game_state):
         """Create SimpleMemoryManager with test memories."""
+        from managers.memory import MemoryCacheManager
+
         memory_mgr = SimpleMemoryManager.__new__(SimpleMemoryManager)
         memory_mgr.logger = mock_logger
         memory_mgr.config = mock_config
         memory_mgr.game_state = game_state
         memory_mgr._llm_client = None
+
+        # Initialize cache_manager BEFORE setting caches
+        memory_mgr.cache_manager = MemoryCacheManager()
+
         memory_mgr.memory_cache = {}
         memory_mgr.pending_actions = []
         memory_mgr.synthesis_cooldown = 0

@@ -33,6 +33,8 @@ def mock_logger():
 @pytest.fixture
 def mock_game_state():
     """Mock GameState for testing."""
+    from session.game_state import ActionHistoryEntry
+
     state = Mock(spec=GameState)
     state.episode_id = "ep_001"
     state.turn_count = 10
@@ -40,7 +42,7 @@ def mock_game_state():
     state.current_room_name_for_map = "Living Room"
     state.current_inventory = ["lamp"]
     state.previous_zork_score = 0
-    state.action_history = []
+    state.action_history = []  # Will be populated by tests with ActionHistoryEntry objects
     state.memory_log_history = []
     state.action_reasoning_history = []
     state.action_counts = {}
@@ -532,6 +534,8 @@ class TestEndToEndIntegration:
         self, mock_logger, mock_config, mock_game_state, tmp_path, mock_llm_client_synthesis
     ):
         """Test complete flow: action -> memory creation -> retrieval -> context."""
+        from session.game_state import ActionHistoryEntry
+
         # Setup
         manager = SimpleMemoryManager(
             logger=mock_logger,
@@ -543,6 +547,14 @@ class TestEndToEndIntegration:
         # Turn 1: Action at location 15, trigger fires, memory created
         mock_game_state.turn_count = 1
         mock_game_state.episode_id = "ep_001"
+        mock_game_state.action_history = [
+            ActionHistoryEntry(
+                action="take lamp",
+                response="Taken.",
+                location_id=15,
+                location_name="Living Room"
+            )
+        ]
 
         z_context_1 = {
             'score_delta': 5,
@@ -569,6 +581,14 @@ class TestEndToEndIntegration:
 
         # Turn 2: Action at location 15, LLM says don't remember (use different mock)
         mock_game_state.turn_count = 2
+        mock_game_state.action_history.append(
+            ActionHistoryEntry(
+                action="look",
+                response="You see nothing special.",
+                location_id=15,
+                location_name="Living Room"
+            )
+        )
 
         mock_llm_no_remember = Mock()
         mock_response = Mock()
@@ -600,6 +620,14 @@ class TestEndToEndIntegration:
 
         # Turn 3: Action at location 23, new memory created
         mock_game_state.turn_count = 3
+        mock_game_state.action_history.append(
+            ActionHistoryEntry(
+                action="north",
+                response="You enter the kitchen.",
+                location_id=23,
+                location_name="Kitchen"
+            )
+        )
         manager._llm_client = mock_llm_client_synthesis  # Reset to remember
 
         z_context_3 = {
@@ -645,6 +673,8 @@ class TestEndToEndIntegration:
         self, mock_logger, mock_config, mock_game_state, tmp_path
     ):
         """Test LLM prevents duplicate memories at same location."""
+        from session.game_state import ActionHistoryEntry
+
         # First action: LLM says remember
         mock_llm_remember = Mock()
         mock_response_1 = Mock()
@@ -657,6 +687,15 @@ class TestEndToEndIntegration:
             game_state=mock_game_state,
             llm_client=mock_llm_remember
         )
+
+        mock_game_state.action_history = [
+            ActionHistoryEntry(
+                action="take lamp",
+                response="Taken.",
+                location_id=15,
+                location_name="Living Room"
+            )
+        ]
 
         z_context = {
             'score_delta': 5,
@@ -683,6 +722,15 @@ class TestEndToEndIntegration:
         mock_response_2 = Mock()
         mock_response_2.content = '{"should_remember": false, "category": "NOTE", "memory_title": "", "memory_text": "", "reasoning": "Already recorded taking lamp"}'
         mock_llm_remember.chat.completions.create.return_value = mock_response_2
+
+        mock_game_state.action_history.append(
+            ActionHistoryEntry(
+                action="take lamp",
+                response="You already have the lamp.",
+                location_id=15,
+                location_name="Living Room"
+            )
+        )
 
         manager.record_action_outcome(
             location_id=15,
