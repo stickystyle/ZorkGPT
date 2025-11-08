@@ -54,16 +54,19 @@
       "mcp__awslabs_aws-diagram-mcp-server__list_icons",
       "Bash(gh pr view:*)",
       "Bash(uv pip show:*)",
-      "Bash(env)"
+      "Bash(env)",
+      "Bash(jobs)",
+      "Bash(wait:*)"
     ],
     "deny": []
   },
+  "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
     "awslabs.code-doc-gen-mcp-server",
     "awslabs.aws-diagram-mcp-server"
   ],
   "sandbox": {
-    "enabled": true,
-    "autoAllowBashIfSandboxed": true
+    "autoAllowBashIfSandboxed": true,
+    "enabled": true
   }
 }
