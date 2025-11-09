@@ -170,11 +170,15 @@ def generate_knowledge_directly(
     cross_episode_section = extract_cross_episode_section(existing_knowledge)
 
     # Construct comprehensive prompt
-    prompt = f"""Analyze this Zork gameplay data and create/update the knowledge base.
+    prompt = f"""Analyze this Zork gameplay data and create/update the strategic knowledge base.
 
-NOTE: Item locations, room connections, object properties, AND command syntax are now tracked
-in separate systems. This knowledge base should focus on STRATEGIC insights, patterns, and
-lessons learned from gameplay.
+ARCHITECTURE REMINDER:
+- **Memory System** handles location-specific procedures (stored at SOURCE locations with multi-step detection)
+- **Loop Break System** terminates episodes stuck 20+ turns without score (ignore these as "mathematical deaths")
+- **Objective System** discovers and tracks goals automatically
+- **Map System** manages spatial navigation and connections
+
+THIS knowledge base provides UNIVERSAL strategic wisdom, not location-specific tactics.
 
 {formatted_data}
 
@@ -186,63 +190,127 @@ EXISTING KNOWLEDGE BASE:
 {cross_episode_section}
 
 INSTRUCTIONS:
-Create a comprehensive knowledge base with ALL of the following sections. If a section has no new information, keep the existing content for that section.
+Create a strategic knowledge base with the following sections. Focus on UNIVERSAL patterns, not location-specific procedures.
 
-## DANGERS & THREATS
-Document specific dangers and how to recognize them:
-- **Death Patterns**: What actions/locations consistently lead to death? (e.g., "moving east from dark cellar without light causes grue death")
-- **Warning Signs**: What game text signals danger? (e.g., "slavering fangs" indicates imminent grue attack)
-- **Safe Approaches**: How to safely navigate dangerous areas?
-- **Environmental Hazards**: Special location properties that pose risks
+## UNIVERSAL GAME MECHANICS
+Document game rules and mechanics that apply everywhere:
+- **Parser Patterns**: How the parser interprets commands (e.g., "EXAMINE reveals details", "Containers require OPEN before access")
+- **Object Behaviors**: Universal object properties (e.g., "Dropped items persist in location", "Some actions are irreversible")
+- **Scoring Mechanics**: How progress is measured (e.g., "Score increases indicate advancement")
+- **Action Categories**: Types of actions and their properties (e.g., "Reversible: TAKE/DROP vs Irreversible: GIVE/THROW")
 
-## PUZZLE SOLUTIONS
-Document puzzle mechanics and solutions:
-- **Solved Puzzles**: Complete solutions to puzzles encountered
-- **Puzzle Patterns**: Common puzzle types and approaches that work
-- **Failed Solutions**: What didn't work and why (avoid repeating mistakes)
-- **Partial Progress**: Puzzles partially solved with notes on next steps
+EXAMPLES (GOOD):
+✅ "EXAMINE command reveals hidden information about objects"
+✅ "Containers must be opened before contents can be accessed"
+✅ "Some actions cannot be undone (GIVE, THROW, BREAK)"
 
-## STRATEGIC PATTERNS
-Identify patterns from this gameplay session:
-- **Successful Actions**: What specific actions led to progress?
-- **Failed Approaches**: What didn't work and why?
-- **Exploration Strategies**: Effective methods for discovering new areas
-- **Resource Management**: How to use items effectively
-- **Objective Recognition**: How to identify new goals from game responses
+EXAMPLES (BAD - belongs in Memory System):
+❌ "Open window then enter window at Behind House leads to Kitchen"
+❌ "Egg is found by going up from Forest Path"
+
+## DANGER CATEGORIES
+Document TYPES of dangers and recognition patterns (not specific instances):
+- **Threat Awareness**: General categories of dangers that exist (e.g., "Combat enemies exist", "Dark areas have dangers")
+- **Warning Signals**: Game text patterns that indicate danger (e.g., "pitch black" warns of visibility danger)
+- **Death Mechanics**: Universal death causes (e.g., "Prolonged darkness", "Combat without weapons")
+- **Safety Principles**: General danger avoidance strategies (e.g., "Light source required in dark areas")
+
+EXAMPLES (GOOD):
+✅ "Dark areas pose dangers - carry light source"
+✅ "Combat enemies exist - some require weapons, others can be avoided"
+✅ "Warning text 'pitch black' indicates visibility hazard"
+
+EXAMPLES (BAD - too specific or system behavior):
+❌ "Troll at Troll Room attacks on sight" (specific location → Memory System)
+❌ "Forest exploration causes mathematical death after 20 turns" (Loop Break timeout, not game mechanic)
+❌ "Kitchen-Living Room cycling wastes turns during score crisis" (Loop Break detection, not game danger)
+
+## STRATEGIC PRINCIPLES
+Universal decision-making strategies (not location-specific tactics):
+- **Exploration Heuristics**: General approaches to discovering new areas (e.g., "Try all cardinal directions", "EXAMINE before interacting")
+- **Resource Management**: Universal item/inventory strategies (e.g., "Drop non-essentials to manage weight", "Keep key items accessible")
+- **Problem-Solving Patterns**: General puzzle-solving approaches (e.g., "Try alternative verbs when stuck", "Multi-step procedures may exist")
+- **Progress Indicators**: How to recognize forward momentum (e.g., "Score increases", "New areas discovered")
+
+EXAMPLES (GOOD):
+✅ "When stuck, try alternative action verbs (SEARCH, MOVE, LOOK UNDER)"
+✅ "Multi-step procedures exist - action A may enable action B"
+✅ "Inventory management critical - drop non-essentials to maintain capacity"
+
+EXAMPLES (BAD - too specific):
+❌ "Execute time-sensitive window entry immediately" (specific objective → Objective System)
+❌ "Evacuate house area during mathematical crisis" (Loop Break system behavior)
+❌ "Collect egg from tree before exploring forest" (specific tactic → Memory System)
 
 ## DEATH & DANGER ANALYSIS
+Analyze death events from CURRENT session for universal lessons:
 {format_death_analysis_section(turn_data) if turn_data.get("death_events") else "No deaths occurred in this session."}
 
+**CRITICAL**: If death occurred at 20+ turns without score progress, this is LOOP BREAK TIMEOUT (system behavior), NOT a game mechanic. Do not document as "mathematical death" - instead extract the ACTUAL game-related issue (e.g., "Stuck in navigation loop due to identical room descriptions").
+
 ## LESSONS LEARNED
-Specific insights from this session:
-- **New Discoveries**: What strategic insights were learned for the first time?
-- **Confirmed Patterns**: What previous strategic knowledge was validated?
-- **Updated Understanding**: What previous assumptions were corrected?
-- **Future Strategies**: What should be tried next based on these learnings?
+Strategic insights from this session (universal principles only):
+- **New Mechanics Discovered**: Universal game rules learned for the first time
+- **Confirmed Patterns**: Previously known principles validated this session
+- **Updated Understanding**: Corrections to previous assumptions about game mechanics
+- **Meta-Strategies**: General approaches that proved effective/ineffective
+
+FOCUS: Extract the PRINCIPLE, not the instance.
+EXAMPLE: "Multi-step procedures revealed through examining objects" NOT "Window requires open then enter"
 
 ## CROSS-EPISODE INSIGHTS
-Persistent strategic wisdom that carries across episodes (updated at episode completion):
-- **Death Patterns Across Episodes**: Consistent death causes and prevention strategies
-- **Environmental Knowledge**: Persistent facts about game world (dangerous locations, item behaviors, puzzle mechanics)
-- **Strategic Meta-Patterns**: Approaches that prove consistently effective/ineffective across different situations
-- **Major Discoveries**: Game mechanics, hidden areas, puzzle solutions discovered
-- **NOTE**: This section is primarily updated during inter-episode synthesis at episode end, but may include observations from current session that relate to cross-episode patterns.
+Persistent strategic wisdom validated across multiple episodes:
+- **Validated Game Mechanics**: Universal rules confirmed across multiple episodes
+- **Danger Recognition Patterns**: Warning signals and threat categories proven reliable
+- **Strategic Meta-Patterns**: Approaches consistently effective/ineffective across different situations
+- **Critical Discoveries**: Game mechanics or parser behaviors discovered
+
+NOTE: This section is primarily updated during inter-episode synthesis at episode end.
 
 CRITICAL REQUIREMENTS:
-1. **Strategic Focus**: Focus on WHY and HOW, not just WHAT (factual data is in memory system)
-2. **Pattern Recognition**: Identify patterns across multiple situations
-3. **Danger Prevention**: Emphasize death avoidance and danger recognition
-4. **Actionable Insights**: Provide decision-making guidance, not just facts
-5. **Complete Sections**: Include all sections even if some have minimal updates
+1. **Universal Scope**: ONLY include knowledge that applies regardless of location
+2. **Principle Over Instance**: Extract the pattern, not the specific example
+3. **System Awareness**: Ignore Loop Break timeouts as "mathematical deaths" - they're system behavior
+4. **No Location Coupling**: If it requires "at Location X", it belongs in Memory System
+5. **Actionable Guidance**: Provide decision-making principles, not specific tactics
 
-Remember: The structured memory system handles factual data (locations, connections, inventory).
-This knowledge base provides strategic intelligence to make better decisions."""
+QUALITY CHECKS:
+❌ If your entry mentions specific locations by name → Move to Memory System
+❌ If your entry documents "mathematical crisis/death" → Ignore (Loop Break timeout)
+❌ If your entry prescribes specific action sequences → Move to Memory System
+❌ If your entry is only relevant at one location → Move to Memory System
+✅ If your entry is a universal principle applicable anywhere → Keep in Knowledge Base
+✅ If your entry is a game mechanic that always applies → Keep in Knowledge Base
+✅ If your entry is a danger category (not specific instance) → Keep in Knowledge Base
+
+Generate the complete knowledge base with all sections."""
 
     try:
         messages = [
             {
                 "role": "system",
-                "content": "You are creating a strategic knowledge base for an AI agent playing Zork. A separate memory system already tracks factual data (room locations, item positions, connections). Your role is to identify strategic patterns, danger signals, puzzle solutions, and actionable decision-making insights. Focus on WHY things happen and HOW to approach situations, not just cataloging WHAT exists.",
+                "content": """You are creating a STRATEGIC knowledge base for an AI agent playing Zork.
+
+CRITICAL CONTEXT - Other Systems Handle:
+1. **Location-Specific Memory System**: Stores procedural knowledge at specific locations (e.g., "At Behind House, enter window leads to Kitchen"). Multi-step procedures are detected automatically.
+2. **Loop Break System**: Programmatically terminates episodes stuck without progress (20+ turns without score). These are system timeouts, NOT game mechanics.
+3. **Objective System**: Discovers and tracks goals automatically with LLM-based completion checking.
+4. **Map System**: Manages spatial relationships, exits, and navigation.
+
+YOUR ROLE:
+Generate ONLY universal game mechanics and strategic principles that apply REGARDLESS of location.
+
+SCOPE BOUNDARIES:
+✅ INCLUDE: "EXAMINE reveals hidden information" (universal mechanic)
+✅ INCLUDE: "Combat enemies exist in some locations" (danger category awareness)
+✅ INCLUDE: "Multi-step procedures exist - action A may enable action B" (meta-pattern)
+❌ EXCLUDE: "At Behind House, open window then enter window" (location-specific procedure → Memory System)
+❌ EXCLUDE: "Extended forest exploration causes mathematical death" (loop break timeout → System behavior)
+❌ EXCLUDE: "Prioritize time-sensitive objectives immediately" (objective prioritization → Objective System)
+
+If your knowledge requires phrases like "at Location X", "in Room Y", or "from Behind House", it belongs in the Memory System instead.
+
+Focus on WHY things happen and HOW to approach situations universally, not WHAT to do at specific locations.""",
             },
             {"role": "user", "content": prompt},
         ]
@@ -261,10 +329,16 @@ This knowledge base provides strategic intelligence to make better decisions."""
         return response.content.strip()
 
     except Exception as e:
+        error_msg = f"Knowledge generation failed: {e}"
         if logger:
             logger.error(
-                f"Knowledge generation failed: {e}",
+                error_msg,
                 extra={"event_type": "knowledge_update", "error": str(e)},
             )
+        else:
+            # Print error if no logger (useful for testing)
+            print(f"\n❌ {error_msg}")
+            import traceback
+            traceback.print_exc()
         # Return existing knowledge on failure
         return existing_knowledge
