@@ -155,7 +155,7 @@ def synthesize_inter_episode_wisdom(
             death_analysis += "\n"
 
     # Create synthesis prompt
-    prompt = f"""Analyze this completed Zork episode and update the CROSS-EPISODE INSIGHTS section with key learnings that should carry forward to future episodes.
+    prompt = f"""Analyze this completed Zork episode and perform FULL KNOWLEDGE BASE CONSOLIDATION.
 
 **CURRENT EPISODE SUMMARY:**
 - Episode ID: {episode_id}
@@ -172,32 +172,138 @@ def synthesize_inter_episode_wisdom(
 
 {death_analysis}
 
-**EXISTING CROSS-EPISODE INSIGHTS:**
-{existing_cross_episode if existing_cross_episode else "No previous cross-episode insights recorded."}
+**CURRENT FULL KNOWLEDGE BASE:**
+{existing_knowledge if existing_knowledge else "No existing knowledge base."}
 
-**SYNTHESIS TASK:**
+**CROSS-EPISODE CONSOLIDATION TASK:**
 
-Update the CROSS-EPISODE INSIGHTS section with the most critical learnings from this episode that should persist across future episodes. Focus on:
+Your task is to update the CROSS-EPISODE INSIGHTS section AND consolidate the entire knowledge base to eliminate redundancy.
 
-1. **Death Patterns Across Episodes**: If deaths occurred, what specific patterns, locations, or actions consistently lead to death? What environmental cues signal danger?
+PHASE 1: Update Cross-Episode Insights
+--------------------------------------
+Add validated patterns from this episode to these subsections:
 
-2. **Environmental Knowledge**: What persistent facts about the game world were discovered? (Dangerous locations, item behaviors, puzzle mechanics)
+1. **Death Patterns Across Episodes**:
+   - Add death patterns from this episode that represent NEW learnings
+   - Merge with existing patterns if similar
+   - Include episode reference (e.g., "Validated in Episodes 1, 3, 7")
+   - Maximum 5 distinct death patterns total
 
-3. **Strategic Meta-Patterns**: What approaches proved consistently effective or ineffective across different situations?
+2. **Environmental Knowledge**:
+   - Persistent game mechanics discovered this episode
+   - Parser syntax patterns confirmed
+   - Puzzle mechanics validated
+   - Merge with existing environmental knowledge
 
-4. **Major Discoveries**: What major discoveries about game mechanics, hidden areas, or puzzle solutions should be remembered?
+3. **Strategic Meta-Patterns**:
+   - Approaches proven effective/ineffective this episode
+   - Decision-making heuristics that worked
+   - Maximum 6 distinct meta-patterns total
 
-**REQUIREMENTS:**
-- Focus on persistent, reusable knowledge rather than episode-specific details
-- Emphasize death avoidance and danger recognition patterns
-- Maintain existing insights while adding new discoveries
-- Remove outdated or contradicted information
-- Keep insights concise but actionable for an AI agent
-- Structure the output with the four subsections above
+4. **Major Discoveries**:
+   - Significant game mechanics or puzzle solutions discovered
+   - Only include truly major discoveries
+   - Maximum 5 entries total
+
+PHASE 2: Consolidate Entire Knowledge Base
+------------------------------------------
+Review ALL sections for redundancy and consolidation:
+
+**DANGERS & THREATS Section:**
+- Consolidate duplicate death patterns (target: 5 distinct patterns max)
+- Merge location-specific variants: "Pattern X (Examples: location1, location2)"
+- Remove entries that are now in Cross-Episode Insights
+- Ensure total section < 600 words
+
+**PUZZLE SOLUTIONS Section:**
+- Merge similar puzzle types
+- Keep general approaches, remove location-specific duplicates
+- Maximum 10 puzzle entries
+- Focus on puzzle PATTERNS not individual instances
+
+**STRATEGIC PATTERNS Section:**
+- Consolidate similar patterns
+- Remove spatial memory duplicates (location connections, item positions)
+- Keep parser syntax patterns prominent
+- Maximum 8 core patterns
+
+**COMMAND SYNTAX Section:**
+- Keep this section focused and concise (< 300 words)
+- Group by verb type or command category
+- Remove redundant examples
+
+CONSOLIDATION RULES:
+1. If 2+ entries describe the same core mechanic → MERGE into one entry
+2. Location-specific variants → Convert to general pattern with examples
+3. Obsolete information contradicted by new data → REMOVE
+4. Cross-episode validated patterns → Move to CROSS-EPISODE INSIGHTS
+5. Spatial facts (connections, locations) → Remove (handled by memory system)
+
+Example consolidation:
+❌ BEFORE (redundant):
+- "Mathematical Crisis Death": 20+ turns without score progress...
+- "Navigation Cycling Death": Parser-limited connections create loops...
+- "Forest Path Cycling Death": Persistent navigation loops in forest...
+- "House Area Mathematical Death": Extended house exploration...
+[...15 more similar entries]
+
+✅ AFTER (consolidated):
+- "**Stuck-in-Area Death Pattern**": When 15+ turns pass without score progress, immediate area evacuation required. Recognition: repeated room descriptions, identical navigation loops, parser-limited connections. Prevention: Use unmapped directions immediately. High-risk areas include forest paths, house perimeter, any area with limited exits. Validated in Episodes 1, 3, 5, 7."
+
+LENGTH TARGETS:
+- Total knowledge base: 2000-2500 words
+- DANGERS & THREATS: < 600 words
+- PUZZLE SOLUTIONS: < 500 words
+- STRATEGIC PATTERNS: < 600 words
+- COMMAND SYNTAX: < 300 words
+- CROSS-EPISODE INSIGHTS: < 800 words
+
+QUALITY OVER QUANTITY:
+- 5 well-written patterns > 20 redundant variants
+- Actionable insights > verbose descriptions
+- Parser patterns > location-specific tactics
+- General mechanics > specific instances
 
 **OUTPUT FORMAT:**
-Provide ONLY the updated CROSS-EPISODE INSIGHTS section content (without the ## header).
-If no significant new insights emerged, return the existing content unchanged."""
+Provide the COMPLETE updated knowledge base with all sections, not just CROSS-EPISODE INSIGHTS.
+Ensure all sections are consolidated and within word budgets.
+Focus on strategic value and eliminate redundancy.
+
+Structure:
+# Zork Strategic Knowledge Base
+
+## DANGERS & THREATS
+[Consolidated content - max 5 patterns]
+
+## PUZZLE SOLUTIONS
+[Consolidated content - max 10 puzzles]
+
+## STRATEGIC PATTERNS
+[Consolidated content - max 8 patterns]
+
+## DEATH & DANGER ANALYSIS
+[Keep as-is, this is current episode specific]
+
+## COMMAND SYNTAX
+[Consolidated content - max 300 words]
+
+## LESSONS LEARNED
+[Update with current episode learnings]
+
+## CROSS-EPISODE INSIGHTS
+[Updated with validated patterns from this episode]
+
+### Death Patterns Across Episodes
+[Consolidated patterns with episode references]
+
+### Environmental Knowledge
+[Consolidated game mechanics and parser patterns]
+
+### Strategic Meta-Patterns
+[Consolidated decision-making heuristics]
+
+### Major Discoveries
+[Consolidated major findings]"""
 
     try:
         response = client.chat.completions.create(
@@ -205,7 +311,20 @@ If no significant new insights emerged, return the existing content unchanged.""
             messages=[
                 {
                     "role": "system",
-                    "content": "You are an expert at extracting persistent strategic wisdom from interactive fiction gameplay that can help AI agents improve across multiple game sessions. Focus on actionable patterns, danger recognition, and cross-episode learning.",
+                    "content": """You are performing full knowledge base consolidation for an AI agent playing Zork.
+
+Your task has two parts:
+1. Update CROSS-EPISODE INSIGHTS with validated patterns from the completed episode
+2. Consolidate ALL sections to eliminate redundancy accumulated from incremental updates
+
+Consolidation priorities:
+- Merge duplicate patterns (same cause, different names)
+- Convert location-specific variants to general patterns with examples
+- Remove spatial memory duplicates (connections, locations, positions)
+- Emphasize parser syntax patterns (highest value for LLM agents)
+- Enforce strict entry/word limits per section
+
+Success = Every unique insight preserved, 50% reduction in redundancy, actionable strategic intelligence.""",
                 },
                 {"role": "user", "content": prompt},
             ],
@@ -213,23 +332,17 @@ If no significant new insights emerged, return the existing content unchanged.""
             top_p=analysis_sampling.get("top_p"),
             top_k=analysis_sampling.get("top_k"),
             min_p=analysis_sampling.get("min_p"),
-            max_tokens=analysis_sampling.get("max_tokens") or 2000,
+            max_tokens=analysis_sampling.get("max_tokens") or 4000,
             name="StrategyGenerator",
         )
 
-        new_cross_episode_content = response.content.strip()
+        # Get the full consolidated knowledge base (not just one section)
+        consolidated_knowledge = response.content.strip()
 
-        # Update the knowledge base with new cross-episode section
-        updated_knowledge = update_section_content(
-            existing_knowledge,
-            "CROSS-EPISODE INSIGHTS",
-            new_cross_episode_content
-        )
-
-        # Save the updated knowledge base
+        # Save the updated knowledge base directly
         try:
             with open(output_file, "w", encoding="utf-8") as f:
-                f.write(updated_knowledge)
+                f.write(consolidated_knowledge)
 
             if logger:
                 logger.info(

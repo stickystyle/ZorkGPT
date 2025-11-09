@@ -172,8 +172,8 @@ def generate_knowledge_directly(
     # Construct comprehensive prompt
     prompt = f"""Analyze this Zork gameplay data and create/update the knowledge base.
 
-NOTE: Item locations, room connections, and object properties are now tracked in a separate structured memory system.
-This knowledge base should focus on STRATEGIC insights, patterns, and lessons learned from gameplay.
+NOTE: Item locations, room connections, and object properties are tracked in a separate structured memory system.
+This knowledge base focuses on STRATEGIC insights: parser patterns, game mechanics, puzzle approaches, and meta-strategy.
 
 {formatted_data}
 
@@ -184,71 +184,141 @@ EXISTING KNOWLEDGE BASE:
 
 {cross_episode_section}
 
+STRATEGIC vs SPATIAL BOUNDARIES:
+
+✅ INCLUDE (Strategic patterns for knowledge base):
+- Parser syntax: "Use 'enter X' not 'climb through X' for windows"
+- Game mechanics: "Containers must be opened before accessing contents"
+- Command patterns: "Parser accepts 'n/s/e/w' and 'north/south/east/west' equally"
+- Puzzle approaches: "Multi-step sequences often require 'examine' before 'take'"
+- Meta-strategy: "15+ turns without progress → evacuate to unmapped area"
+
+❌ EXCLUDE (Spatial memory handles this):
+- Location connections: "Behind House has window to Kitchen"
+- Object locations: "Trophy case is in Living Room"
+- Item positions: "Jeweled egg found in tree at Forest Path"
+- Room adjacency: "West of House connects to North of House"
+
+DEDUPLICATION REQUIREMENTS:
+1. Before adding new entries, check if similar patterns already exist in the knowledge base
+2. Consolidate location-specific variants into single general patterns with examples
+3. If 2+ entries describe the same core mechanic, MERGE them into one entry
+4. Maximum limits per section:
+   - DANGERS & THREATS: 5 distinct death patterns (consolidate aggressively)
+   - PUZZLE SOLUTIONS: 10 puzzle entries (merge similar puzzles)
+   - STRATEGIC PATTERNS: 8 core patterns (avoid location-specific duplicates)
+5. Format consolidated patterns as:
+   **[Pattern Name]**: [Core insight]
+   Examples/Instances: [specific case 1], [specific case 2], [specific case 3]
+
+Example consolidation:
+❌ DON'T: Separate entries for "Forest Death", "House Death", "Kitchen Cycling Death", "Mathematical Crisis Death"
+✅ DO: "**Stuck-in-Area Death Pattern**: When 15+ turns pass without score progress in same area, immediate evacuation required. Recognition: repeated room descriptions, identical navigation loops. Prevention: Use unmapped directions to break pattern. High-risk areas: Forest paths, house perimeter (Kitchen-Living Room loops)"
+
+LENGTH REQUIREMENTS:
+- DANGERS & THREATS: Maximum 600 words total
+- PUZZLE SOLUTIONS: Maximum 500 words total
+- STRATEGIC PATTERNS: Maximum 600 words total
+- COMMAND SYNTAX: Maximum 300 words total
+- Total knowledge base: Target 2000-2500 words (consolidate to meet budget)
+- Quality over quantity - remove verbose redundancy
+
 INSTRUCTIONS:
-Create a comprehensive knowledge base with ALL of the following sections. If a section has no new information, keep the existing content for that section.
+Create a comprehensive knowledge base with ALL of the following sections. Consolidate existing content with new information.
 
 ## DANGERS & THREATS
-Document specific dangers and how to recognize them:
-- **Death Patterns**: What actions/locations consistently lead to death? (e.g., "moving east from dark cellar without light causes grue death")
-- **Warning Signs**: What game text signals danger? (e.g., "slavering fangs" indicates imminent grue attack)
-- **Safe Approaches**: How to safely navigate dangerous areas?
-- **Environmental Hazards**: Special location properties that pose risks
+Document specific dangers (MAX 5 DISTINCT PATTERNS - consolidate similar ones):
+- **Death Patterns**: What actions/situations consistently lead to death? Merge location-specific variants
+- **Warning Signs**: What game text signals danger? (specific quotes)
+- **Safe Approaches**: How to safely navigate dangerous situations? (concrete protocols)
+- **Environmental Hazards**: Special properties that pose risks (general mechanics, not locations)
+
+Focus on PARSER and GAME MECHANICS that cause death, not just locations.
 
 ## PUZZLE SOLUTIONS
-Document puzzle mechanics and solutions:
-- **Solved Puzzles**: Complete solutions to puzzles encountered
-- **Puzzle Patterns**: Common puzzle types and approaches that work
-- **Failed Solutions**: What didn't work and why (avoid repeating mistakes)
-- **Partial Progress**: Puzzles partially solved with notes on next steps
+Document puzzle mechanics (MAX 10 PUZZLES - merge similar ones):
+- **Solved Puzzles**: Complete solutions - but generalize the approach where possible
+- **Puzzle Patterns**: Common puzzle types (containers, multi-step sequences, hidden reveals)
+- **Failed Solutions**: What didn't work and why (parser rejections, wrong sequence)
+- **Partial Progress**: Puzzles partially solved with specific next steps
+
+Emphasize GENERAL APPROACHES over location-specific solutions.
 
 ## STRATEGIC PATTERNS
-Identify patterns from this gameplay session:
-- **Successful Actions**: What specific actions led to progress?
-- **Failed Approaches**: What didn't work and why?
+Identify actionable patterns (MAX 8 CORE PATTERNS):
+- **Successful Actions**: What specific action types led to progress? (not locations)
+- **Failed Approaches**: What didn't work and why? (focus on parser/mechanic failures)
 - **Exploration Strategies**: Effective methods for discovering new areas
-- **Resource Management**: How to use items effectively
+- **Resource Management**: How to use inventory, light, items effectively
 - **Objective Recognition**: How to identify new goals from game responses
 
 ## DEATH & DANGER ANALYSIS
 {format_death_analysis_section(turn_data) if turn_data.get("death_events") else "No deaths occurred in this session."}
 
+Consolidate with existing death patterns above - don't duplicate information.
+
 ## COMMAND SYNTAX
-List exact commands that worked (focus on non-obvious or puzzle-specific commands):
-- **Puzzle Commands**: Commands that solved specific puzzles
-- **Special Interactions**: Unusual but effective command patterns
-- **Combat**: Any combat-related commands
-- **Syntax Discoveries**: Command formats that worked when standard approaches failed
+Parser patterns discovered (MAX 300 WORDS - focus on non-obvious patterns):
+- **Verb Synonyms**: What verbs are interchangeable? (take/get, examine/look at)
+- **Verb Failures**: What verbs DON'T work when expected? (climb vs enter, disturb vs take)
+- **Command Structure**: Multi-word commands, prepositions that work/fail
+- **Special Syntax**: Unusual but effective command patterns discovered
+
+THIS SECTION IS CRITICAL - LLMs struggle with parser quirks without explicit patterns.
 
 ## LESSONS LEARNED
-Specific insights from this session:
-- **New Discoveries**: What strategic insights were learned for the first time?
-- **Confirmed Patterns**: What previous strategic knowledge was validated?
-- **Updated Understanding**: What previous assumptions were corrected?
-- **Future Strategies**: What should be tried next based on these learnings?
+Specific insights from this session (session-specific, will be consolidated in cross-episode later):
+- **New Discoveries**: First-time strategic insights
+- **Confirmed Patterns**: What previous knowledge was validated?
+- **Updated Understanding**: What assumptions were corrected?
+- **Future Strategies**: What should be tried next?
 
 ## CROSS-EPISODE INSIGHTS
-Persistent strategic wisdom that carries across episodes (updated at episode completion):
-- **Death Patterns Across Episodes**: Consistent death causes and prevention strategies
-- **Environmental Knowledge**: Persistent facts about game world (dangerous locations, item behaviors, puzzle mechanics)
-- **Strategic Meta-Patterns**: Approaches that prove consistently effective/ineffective across different situations
-- **Major Discoveries**: Game mechanics, hidden areas, puzzle solutions discovered
-- **NOTE**: This section is primarily updated during inter-episode synthesis at episode end, but may include observations from current session that relate to cross-episode patterns.
+Persistent strategic wisdom across episodes (updated at episode completion):
+- **Death Patterns Across Episodes**: Validated death causes with episode references
+- **Environmental Knowledge**: Persistent game mechanics discovered across multiple episodes
+- **Strategic Meta-Patterns**: Approaches consistently effective/ineffective across situations
+- **Major Discoveries**: Game mechanics, puzzle solutions validated by multiple episodes
 
-CRITICAL REQUIREMENTS:
-1. **Strategic Focus**: Focus on WHY and HOW, not just WHAT (factual data is in memory system)
-2. **Pattern Recognition**: Identify patterns across multiple situations
-3. **Danger Prevention**: Emphasize death avoidance and danger recognition
-4. **Actionable Insights**: Provide decision-making guidance, not just facts
-5. **Complete Sections**: Include all sections even if some have minimal updates
+NOTE: This section primarily updated during inter-episode synthesis. For now, include observations that relate to cross-episode patterns if they validate or contradict existing entries.
+
+CRITICAL CONSOLIDATION RULES:
+1. **Before adding ANY new entry, check if it duplicates existing content**
+2. **Merge similar patterns** - don't create variants (e.g., "Forest Death" + "House Death" = "Stuck-in-Area Death")
+3. **Use examples, not separate entries** - "Pattern X: [insight]. Examples: case1, case2, case3"
+4. **Remove obsolete entries** - if new data contradicts old, remove the old
+5. **Stay within word budgets** - if over budget, merge more aggressively
+6. **Prioritize parser patterns** - command syntax knowledge is most valuable for LLM agents
+
+OUTPUT REQUIREMENTS:
+- Complete knowledge base with all sections
+- Each section respects word/entry limits
+- Consolidated patterns with examples, not duplicates
+- Parser syntax patterns prominently documented
+- Strategic patterns, not spatial facts
+- Actionable insights for decision-making
 
 Remember: The structured memory system handles factual data (locations, connections, inventory).
-This knowledge base provides strategic intelligence to make better decisions."""
+This knowledge base provides strategic intelligence: HOW to construct commands, WHAT mechanics govern puzzles, WHEN to change strategies."""
 
     try:
         messages = [
             {
                 "role": "system",
-                "content": "You are creating a strategic knowledge base for an AI agent playing Zork. A separate memory system already tracks factual data (room locations, item positions, connections). Your role is to identify strategic patterns, danger signals, puzzle solutions, and actionable decision-making insights. Focus on WHY things happen and HOW to approach situations, not just cataloging WHAT exists.",
+                "content": """You are creating a strategic knowledge base for an AI agent playing Zork.
+
+A separate memory system tracks factual data (room locations, item positions, connections).
+
+Your role is to provide strategic intelligence:
+1. Parser patterns - which verbs/commands work or fail
+2. Game mechanics - how containers, inventory, light, puzzles actually function
+3. Puzzle approaches - general strategies, not location-specific solutions
+4. Meta-strategy - when to change tactics, how to recognize being stuck
+5. Death prevention - core causes and recognition patterns
+
+CRITICAL: Consolidate aggressively. If 2+ entries describe the same pattern, merge them. Use examples instead of creating variants. The agent needs concise, actionable patterns - not an encyclopedia of every instance.
+
+Focus on WHY things happen and HOW to approach situations, not cataloging WHAT exists in which location.""",
             },
             {"role": "user", "content": prompt},
         ]
@@ -273,4 +343,156 @@ This knowledge base provides strategic intelligence to make better decisions."""
                 extra={"event_type": "knowledge_update", "error": str(e)},
             )
         # Return existing knowledge on failure
+        return existing_knowledge
+
+
+@observe(name="knowledge-consolidation-pass")
+def consolidate_knowledge_base(
+    existing_knowledge: str,
+    client,
+    analysis_model: str,
+    analysis_sampling: dict,
+    logger=None
+) -> str:
+    """
+    Perform aggressive consolidation pass on knowledge base to eliminate redundancy.
+
+    This is an optional cleanup function that can be run periodically (e.g., every 5-10 episodes)
+    to keep the knowledge base concise and actionable.
+
+    Args:
+        existing_knowledge: Current knowledge base content
+        client: LLM client wrapper instance
+        analysis_model: Model identifier for consolidation task
+        analysis_sampling: Sampling parameters (temperature, top_p, top_k, min_p, max_tokens)
+        logger: Optional logger instance
+
+    Returns:
+        Consolidated knowledge base content
+    """
+    prompt = f"""Consolidate this Zork knowledge base to eliminate redundancy while preserving all unique insights.
+
+**CURRENT KNOWLEDGE BASE:**
+{existing_knowledge}
+
+**CONSOLIDATION TASK:**
+
+Your goal is to drastically reduce redundancy while preserving every unique insight. The knowledge base has grown through incremental updates and now contains many duplicate or near-duplicate entries.
+
+CONSOLIDATION STRATEGY:
+
+1. **Identify Duplicate Patterns**:
+   - Look for entries that describe the same core mechanic/pattern
+   - Group similar entries by underlying cause/pattern
+   - Example: "Forest Death", "House Death", "Kitchen Loop Death" all describe "stuck without progress"
+
+2. **Merge Duplicates**:
+   - Create single entry for each unique pattern
+   - Use format: "**Pattern Name**: [Core insight]. Examples/Instances: [case1, case2, case3]"
+   - Preserve all unique details as examples within merged entry
+   - Remove completely redundant information
+
+3. **Enforce Section Limits**:
+   - DANGERS & THREATS: Maximum 5 distinct death patterns
+   - PUZZLE SOLUTIONS: Maximum 10 puzzle entries (merge similar puzzle types)
+   - STRATEGIC PATTERNS: Maximum 8 core patterns (remove location-specific duplicates)
+   - COMMAND SYNTAX: Maximum 300 words (group by command type)
+   - CROSS-EPISODE INSIGHTS: Maximum 800 words total
+
+4. **Prioritize Content**:
+   - Parser syntax patterns (highest value for LLM agents)
+   - Game mechanics (container behavior, inventory rules, light mechanics)
+   - General puzzle approaches (not location-specific solutions)
+   - Meta-strategy (when to change approach, how to recognize patterns)
+   - Death patterns (consolidated to core causes, not location variants)
+
+5. **Remove Spatial Duplicates**:
+   These belong in spatial memory system, NOT knowledge base:
+   - Room connections ("Behind House connects to Kitchen")
+   - Object locations ("Trophy case is in Living Room")
+   - Item positions ("Jeweled egg in tree at Forest Path")
+   - Navigation paths ("West of House → North of House → Forest Path")
+
+CONSOLIDATION EXAMPLES:
+
+❌ BEFORE (redundant - 500 words across 5 entries):
+- "Mathematical Crisis Death": 20+ turns without score progress creates unrecoverable deficits...
+- "Navigation Cycling Death": Parser-limited connections create fatal turn consumption loops...
+- "Forest Path Cycling Death": Persistent navigation loops in forest areas consume turns...
+- "House Area Mathematical Death": Extended exploration within house perimeter during crises...
+- "Extreme Mathematical Persistence Death": Continuing area-specific exploration during 30+ turn stagnation...
+
+✅ AFTER (consolidated - 80 words, 1 entry):
+- "**Stuck-in-Area Death**: When 15+ turns pass in same area without score progress, immediate evacuation required to prevent fatal turn deficit. Recognition: repeated identical room descriptions, navigation loops, parser-limited exits. Prevention: Use unmapped directions after 15 stagnant turns; during extreme crisis (30+ turns) complete area abandonment is only viable strategy. High-risk areas: Forest paths (limited exits), house perimeter (Kitchen-Living Room loops), any area with < 3 distinct exits."
+
+❌ BEFORE (location-specific - belongs in spatial memory):
+- "Window Entry Puzzle": "open window" followed by "enter window" grants 10 points at Kitchen entry from Behind House
+- "Location-Specific Window Puzzle": Window entry scoring only works from Behind House location
+
+✅ AFTER (general pattern):
+- "**Window Entry Pattern**: Windows require two-step sequence: 'open [window]' then 'enter [window]'. Parser rejects 'climb through' or 'go through'. Entry is directional - verify correct side before attempting."
+
+LENGTH TARGETS:
+- Total knowledge base: 2000-2500 words (currently may be 3500+)
+- Each section must fit within its budget
+- Aim for 50% reduction in word count while preserving 100% of unique insights
+- Quality over quantity: 5 excellent patterns > 20 redundant variants
+
+CRITICAL SUCCESS CRITERIA:
+1. Every unique insight from original is preserved (as entry or example)
+2. No duplicate patterns remain (same cause with different names)
+3. Total word count < 2500 words
+4. Parser syntax patterns are prominent and complete
+5. No spatial memory information remains (locations, connections, positions)
+6. Each section respects its maximum entry/word limit
+
+**OUTPUT:**
+Provide the complete consolidated knowledge base with all sections.
+"""
+
+    try:
+        messages = [
+            {
+                "role": "system",
+                "content": "You are an expert at consolidating strategic knowledge while preserving information density. Your goal is aggressive deduplication without information loss - merge redundant patterns, remove spatial memory duplicates, and create concise actionable insights."
+            },
+            {"role": "user", "content": prompt}
+        ]
+
+        response = client.chat.completions.create(
+            model=analysis_model,
+            messages=messages,
+            temperature=analysis_sampling.get("temperature"),
+            top_p=analysis_sampling.get("top_p"),
+            top_k=analysis_sampling.get("top_k"),
+            min_p=analysis_sampling.get("min_p"),
+            max_tokens=analysis_sampling.get("max_tokens") or 4000,
+            name="KnowledgeConsolidator",
+        )
+
+        consolidated_content = response.content.strip()
+
+        if logger:
+            original_length = len(existing_knowledge)
+            consolidated_length = len(consolidated_content)
+            reduction_percent = round((1 - consolidated_length/original_length) * 100, 1) if original_length > 0 else 0
+
+            logger.info(
+                "Knowledge base consolidation completed",
+                extra={
+                    "event_type": "knowledge_consolidation",
+                    "original_length": original_length,
+                    "consolidated_length": consolidated_length,
+                    "reduction_percent": reduction_percent
+                }
+            )
+
+        return consolidated_content
+
+    except Exception as e:
+        if logger:
+            logger.error(
+                f"Knowledge consolidation failed: {e}",
+                extra={"event_type": "knowledge_consolidation", "error": str(e)}
+            )
         return existing_knowledge
