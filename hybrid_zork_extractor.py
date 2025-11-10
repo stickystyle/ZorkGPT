@@ -3,7 +3,7 @@ Jericho-based Zork Extractor using object tree for structured data.
 
 This extractor uses Jericho's Z-machine object tree to directly extract
 inventory, location, and visible objects WITHOUT regex parsing. LLM is used
-only for exits, combat detection, and important message extraction.
+only for exits, combat detection, and room description detection.
 
 This is the Phase 2 implementation with NO backwards compatibility.
 """
@@ -50,7 +50,6 @@ class ExtractorResponse(BaseModel):
     visible_objects: List[str]
     visible_characters: List[str]
     inventory: List[str]
-    important_messages: List[str]
     in_combat: bool
     score: Optional[int] = None
     moves: Optional[int] = None
@@ -70,7 +69,7 @@ class HybridZorkExtractor:
     Uses LLM only for:
     - Exits (direction parsing is game-state dependent)
     - Combat detection (requires semantic understanding)
-    - Important messages (requires semantic filtering)
+    - Room description detection (requires semantic understanding)
     """
 
     def __init__(
@@ -150,8 +149,8 @@ class HybridZorkExtractor:
             self.system_prompt = """You are an expert data extraction assistant for a text adventure game.
 Extract key information from the game text and return it as JSON with these fields:
 - exits: List of available exits (directions like north, south, east, west, etc.)
-- important_messages: List of important messages (gameplay events, not flavor text)
-- in_combat: Boolean indicating combat status"""
+- in_combat: Boolean indicating combat status
+- is_room_description: Boolean indicating if text is a room description"""
 
     @observe(name="extractor-extract-information")
     def extract_info(
@@ -161,7 +160,7 @@ Extract key information from the game text and return it as JSON with these fiel
         Extract structured information from Zork using hybrid approach.
 
         Uses Jericho object tree for location, inventory, visible objects.
-        Uses LLM for exits, combat detection, and important messages.
+        Uses LLM for exits, combat detection, and room description detection.
 
         Args:
             game_text_from_zork: Raw text from Zork (for LLM context)
@@ -178,7 +177,7 @@ Extract key information from the game text and return it as JSON with these fiel
             visible_characters = self._get_visible_characters_from_jericho()
             score, moves = self._get_score_from_jericho()
 
-            # Use LLM for exits, combat, and important messages
+            # Use LLM for exits, combat, and room description detection
             llm_extracted = self._extract_with_llm(
                 game_text_from_zork, location_name, previous_location
             )
@@ -190,7 +189,6 @@ Extract key information from the game text and return it as JSON with these fiel
                 visible_objects=visible_objects,
                 visible_characters=visible_characters,
                 inventory=inventory,
-                important_messages=llm_extracted.get("important_messages", []),
                 in_combat=llm_extracted.get("in_combat", False),
                 score=score,
                 moves=moves,
@@ -348,7 +346,7 @@ Extract key information from the game text and return it as JSON with these fiel
         self, game_text: str, current_location: str, previous_location: str = None
     ) -> dict:
         """
-        Use LLM to extract exits, combat status, and important messages.
+        Use LLM to extract exits, combat status, and room description detection.
 
         This is the ONLY place where LLM is used for extraction.
         """
@@ -371,7 +369,6 @@ Extract key information from the game text and return it as JSON with these fiel
             # Define minimal schema for LLM extraction
             class LLMExtraction(BaseModel):
                 exits: List[str]
-                important_messages: List[str]
                 in_combat: bool
                 is_room_description: bool = False
 
@@ -388,7 +385,7 @@ Extract key information from the game text and return it as JSON with these fiel
             )
 
             if not llm_response:
-                return {"exits": [], "important_messages": [], "in_combat": False, "is_room_description": False}
+                return {"exits": [], "in_combat": False, "is_room_description": False}
 
             # Extract content from the response
             response_content = (
@@ -409,7 +406,6 @@ Extract key information from the game text and return it as JSON with these fiel
                 )
             return {
                 "exits": [],
-                "important_messages": [],
                 "in_combat": self.previous_combat_state,
                 "is_room_description": False,
             }
@@ -436,10 +432,9 @@ Extract key information from the game text and return it as JSON with these fiel
         prompt_parts.append(
             "Extract ONLY the following information from the game text:\n"
             "1. exits: List of available directions (north, south, east, west, up, down, etc.)\n"
-            "2. important_messages: List of significant gameplay events (not flavor text)\n"
-            "3. in_combat: Boolean indicating if the player is currently in combat\n"
-            "4. is_room_description: Boolean indicating if text is a room description (see system prompt for criteria)\n\n"
-            "Return as JSON with these four fields."
+            "2. in_combat: Boolean indicating if the player is currently in combat\n"
+            "3. is_room_description: Boolean indicating if text is a room description (see system prompt for criteria)\n\n"
+            "Return as JSON with these three fields."
         )
 
         return "\n\n".join(prompt_parts)
@@ -453,7 +448,6 @@ Extract key information from the game text and return it as JSON with these fiel
             parsed_data = json.loads(json_content)
             return {
                 "exits": parsed_data.get("exits", []),
-                "important_messages": parsed_data.get("important_messages", []),
                 "in_combat": parsed_data.get("in_combat", False),
                 "is_room_description": parsed_data.get("is_room_description", False),
             }
@@ -466,7 +460,6 @@ Extract key information from the game text and return it as JSON with these fiel
                 )
             return {
                 "exits": [],
-                "important_messages": [],
                 "in_combat": self.previous_combat_state,
                 "is_room_description": False,
             }
@@ -488,7 +481,6 @@ Extract key information from the game text and return it as JSON with these fiel
             visible_objects=[],
             visible_characters=[],
             inventory=[],
-            important_messages=[game_text] if game_text else [],
             in_combat=self.previous_combat_state,
             score=None,
             moves=None,

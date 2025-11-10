@@ -83,8 +83,6 @@ TOTAL ACTIONS: {len(turn_data["actions_and_responses"])}
                 output += f"  - Turn {death['turn']}: {death['reason']}\n"
                 output += f"    Fatal action: {death.get('action_taken', 'Unknown')}\n"
                 output += f"    Location: {death.get('death_location', 'Unknown')}\n"
-                if death.get("death_messages"):
-                    output += f"    Messages: {', '.join(death['death_messages'])}\n"
     else:
         output += "Deaths: None\n"
 
@@ -128,9 +126,6 @@ def format_death_analysis_section(turn_data: Dict) -> str:
         output += f"- Fatal Action: {death.get('action_taken', 'Unknown')}\n"
         output += f"- Location: {death.get('death_location', 'Unknown')}\n"
         output += f"- Final Score: {death.get('final_score', 'Unknown')}\n"
-
-        if death.get("death_messages"):
-            output += f"- Key Messages: {'; '.join(death['death_messages'])}\n"
 
         # Include contextual information
         if death.get("death_context"):

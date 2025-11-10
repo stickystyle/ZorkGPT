@@ -91,9 +91,6 @@ def extract_turn_window_data(
             current_score = 0
             current_location = ""
 
-            # Store death messages temporarily for proper association
-            death_messages_by_turn = {}
-
             for line in f:
                 try:
                     log_entry = json.loads(line.strip())
@@ -138,32 +135,6 @@ def extract_turn_window_data(
                             response
                         )
 
-                        # Check if this zork response contains death information and store it
-                        if any(
-                            death_indicator in response.lower()
-                            for death_indicator in [
-                                "you have died",
-                                "you are dead",
-                                "slavering fangs",
-                                "eaten by a grue",
-                                "you have been killed",
-                                "****  you have died  ****",
-                                "fatal",
-                            ]
-                        ):
-                            action = log_entry.get("action", "")
-                            # Create contextual description instead of bare action
-                            death_context = (
-                                f"{action} from {current_location}"
-                                if current_location
-                                else action
-                            )
-                            death_messages_by_turn[current_turn] = {
-                                "detailed_death_message": response,
-                                "death_context": death_context,
-                                "death_location": current_location,
-                                "fatal_action": action,  # Keep raw action for reference
-                            }
 
                     # Only collect data within our turn window for other events
                     if not (start_turn <= current_turn <= end_turn):
@@ -216,9 +187,8 @@ def extract_turn_window_data(
                             turn_data["death_events"][-1]["death_objects"] = (
                                 extracted_info.get("visible_objects", [])
                             )
-                            turn_data["death_events"][-1]["death_messages"] = (
-                                extracted_info.get("important_messages", [])
-                            )
+                            # Note: death_messages field removed as important_messages
+                            # was eliminated from extractor to reduce LLM token cost
 
                     # Track score changes
                     elif event_type == "experience" and "zork_score" in log_entry:
@@ -264,18 +234,6 @@ def extract_turn_window_data(
                 extra={"event_type": "knowledge_update"},
             )
         return None
-
-    # Apply stored death messages to death events
-    for turn_num, death_info in death_messages_by_turn.items():
-        # Apply to death events
-        for death_event in turn_data["death_events"]:
-            if death_event["turn"] == turn_num:
-                death_event.update(death_info)
-
-        # Apply to game over events
-        for game_over_event in turn_data["game_over_events"]:
-            if game_over_event["turn"] == turn_num:
-                game_over_event.update(death_info)
 
     return turn_data if turn_data["actions_and_responses"] else None
 

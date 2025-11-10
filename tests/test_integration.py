@@ -168,7 +168,6 @@ class TestZorkOrchestratorV2Integration:
         mock_extracted_info.visible_objects = []
         mock_extracted_info.visible_characters = []
         mock_extracted_info.exits = ["north", "south"]
-        mock_extracted_info.important_messages = []
         mock_extracted_info.in_combat = False
         mock_extracted_info.score = 10
         mock_extracted_info.moves = None
@@ -521,7 +520,6 @@ class TestManagerInteractions:
         mock_extracted_info.visible_objects = []
         mock_extracted_info.visible_characters = []
         mock_extracted_info.exits = ["north", "south"]
-        mock_extracted_info.important_messages = []
         mock_extracted_info.in_combat = False
         mock_extracted_info.score = 0
         mock_extracted_info.moves = None
@@ -586,7 +584,6 @@ class TestManagerInteractions:
         mock_extracted_info.visible_objects = []
         mock_extracted_info.visible_characters = []
         mock_extracted_info.exits = ["north", "south"]
-        mock_extracted_info.important_messages = []
         mock_extracted_info.in_combat = False
         mock_extracted_info.score = 0
         mock_extracted_info.moves = None

@@ -130,7 +130,7 @@ A typical gameplay turn proceeds through these stages:
 
 1. **Observation**: The system receives game text from the Z-machine after the previous action.
 
-2. **Hybrid Extraction**: Inventory, location ID, score, and visible objects are retrieved instantly from Z-machine memory. The Extractor LM parses game text only for exits, combat status, and important messages.
+2. **Hybrid Extraction**: Inventory, location ID, score, and visible objects are retrieved instantly from Z-machine memory. The Extractor LM parses game text only for exits, combat status, and room description detection.
 
 3. **State Update**: Session memory is updated with new information. The map system compares location IDs to detect movement with perfect accuracy. State hash tracking identifies exact state loops.
 

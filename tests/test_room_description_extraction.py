@@ -57,7 +57,7 @@ def extractor_with_mocked_llm(mock_jericho, mock_config):
     # Create mock LLM client
     mock_client = Mock()
     mock_response = Mock()
-    mock_response.content = '{"exits": ["north", "south", "east"], "important_messages": [], "in_combat": false, "is_room_description": true}'
+    mock_response.content = '{"exits": ["north", "south", "east"], "in_combat": false, "is_room_description": true}'
     mock_client.chat.completions.create = Mock(return_value=mock_response)
 
     extractor = HybridZorkExtractor(
@@ -83,7 +83,6 @@ class TestExtractorResponseSchema:
             visible_objects=["mailbox"],
             visible_characters=[],
             inventory=[],
-            important_messages=["Test message"],
             in_combat=False,
             score=0,
             moves=0,
@@ -101,7 +100,6 @@ class TestExtractorResponseSchema:
             visible_objects=[],
             visible_characters=[],
             inventory=[],
-            important_messages=[],
             in_combat=False,
         )
 
@@ -120,7 +118,7 @@ front door. There is a small mailbox here."""
 
         # Mock LLM response to flag this as a room description
         mock_response = Mock()
-        mock_response.content = '{"exits": ["north", "south", "east"], "important_messages": ["You are standing in an open field west of a white house, with a boarded front door.", "There is a small mailbox here."], "in_combat": false, "is_room_description": true}'
+        mock_response.content = '{"exits": ["north", "south", "east"], "in_combat": false, "is_room_description": true}'
         extractor_with_mocked_llm.client.chat.completions.create = Mock(return_value=mock_response)
 
         # Extract info
@@ -138,7 +136,7 @@ front door. There is a small mailbox here."""
 
         # Mock LLM response to NOT flag this as a room description
         mock_response = Mock()
-        mock_response.content = '{"exits": [], "important_messages": ["Taken."], "in_combat": false, "is_room_description": false}'
+        mock_response.content = '{"exits": [], "in_combat": false, "is_room_description": false}'
         extractor_with_mocked_llm.client.chat.completions.create = Mock(return_value=mock_response)
 
         # Extract info
@@ -155,7 +153,7 @@ front door. There is a small mailbox here."""
 
         # Mock LLM response to NOT flag this as a room description
         mock_response = Mock()
-        mock_response.content = '{"exits": [], "important_messages": ["Opening the small mailbox reveals a leaflet."], "in_combat": false, "is_room_description": false}'
+        mock_response.content = '{"exits": [], "in_combat": false, "is_room_description": false}'
         extractor_with_mocked_llm.client.chat.completions.create = Mock(return_value=mock_response)
 
         # Extract info
@@ -234,7 +232,6 @@ class TestRoomDescriptionStorage:
             visible_objects=[],
             visible_characters=[],
             inventory=[],
-            important_messages=["You are in a test room."],
             in_combat=False,
             is_room_description=True,
         )
@@ -305,7 +302,6 @@ class TestRoomDescriptionStorage:
             visible_objects=[],
             visible_characters=[],
             inventory=[],
-            important_messages=["Taken."],
             in_combat=False,
             is_room_description=False,
         )
@@ -371,7 +367,6 @@ class TestRoomDescriptionStorage:
             visible_objects=[],
             visible_characters=[],
             inventory=[],
-            important_messages=["You are here."],
             in_combat=False,
             is_room_description=True,
         )
@@ -437,7 +432,6 @@ class TestRoomDescriptionStorage:
             visible_objects=[],
             visible_characters=[],
             inventory=[],
-            important_messages=["First room."],
             in_combat=False,
             is_room_description=True,
         )
@@ -470,7 +464,6 @@ class TestRoomDescriptionStorage:
             visible_objects=[],
             visible_characters=[],
             inventory=[],
-            important_messages=["You moved."],
             in_combat=False,
             is_room_description=False,  # NOT a room description
         )

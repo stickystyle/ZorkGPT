@@ -26,10 +26,6 @@ class TestInventorySkip(unittest.TestCase):
             visible_objects=["bloody axe"],
             visible_characters=["nasty-looking troll"],
             inventory=[],
-            important_messages=[
-                "A troll blocks your path.",
-                "The troll swings at you!",
-            ],
             in_combat=True,
         )
 
@@ -53,7 +49,6 @@ class TestInventorySkip(unittest.TestCase):
             visible_objects=["mailbox", "house"],
             visible_characters=[],
             inventory=[],
-            important_messages=["You are in a peaceful area."],
             in_combat=False,
         )
 
@@ -76,10 +71,6 @@ class TestInventorySkip(unittest.TestCase):
             visible_objects=["bloody axe"],
             visible_characters=["nasty-looking troll"],
             inventory=[],
-            important_messages=[
-                "A troll blocks your path.",
-                "The troll swings at you!",
-            ],
             in_combat=True,
         )
 
@@ -124,7 +115,6 @@ class TestInventorySkip(unittest.TestCase):
             visible_objects=[],
             visible_characters=[],
             inventory=[],
-            important_messages=[],
             in_combat=False,  # Default value
         )
 

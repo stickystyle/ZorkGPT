@@ -57,7 +57,6 @@ class TestInventorySyncFix:
                 exits=[],
                 visible_objects=[],
                 visible_characters=[],
-                important_messages=[],
                 in_combat=False,
             )
 

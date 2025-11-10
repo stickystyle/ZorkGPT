@@ -69,8 +69,7 @@ Extract the following with equal attention to detail:
 1. **exits**: List ALL available exits and potential passages (see comprehensive rules above)
 2. **visible_objects**: Significant interactive objects (exclude basic scenery unless notable)
 3. **visible_characters**: Any creatures, people, or characters present
-4. **important_messages**: Key information from the game response (action results, alerts, descriptions)
-5. **in_combat**: Boolean indicating active combat or immediate threat
+4. **in_combat**: Boolean indicating active combat or immediate threat
 
 ### Combat State Persistence Rules
 Combat is a **persistent state** that continues across multiple turns until explicitly resolved. Follow these guidelines:
@@ -159,7 +158,6 @@ Provide a JSON object with exactly these fields:
   "exits": ["list", "of", "all", "exits", "and", "passages"],
   "visible_objects": ["significant", "objects"],
   "visible_characters": ["any", "characters"],
-  "important_messages": ["key", "messages", "from", "game"],
   "in_combat": false,
   "is_room_description": false
 }
@@ -178,7 +176,6 @@ Output:
   "exits": ["north", "south", "east"],
   "visible_objects": ["small mailbox", "white house", "boarded front door"],
   "visible_characters": [],
-  "important_messages": ["You are in an open field west of a big white house with a boarded front door.", "There is a small mailbox here."],
   "in_combat": false,
   "is_room_description": true
 }
@@ -194,7 +191,6 @@ Output:
   "exits": ["north", "window", "path"],
   "visible_objects": ["white house", "window", "path"],
   "visible_characters": [],
-  "important_messages": ["You are behind the white house.", "In one corner of the house there is a window which is slightly ajar.", "To the north is a path leading into the forest."],
   "in_combat": false,
   "is_room_description": true
 }
@@ -210,7 +206,6 @@ Output:
   "exits": [],
   "visible_objects": [],
   "visible_characters": [],
-  "important_messages": ["Taken."],
   "in_combat": false,
   "is_room_description": false
 }
@@ -226,7 +221,6 @@ Output:
   "exits": ["down", "ladder", "east", "window", "floorboard"],
   "visible_objects": ["wooden ladder", "small window", "loose floorboard", "garden"],
   "visible_characters": [],
-  "important_messages": ["You are in a dusty attic.", "There is a wooden ladder leading down to the kitchen.", "A small window overlooks the garden to the east.", "In the corner, you notice a loose floorboard."],
   "in_combat": false,
   "is_room_description": true
 }

@@ -90,7 +90,7 @@ The previous architecture used **dfrotz** (a terminal-based Z-machine interprete
   - `_get_visible_objects_from_jericho()` - Objects in current room
   - `_get_visible_characters_from_jericho()` - NPCs in current room
   - `_get_score_from_jericho()` - Score and move count
-- LLM parsing now only handles exits, combat, and important messages
+- LLM parsing now only handles exits, combat, and room description detection
 - Extractor response includes both Z-machine and LLM data
 
 **Result:**
