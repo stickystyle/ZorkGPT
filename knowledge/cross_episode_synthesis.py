@@ -155,7 +155,15 @@ def synthesize_inter_episode_wisdom(
             death_analysis += "\n"
 
     # Create synthesis prompt
-    prompt = f"""Analyze this completed Zork episode and update the CROSS-EPISODE INSIGHTS section with key learnings that should carry forward to future episodes.
+    prompt = f"""Analyze this completed Zork episode and update the CROSS-EPISODE INSIGHTS section with UNIVERSAL strategic wisdom that persists across future episodes.
+
+ARCHITECTURE REMINDER:
+- **Memory System** handles location-specific procedures (e.g., "At Behind House, enter window")
+- **Loop Break System** terminates stuck episodes (20+ turns no score) - NOT a game mechanic
+- **Objective System** discovers and tracks goals automatically
+- **Map System** manages spatial navigation and connections
+
+CROSS-EPISODE INSIGHTS should contain ONLY universal strategic wisdom that applies regardless of location.
 
 **CURRENT EPISODE SUMMARY:**
 - Episode ID: {episode_id}
@@ -177,27 +185,57 @@ def synthesize_inter_episode_wisdom(
 
 **SYNTHESIS TASK:**
 
-Update the CROSS-EPISODE INSIGHTS section with the most critical learnings from this episode that should persist across future episodes. Focus on:
+Update the CROSS-EPISODE INSIGHTS section with universal strategic wisdom validated across episodes. Focus on:
 
-1. **Death Patterns Across Episodes**: If deaths occurred, what specific patterns, locations, or actions consistently lead to death? What environmental cues signal danger?
+1. **Validated Game Mechanics**: Universal rules confirmed across multiple episodes
+   - Parser behaviors that always apply
+   - Object interaction patterns
+   - Scoring mechanics
+   ✅ GOOD: "EXAMINE reveals hidden object properties"
+   ❌ BAD: "Window at Behind House requires opening before entry" (location-specific → Memory System)
 
-2. **Environmental Knowledge**: What persistent facts about the game world were discovered? (Dangerous locations, item behaviors, puzzle mechanics)
+2. **Danger Recognition Patterns**: Warning signals and threat categories (NOT specific instances)
+   - Universal warning text patterns
+   - Danger category awareness
+   - Death mechanic patterns
+   ✅ GOOD: "Dark areas pose dangers - warning text includes 'pitch black'"
+   ❌ BAD: "Troll Room is dangerous" (specific location → Memory System)
+   ❌ BAD: "20 turns without score causes death" (Loop Break timeout, not game mechanic)
 
-3. **Strategic Meta-Patterns**: What approaches proved consistently effective or ineffective across different situations?
+3. **Strategic Meta-Patterns**: Approaches consistently effective/ineffective across situations
+   - Universal exploration strategies
+   - Problem-solving heuristics
+   - Resource management principles
+   ✅ GOOD: "Multi-step procedures exist - verify prerequisites before attempting goals"
+   ❌ BAD: "Always explore forest last" (location-specific tactic)
 
-4. **Major Discoveries**: What major discoveries about game mechanics, hidden areas, or puzzle solutions should be remembered?
+4. **Critical Discoveries**: Game mechanics or parser behaviors discovered
+   - Universal game rules
+   - Parser interpretation patterns
+   - Action categories and properties
+   ✅ GOOD: "Some actions are irreversible (GIVE, THROW, BREAK)"
+   ❌ BAD: "Egg is retrieved by going up from Forest Path" (specific puzzle → Memory System)
 
-**REQUIREMENTS:**
-- Focus on persistent, reusable knowledge rather than episode-specific details
-- Emphasize death avoidance and danger recognition patterns
-- Maintain existing insights while adding new discoveries
-- Remove outdated or contradicted information
-- Keep insights concise but actionable for an AI agent
-- Structure the output with the four subsections above
+**CRITICAL REQUIREMENTS:**
+- **Universal Scope**: ONLY include knowledge applicable regardless of location
+- **Principle Over Instance**: Extract patterns, not specific examples
+- **System Awareness**: Ignore Loop Break timeouts as "mathematical deaths"
+- **No Location Coupling**: If it requires "at Location X", it belongs in Memory System
+- **Cross-Episode Validation**: Confirm patterns observed across multiple episodes
+
+**SCOPE CHECKS:**
+❌ If mentions specific locations by name → Memory System
+❌ If documents "mathematical crisis/death" → Loop Break timeout
+❌ If prescribes specific action sequences → Memory System
+❌ If only relevant at one location → Memory System
+✅ If universal principle applicable anywhere → Cross-Episode Insights
+✅ If game mechanic confirmed across episodes → Cross-Episode Insights
+✅ If danger category validated → Cross-Episode Insights
 
 **OUTPUT FORMAT:**
 Provide ONLY the updated CROSS-EPISODE INSIGHTS section content (without the ## header).
-If no significant new insights emerged, return the existing content unchanged."""
+Structure with the four subsections above.
+If no significant new universal insights emerged, return existing content unchanged."""
 
     try:
         response = client.chat.completions.create(
@@ -205,7 +243,28 @@ If no significant new insights emerged, return the existing content unchanged.""
             messages=[
                 {
                     "role": "system",
-                    "content": "You are an expert at extracting persistent strategic wisdom from interactive fiction gameplay that can help AI agents improve across multiple game sessions. Focus on actionable patterns, danger recognition, and cross-episode learning.",
+                    "content": """You are an expert at extracting UNIVERSAL strategic wisdom from interactive fiction gameplay across multiple episodes.
+
+CRITICAL CONTEXT - Other Systems Handle:
+1. **Location-Specific Memory System**: Stores procedural knowledge at specific locations (e.g., "At Behind House, enter window leads to Kitchen")
+2. **Loop Break System**: Programmatically terminates stuck episodes (20+ turns without score) - these are system timeouts, NOT game mechanics
+3. **Objective System**: Discovers and tracks goals automatically
+4. **Map System**: Manages spatial relationships and navigation
+
+YOUR ROLE:
+Extract ONLY universal game mechanics and strategic principles that apply REGARDLESS of location and are validated across multiple episodes.
+
+SCOPE BOUNDARIES:
+✅ INCLUDE: "EXAMINE reveals hidden information" (universal mechanic)
+✅ INCLUDE: "Combat enemies exist" (danger category awareness)
+✅ INCLUDE: "Multi-step procedures exist" (meta-pattern)
+❌ EXCLUDE: "At Behind House, open window then enter window" (location-specific → Memory System)
+❌ EXCLUDE: "Extended exploration causes mathematical death" (Loop Break timeout → System behavior)
+❌ EXCLUDE: "Troll at Troll Room is dangerous" (specific instance → Memory System)
+
+If knowledge requires phrases like "at Location X" or "in Room Y", it belongs in the Memory System instead.
+
+Focus on UNIVERSAL patterns validated across episodes, not location-specific tactics or single-episode observations.""",
                 },
                 {"role": "user", "content": prompt},
             ],
