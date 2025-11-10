@@ -218,6 +218,12 @@ class GameConfiguration(BaseSettings):
         default=10, description="Number of turns before room descriptions age out of context"
     )
 
+    # Critic configuration
+    enable_critic: bool = Field(
+        default=True,
+        description="Enable LLM-based critic evaluation (object tree validation always runs)"
+    )
+
     # Progress Velocity Detection
     max_turns_stuck: int = Field(
         default=40,
@@ -439,6 +445,7 @@ class GameConfiguration(BaseSettings):
             "s3_key_prefix": aws_config.get("s3_key_prefix"),
             # Gameplay settings
             "critic_rejection_threshold": gameplay_config.get("critic_rejection_threshold"),
+            "enable_critic": gameplay_config.get("enable_critic", True),
             "min_knowledge_quality": gameplay_config.get("min_knowledge_quality"),
             "enable_exit_pruning": gameplay_config.get("enable_exit_pruning"),
             "exit_failure_threshold": gameplay_config.get("exit_failure_threshold"),

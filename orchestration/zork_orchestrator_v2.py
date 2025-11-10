@@ -122,6 +122,7 @@ class ZorkOrchestratorV2:
                 "game_file_path": self.config.game_file_path,
                 "agent_model": self.config.agent_model,
                 "critic_model": self.config.critic_model,
+                "critic_enabled": self.config.enable_critic,
                 "info_ext_model": self.config.info_ext_model,
                 "max_turns": self.config.max_turns_per_episode,
             },
@@ -973,17 +974,41 @@ class ZorkOrchestratorV2:
                 enhanced_current_state = current_state
 
             # Initial critic evaluation (with exploration hints influencing evaluation)
-            critic_result = self.critic.evaluate_action(
-                game_state_text=enhanced_current_state,
-                proposed_action=proposed_action,
-                available_exits=critic_context.get("available_exits", []),
-                action_counts=self.game_state.action_counts,
-                current_location_name=self.game_state.current_room_name_for_map,
-                failed_actions_by_location=self.game_state.failed_actions_by_location,
-                previous_actions_and_responses=self.game_state.action_history[-3:],
-                jericho_interface=self.jericho_interface,
-                inventory=self.game_state.current_inventory,
-            )
+            if self.config.enable_critic:
+                # Run full LLM-based critic evaluation
+                critic_result = self.critic.evaluate_action(
+                    game_state_text=enhanced_current_state,
+                    proposed_action=proposed_action,
+                    available_exits=critic_context.get("available_exits", []),
+                    action_counts=self.game_state.action_counts,
+                    current_location_name=self.game_state.current_room_name_for_map,
+                    failed_actions_by_location=self.game_state.failed_actions_by_location,
+                    previous_actions_and_responses=self.game_state.action_history[-3:],
+                    jericho_interface=self.jericho_interface,
+                    inventory=self.game_state.current_inventory,
+                )
+            else:
+                # Critic disabled - run object tree validation only
+                from zork_critic import CriticResponse
+                validation_result = self.critic.validate_against_object_tree(
+                    proposed_action,
+                    self.jericho_interface
+                )
+
+                if not validation_result.valid:
+                    # Object tree rejected - return rejection with validation reason
+                    critic_result = CriticResponse(
+                        score=0.0,
+                        justification=f"[Object Tree Validation] {validation_result.reason}",
+                        confidence=validation_result.confidence
+                    )
+                else:
+                    # Object tree passed - auto-accept
+                    critic_result = CriticResponse(
+                        score=1.0,
+                        justification="Critic disabled - action accepted (passed object tree validation)",
+                        confidence=1.0
+                    )
 
             # Track initial attempt (if tracing)
             if attempt_details is not None:
@@ -1222,17 +1247,41 @@ class ZorkOrchestratorV2:
                     enhanced_current_state = current_state
 
                 # Re-evaluate new action (with exploration hints)
-                critic_result = self.critic.evaluate_action(
-                    game_state_text=enhanced_current_state,
-                    proposed_action=action_to_take,
-                    available_exits=critic_context.get("available_exits", []),
-                    action_counts=self.game_state.action_counts,
-                    current_location_name=self.game_state.current_room_name_for_map,
-                    failed_actions_by_location=self.game_state.failed_actions_by_location,
-                    previous_actions_and_responses=self.game_state.action_history[-3:],
-                    jericho_interface=self.jericho_interface,
-                    inventory=self.game_state.current_inventory,
-                )
+                if self.config.enable_critic:
+                    # Run full LLM-based critic evaluation
+                    critic_result = self.critic.evaluate_action(
+                        game_state_text=enhanced_current_state,
+                        proposed_action=action_to_take,
+                        available_exits=critic_context.get("available_exits", []),
+                        action_counts=self.game_state.action_counts,
+                        current_location_name=self.game_state.current_room_name_for_map,
+                        failed_actions_by_location=self.game_state.failed_actions_by_location,
+                        previous_actions_and_responses=self.game_state.action_history[-3:],
+                        jericho_interface=self.jericho_interface,
+                        inventory=self.game_state.current_inventory,
+                    )
+                else:
+                    # Critic disabled - run object tree validation only
+                    from zork_critic import CriticResponse
+                    validation_result = self.critic.validate_against_object_tree(
+                        action_to_take,
+                        self.jericho_interface
+                    )
+
+                    if not validation_result.valid:
+                        # Object tree rejected - return rejection with validation reason
+                        critic_result = CriticResponse(
+                            score=0.0,
+                            justification=f"[Object Tree Validation] {validation_result.reason}",
+                            confidence=validation_result.confidence
+                        )
+                    else:
+                        # Object tree passed - auto-accept
+                        critic_result = CriticResponse(
+                            score=1.0,
+                            justification="Critic disabled - action accepted (passed object tree validation)",
+                            confidence=1.0
+                        )
 
                 # Track re-evaluation (if tracing)
                 if attempt_details is not None:
@@ -1411,8 +1460,9 @@ class ZorkOrchestratorV2:
         self.game_state.action_counts[action_to_take] += 1
 
         # Log final action selection (for knowledge manager compatibility)
+        critic_status = "enabled" if self.config.enable_critic else "disabled"
         self.logger.info(
-            f"SELECTED ACTION: {action_to_take} (Score: {final_critic_score:.2f}, Confidence: {final_critic_confidence:.2f}, Override: {was_overridden})",
+            f"SELECTED ACTION: {action_to_take} (Score: {final_critic_score:.2f}, Confidence: {final_critic_confidence:.2f}, Override: {was_overridden}, Critic: {critic_status})",
             extra={
                 "event_type": "final_action_selection",
                 "episode_id": self.game_state.episode_id,
@@ -1422,6 +1472,7 @@ class ZorkOrchestratorV2:
                 "critic_score": final_critic_score,
                 "critic_confidence": final_critic_confidence,
                 "was_overridden": was_overridden,
+                "critic_enabled": self.config.enable_critic,
             },
         )
 

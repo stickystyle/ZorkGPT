@@ -121,6 +121,7 @@ turn_delay_seconds = 3.0
 turn_window_size = 100
 min_knowledge_quality = 6.0
 critic_rejection_threshold = -0.2  # More permissive from -0.05 to allow more experimentation
+enable_critic = true  # Toggle LLM critic evaluation (object tree validation always runs)
 # Exit pruning configuration
 enable_exit_pruning = true
 exit_failure_threshold = 2  # Reduced from 3 to more quickly abandon failed directions
