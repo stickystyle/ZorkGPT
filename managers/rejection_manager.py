@@ -119,8 +119,9 @@ class RejectionManager(BaseManager):
 
         # Check parser responses for actual failures
         actual_failures = 0
-        for action_taken, response in previous_actions_and_responses[-5:]:
-            response_lower = response.lower()
+        for entry in previous_actions_and_responses[-5:]:
+            # entry is an ActionHistoryEntry object, not a tuple
+            response_lower = entry.response.lower()
             if any(
                 phrase in response_lower
                 for phrase in [
