@@ -164,14 +164,6 @@ class GameConfiguration(BaseSettings):
         default=True, description="Include location-specific memories in completion context"
     )
 
-    # Context management
-    max_context_tokens: int = Field(
-        default=40000, description="Maximum context tokens for LLM calls"
-    )
-    context_overflow_threshold: float = Field(
-        default=0.6, description="Threshold for triggering context overflow handling"
-    )
-
     # State export
     enable_state_export: bool = Field(
         default=True, description="Enable state export functionality"
@@ -431,9 +423,6 @@ class GameConfiguration(BaseSettings):
             "completion_check_interval": objective_completion_config.get("check_interval", 1),
             "completion_history_window": objective_completion_config.get("history_window", 3),
             "completion_include_memories": objective_completion_config.get("include_memories", True),
-            # Context management
-            "max_context_tokens": orchestrator_config.get("max_context_tokens"),
-            "context_overflow_threshold": orchestrator_config.get("context_overflow_threshold"),
             # State export
             "enable_state_export": orchestrator_config.get("enable_state_export"),
             "s3_key_prefix": aws_config.get("s3_key_prefix"),

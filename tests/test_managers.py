@@ -61,9 +61,6 @@ class TestBaseManagerSetup:
             objective_refinement_interval=200,
             max_objectives_before_forced_refinement=15,
             refined_objectives_target_count=10,
-            # Context management
-            max_context_tokens=100000,
-            context_overflow_threshold=0.8,
             # State export
             enable_state_export=True,
             s3_bucket="test-bucket",
@@ -421,50 +418,6 @@ class TestStateManager(TestBaseManagerSetup):
     def test_initialization(self, state_manager):
         """Test that StateManager initializes correctly."""
         assert state_manager.component_name == "state_manager"
-        assert state_manager.last_summarization_turn == 0
-
-    def test_estimate_context_tokens(self, state_manager, game_state):
-        """Test context token estimation."""
-        # Add some test data
-        game_state.memory_log_history = [{"test": "data"}, {"more": "data"}]
-        game_state.action_history = [
-            ("look", "You see a room"),
-            ("north", "You move north"),
-        ]
-
-        tokens = state_manager.estimate_context_tokens()
-        assert tokens > 0
-
-    def test_is_critical_memory(self, state_manager):
-        """Test critical memory detection."""
-        # Score increase should be critical
-        memory_with_score = {"score": 10}
-        assert state_manager.is_critical_memory(memory_with_score)
-
-        # Death event should be critical
-        memory_with_death = {"text": "You died horribly"}
-        assert state_manager.is_critical_memory(memory_with_death)
-
-        # Normal memory should not be critical
-        normal_memory = {"text": "You look around"}
-        assert not state_manager.is_critical_memory(normal_memory)
-
-        # Non-dict should not be critical
-        assert not state_manager.is_critical_memory("not a dict")
-
-    def test_generate_fallback_summary(self, state_manager, game_state):
-        """Test fallback summary generation."""
-        game_state.episode_id = "test_123"
-        game_state.turn_count = 50
-        game_state.previous_zork_score = 25
-        game_state.current_room_name_for_map = "Test Room"
-
-        summary = state_manager.generate_fallback_summary()
-
-        assert "test_123" in summary
-        assert "50" in summary
-        assert "25" in summary
-        assert "Test Room" in summary
 
     def test_get_combat_status(self, state_manager, game_state):
         """Test combat status detection."""
