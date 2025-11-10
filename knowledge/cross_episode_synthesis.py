@@ -141,24 +141,23 @@ def synthesize_inter_episode_wisdom(
     )
 
     # Prepare death event analysis if applicable
+    # CRITICAL: Check Loop Break FIRST, regardless of deaths, to prevent documenting system timeouts as game mechanics
     death_analysis = ""
-    if episode_ended_in_death or turn_data.get("death_events"):
-        # Check if episode ended in Loop Break timeout (system behavior, not game mechanic)
-        if episode_ended_in_loop_break(episode_id, workdir=str(Path(output_file).parent)):
-            death_analysis = "\n\nNOTE: Episode ended in Loop Break timeout (system terminated stuck episode). No death analysis - this is not a game mechanic.\n"
-        else:
-            death_analysis = "\n\nDEATH EVENT ANALYSIS:\n"
-            for event in turn_data.get("death_events", []):
-                death_analysis += (
-                    f"Episode {episode_id}, Turn {event['turn']}: {event['reason']}\n"
-                )
-                if event.get("death_context"):
-                    death_analysis += f"- Context: {event['death_context']}\n"
-                if event.get("death_location"):
-                    death_analysis += f"- Location: {event['death_location']}\n"
-                if event.get("action_taken"):
-                    death_analysis += f"- Fatal action: {event['action_taken']}\n"
-                death_analysis += "\n"
+    if episode_ended_in_loop_break(episode_id, workdir=str(Path(output_file).parent)):
+        death_analysis = "\n\n**IMPORTANT**: Episode ended in Loop Break timeout (system terminated stuck episode after 20+ turns without progress). This is NOT a game mechanic - it's a programmatic safety measure. Do not extract insights about this timeout.\n"
+    elif episode_ended_in_death or turn_data.get("death_events"):
+        death_analysis = "\n\nDEATH EVENT ANALYSIS:\n"
+        for event in turn_data.get("death_events", []):
+            death_analysis += (
+                f"Episode {episode_id}, Turn {event['turn']}: {event['reason']}\n"
+            )
+            if event.get("death_context"):
+                death_analysis += f"- Context: {event['death_context']}\n"
+            if event.get("death_location"):
+                death_analysis += f"- Location: {event['death_location']}\n"
+            if event.get("action_taken"):
+                death_analysis += f"- Fatal action: {event['action_taken']}\n"
+            death_analysis += "\n"
 
     # Create synthesis prompt
     prompt = f"""Analyze this completed Zork episode and update the CROSS-EPISODE INSIGHTS section with UNIVERSAL strategic wisdom that persists across future episodes.
