@@ -324,36 +324,44 @@ CURRENT STATE:
 
 Based on ALL of this context, identify objectives that:
 
-1. **Align with strategic knowledge**
+1. **Check current inventory FIRST**
+   - NEVER create objectives to acquire items already in inventory
+   - Memories may be outdated (e.g., "lantern on trophy case" when already taken)
+   - Always verify item is NOT in current inventory before creating acquisition objective
+   - If strategic knowledge mentions an item priority, check if we already have it
+
+2. **Align with strategic knowledge**
    - Avoid known dangers mentioned in knowledge base
    - Pursue known high-value goals (treasures, puzzle solutions)
    - Follow resource priority guidance (lantern > axe > sack)
    - Apply learned command patterns and syntax
 
-2. **Leverage location-specific memories**
+3. **Leverage location-specific memories**
    - Use known procedures from current or adjacent locations
    - Example: "Memory shows window entry sequence at Location 79 → create objective to use it"
    - Build on previous discoveries rather than rediscovering
 
-3. **Address exploration opportunities**
+4. **Address exploration opportunities**
    - Prioritize unexplored exits shown in map
    - Investigate adjacent rooms with interesting memories
-   - Example: "Adjacent Location 81 has lantern memory → objective to go north and investigate"
+   - Example: "Adjacent Location 81 has interesting memory → objective to go north and investigate"
 
-4. **Build on recent gameplay patterns**
+5. **Build on recent gameplay patterns**
    - Continue successful strategies from recent actions
    - Learn from recent failures or obstacles
 
 **Good Objective Examples:**
 ✅ "Use window entry procedure from Location 79 memory (open window → enter window) to access Location 62 (Kitchen)"
 ✅ "Avoid troll encounter at Location 152 (knowledge warns: requires specific item or combat)"
-✅ "Explore north to Location 81 (adjacent room with unexplored exits, lantern mentioned in memory)"
-✅ "Secure brass lantern before dark areas (knowledge priority: light source critical)"
+✅ "Explore north to Location 81 (adjacent room with unexplored exits)"
+✅ "Use brass lantern to explore dark areas (already in inventory, ready to use)"
 
 **Bad Objective Examples:**
 ❌ "Explore the house" (too vague, no location IDs)
 ❌ "Get items" (no specifics, doesn't leverage context)
 ❌ "Try random actions" (ignores knowledge and memories)
+❌ "Secure brass lantern from Location 193" (brass lantern already in inventory)
+❌ "Acquire the rope" (rope already in inventory, check current state)
 
 **IMPORTANT**:
 - Use location IDs when referencing locations (e.g., "Location 79", not just "behind house")

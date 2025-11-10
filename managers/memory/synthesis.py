@@ -18,18 +18,28 @@ SYNTHESIS_PROMPT_HEADER = """Location: {location_name} (ID: {location_id})
 
 Before remembering ANYTHING, compare against existing memories above.
 
-These are SEMANTICALLY DUPLICATE (DO NOT remember):
+EXACT DUPLICATES - DO NOT remember if SAME title already exists:
+  ❌ "Platinum bar in Loud Room" (already exists above)
+  ❌ "Brass lantern on trophy case" (already exists above)
+  ❌ "Large tree with low branches" (already exists above)
+  ⚠️  RULE: If you see the SAME object/situation again, it's just a re-observation.
+      DO NOT create duplicate memories for re-observing the same persistent object.
+
+SEMANTICALLY DUPLICATE - DO NOT remember paraphrases:
   ❌ "Leaflet reveals message" vs "Leaflet provides message"
   ❌ "Mailbox contains leaflet" vs "Leaflet found in mailbox"
   ❌ "Egg can be taken" vs "Taking egg succeeds"
+  ❌ "Platinum bar is in Loud Room" vs "Platinum bar in Loud Room"
+  ❌ "Large tree has low branches" vs "Large tree with low branches"
 
-These are NOT ACTIONABLE - handled by MapGraph (DO NOT remember):
+NOT ACTIONABLE - handled by MapGraph (DO NOT remember):
   ❌ "Forest path leads north south" (exit information)
   ❌ "Path accessible from north house" (room connections)
   ❌ "Canyon View location discovered" (location tracking)
   ❌ "Can go west from here" (navigation)
 
-Only remember if this provides NEW actionable information not semantically captured above.
+✅ ONLY remember if this provides NEW actionable information not captured above.
+✅ Re-visiting a location and seeing the same objects? → should_remember: false
 ═══════════════════════════════════════════════════════════════
 
 CONTRADICTION CHECK:

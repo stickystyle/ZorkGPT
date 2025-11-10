@@ -244,9 +244,10 @@ class SimpleMemoryManager(BaseManager):
         - Core/Permanent memories: Written to file AND added to memory_cache
 
         This method:
-        1. Routes based on memory.persistence value
-        2. Ephemeral: In-memory only (ephemeral_cache)
-        3. Core/Permanent: File write with lock, backup, and atomic write (via file_writer)
+        1. Checks for exact duplicate titles (safety net for LLM hallucination)
+        2. Routes based on memory.persistence value
+        3. Ephemeral: In-memory only (ephemeral_cache)
+        4. Core/Permanent: File write with lock, backup, and atomic write (via file_writer)
 
         Args:
             location_id: Integer location ID from Z-machine
@@ -256,6 +257,27 @@ class SimpleMemoryManager(BaseManager):
         Returns:
             True if successful, False if operation failed
         """
+        # SAFETY NET: Check for exact duplicate titles before adding
+        # This prevents LLM hallucination from creating duplicate memories
+        # despite deduplication instructions in synthesis prompt
+        existing_memories = self.cache_manager.get_from_cache(
+            location_id,
+            persistent=None,  # Check both caches
+            include_superseded=False  # Only check ACTIVE/TENTATIVE
+        )
+
+        for existing in existing_memories:
+            if existing.title == memory.title:
+                self.log_warning(
+                    f"Rejected duplicate memory: '{memory.title}' already exists at location {location_id}",
+                    location_id=location_id,
+                    location_name=location_name,
+                    title=memory.title,
+                    category=memory.category,
+                    reason="Exact title match - likely LLM re-observation of same object/situation"
+                )
+                return False
+
         # Route based on persistence level
         if memory.persistence == "ephemeral":
             # Ephemeral memories: in-memory only (NOT written to file)
