@@ -231,6 +231,10 @@ class GameConfiguration(BaseSettings):
         ge=1,  # Must be at least 1
         le=100  # Sanity check
     )
+    enable_objective_based_progress: bool = Field(
+        default=True,
+        description="Enable objective completion as a form of progress (alongside score changes)"
+    )
 
     # Location Revisit Penalty (Anti-Loop)
     enable_location_penalty: bool = Field(
@@ -457,6 +461,8 @@ class GameConfiguration(BaseSettings):
             config_dict["max_turns_stuck"] = loop_break_config.get("max_turns_stuck")
         if loop_break_config.get("stuck_check_interval") is not None:
             config_dict["stuck_check_interval"] = loop_break_config.get("stuck_check_interval")
+        if loop_break_config.get("enable_objective_based_progress") is not None:
+            config_dict["enable_objective_based_progress"] = loop_break_config.get("enable_objective_based_progress")
 
         # Add optional location revisit penalty settings (only if present in TOML)
         if loop_break_config.get("enable_location_penalty") is not None:
