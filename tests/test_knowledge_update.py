@@ -395,3 +395,404 @@ class TestRegressionScenarios:
         # Either sliding window logic OR stuck detection can allow the update
         assert "last" in reason.lower() or "unique" in reason.lower(), \
             f"Should reference action variety analysis, got: {reason}"
+
+
+class TestCrossEpisodePreservation:
+    """Test suite for CROSS-EPISODE INSIGHTS preservation during knowledge updates."""
+
+    @pytest.fixture
+    def manager(self, tmp_path):
+        """Create a test manager instance with mocked LLM client."""
+        log_file = tmp_path / "test_log.jsonl"
+        output_file = tmp_path / "test_knowledge.md"
+
+        workdir = tmp_path / "game_files"
+        workdir.mkdir(exist_ok=True)
+
+        # Create test configuration
+        config = GameConfiguration.from_toml()
+
+        # Create manager with mock client
+        mock_client = Mock()
+        manager = AdaptiveKnowledgeManager(
+            config=config,
+            log_file=str(log_file),
+            output_file=str(output_file),
+            logger=Mock(),
+            workdir=str(workdir),
+        )
+        manager.client = mock_client
+        manager.tmp_path = tmp_path  # Store for helper method access
+        return manager
+
+    def write_turn_events_to_log(self, manager, actions, episode_id="test_episode"):
+        """Helper to write turn events to log file."""
+        import json
+        from pathlib import Path
+
+        # Write to episode-specific log file (workdir/episodes/episode_id/episode_log.jsonl)
+        episode_dir = Path(manager.workdir) / "episodes" / episode_id
+        episode_dir.mkdir(parents=True, exist_ok=True)
+        episode_log = episode_dir / "episode_log.jsonl"
+
+        with open(episode_log, "w", encoding="utf-8") as f:
+            for i, action in enumerate(actions, start=1):
+                # Write final_action_selection event
+                action_event = {
+                    "event_type": "final_action_selection",
+                    "episode_id": episode_id,
+                    "turn": i,
+                    "agent_action": action,
+                    "agent_reasoning": f"Reasoning for {action}",
+                    "critic_score": 0.5,
+                }
+                f.write(json.dumps(action_event) + "\n")
+
+                # Write zork_response event
+                response_event = {
+                    "event_type": "zork_response",
+                    "episode_id": episode_id,
+                    "turn": i,
+                    "action": action,
+                    # Vary responses to pass uniqueness check
+                    "zork_response": f"Response {i} to {action} with meaningful content here that is long enough to pass the quality check which requires at least 100 total characters across all responses.",
+                }
+                f.write(json.dumps(response_event) + "\n")
+
+            # Add score change event to ensure quality check passes
+            score_event = {
+                "event_type": "score_change",
+                "episode_id": episode_id,
+                "turn": 10,
+                "from_score": 0,
+                "to_score": 5,
+                "change": 5,
+            }
+            f.write(json.dumps(score_event) + "\n")
+
+    def create_turn_data(self, actions_list, episode_id="test_episode"):
+        """Helper to create valid turn_data."""
+        turn_data = {
+            "episode_id": episode_id,
+            "start_turn": 1,
+            "end_turn": len(actions_list),
+            "actions_and_responses": [],
+            "score_changes": [],
+            "location_changes": [],
+            "death_events": [],
+        }
+
+        for i, action in enumerate(actions_list, start=1):
+            turn_data["actions_and_responses"].append({
+                "turn": i,
+                "action": action,
+                "reasoning": f"Reasoning for {action}",
+                "critic_score": 0.5,
+                "response": f"Response to {action} with meaningful content here that is long enough",
+            })
+
+        return turn_data
+
+    def test_cross_episode_insights_preserved_during_update(self, manager, tmp_path):
+        """
+        Verify CROSS-EPISODE INSIGHTS section is preserved during knowledge updates.
+
+        When update_knowledge_from_turns() is called, the existing CROSS-EPISODE
+        INSIGHTS section should be:
+        1. Extracted from existing knowledge
+        2. Removed before LLM generation
+        3. Restored after LLM generation
+        """
+        # Setup: Create existing knowledge with CROSS-EPISODE INSIGHTS
+        existing_knowledge = """# Zork Game World Knowledge Base
+
+## DANGERS & THREATS
+Grue attacks in dark locations.
+
+## CROSS-EPISODE INSIGHTS
+**IMPORTANT CROSS-EPISODE WISDOM**
+This content should be preserved exactly.
+It represents validated patterns from multiple episodes.
+
+## STRATEGIC PATTERNS
+Examine before taking objects.
+"""
+
+        # Write existing knowledge to file
+        with open(manager.output_file, "w", encoding="utf-8") as f:
+            f.write(existing_knowledge)
+
+        # Mock LLM to return knowledge WITH a CROSS-EPISODE section (should be removed)
+        llm_generated_knowledge = """# Zork Game World Knowledge Base
+
+## DANGERS & THREATS
+Grue attacks in dark locations - UPDATED BY LLM.
+
+## CROSS-EPISODE INSIGHTS
+LLM tried to regenerate this section - should be ignored.
+
+## STRATEGIC PATTERNS
+Examine before taking objects - UPDATED BY LLM.
+"""
+
+        # Mock anthropic-style response (response.content.strip())
+        mock_response = Mock()
+        mock_response.content = llm_generated_knowledge
+        manager.client.chat.completions.create = Mock(return_value=mock_response)
+
+        # Create mock turn data by writing to log file
+        actions = [f"action_{i}" for i in range(20)]
+        self.write_turn_events_to_log(manager, actions)
+
+        # Execute update
+        result = manager.update_knowledge_from_turns("test_episode", 1, 20)
+
+        assert result, "Update should succeed"
+
+        # Verify: Read final knowledge
+        with open(manager.output_file, "r", encoding="utf-8") as f:
+            final_knowledge = f.read()
+
+        # ORIGINAL CROSS-EPISODE content should be present
+        assert "IMPORTANT CROSS-EPISODE WISDOM" in final_knowledge, \
+            "Original CROSS-EPISODE content should be preserved"
+        assert "validated patterns from multiple episodes" in final_knowledge, \
+            "Original CROSS-EPISODE content should be preserved exactly"
+
+        # LLM's CROSS-EPISODE content should NOT be present
+        assert "LLM tried to regenerate" not in final_knowledge, \
+            "LLM-generated CROSS-EPISODE section should be removed"
+
+        # LLM updates to OTHER sections should be present
+        assert "UPDATED BY LLM" in final_knowledge, \
+            "LLM updates to other sections should be preserved"
+
+    def test_cross_episode_preservation_with_missing_section(self, manager):
+        """
+        Verify behavior when existing knowledge has no CROSS-EPISODE INSIGHTS.
+
+        When there's no existing CROSS-EPISODE section:
+        1. No section is extracted
+        2. LLM generation proceeds normally
+        3. No section is restored
+        4. Final knowledge should not have CROSS-EPISODE section
+        """
+        # Setup: Create existing knowledge WITHOUT CROSS-EPISODE INSIGHTS
+        existing_knowledge = """# Zork Game World Knowledge Base
+
+## DANGERS & THREATS
+Grue attacks in dark locations.
+
+## STRATEGIC PATTERNS
+Examine before taking objects.
+"""
+
+        with open(manager.output_file, "w", encoding="utf-8") as f:
+            f.write(existing_knowledge)
+
+        # Mock LLM to return knowledge without CROSS-EPISODE section
+        llm_generated_knowledge = """# Zork Game World Knowledge Base
+
+## DANGERS & THREATS
+Grue attacks in dark locations - UPDATED.
+
+## STRATEGIC PATTERNS
+Examine before taking objects - UPDATED.
+"""
+
+        # Mock anthropic-style response (response.content.strip())
+        mock_response = Mock()
+        mock_response.content = llm_generated_knowledge
+        manager.client.chat.completions.create = Mock(return_value=mock_response)
+
+        # Write turn events to log
+        actions = [f"action_{i}" for i in range(20)]
+        self.write_turn_events_to_log(manager, actions)
+
+        # Execute update
+        result = manager.update_knowledge_from_turns("test_episode", 1, 20)
+
+        assert result, "Update should succeed"
+
+        # Verify: No CROSS-EPISODE section in final knowledge
+        with open(manager.output_file, "r", encoding="utf-8") as f:
+            final_knowledge = f.read()
+
+        assert "## CROSS-EPISODE INSIGHTS" not in final_knowledge, \
+            "Should not have CROSS-EPISODE section when none existed before"
+
+    def test_llm_generates_cross_episode_section_is_removed(self, manager):
+        """
+        Verify that even if LLM generates CROSS-EPISODE section, it's removed.
+
+        This is the defensive programming test: LLM might generate CROSS-EPISODE
+        despite being told not to. We should remove it and restore the original.
+        """
+        # Setup: Existing knowledge with CROSS-EPISODE
+        existing_knowledge = """# Zork Game World Knowledge Base
+
+## DANGERS & THREATS
+Grue attacks in dark locations.
+
+## CROSS-EPISODE INSIGHTS
+Original wisdom that must be preserved.
+
+## STRATEGIC PATTERNS
+Examine before taking objects.
+"""
+
+        with open(manager.output_file, "w", encoding="utf-8") as f:
+            f.write(existing_knowledge)
+
+        # Mock LLM to return knowledge WITH a CROSS-EPISODE section
+        # (even though prompt tells it not to)
+        llm_generated_knowledge = """# Zork Game World Knowledge Base
+
+## DANGERS & THREATS
+Grue attacks in dark locations - UPDATED.
+
+## CROSS-EPISODE INSIGHTS
+LLM ignored the instruction and generated this anyway.
+
+## STRATEGIC PATTERNS
+Examine before taking objects - UPDATED.
+
+## CROSS-EPISODE INSIGHTS
+LLM even generated it twice somehow.
+"""
+
+        # Mock anthropic-style response (response.content.strip())
+        mock_response = Mock()
+        mock_response.content = llm_generated_knowledge
+        manager.client.chat.completions.create = Mock(return_value=mock_response)
+
+        # Write turn events to log
+        actions = [f"action_{i}" for i in range(20)]
+        self.write_turn_events_to_log(manager, actions)
+
+        # Execute update
+        result = manager.update_knowledge_from_turns("test_episode", 1, 20)
+
+        assert result, "Update should succeed"
+
+        # Verify: Final knowledge has ONLY the original CROSS-EPISODE content
+        with open(manager.output_file, "r", encoding="utf-8") as f:
+            final_knowledge = f.read()
+
+        # Should have ORIGINAL content
+        assert "Original wisdom that must be preserved" in final_knowledge
+
+        # Should NOT have LLM-generated content
+        assert "LLM ignored the instruction" not in final_knowledge
+        assert "LLM even generated it twice" not in final_knowledge
+
+        # Should only appear once
+        assert final_knowledge.count("## CROSS-EPISODE INSIGHTS") == 1, \
+            "CROSS-EPISODE section should appear exactly once"
+
+    def test_empty_existing_knowledge_first_update(self, manager):
+        """
+        Verify behavior on first knowledge update (no existing file).
+
+        When there's no existing knowledge file:
+        1. No section is extracted (empty)
+        2. LLM generation proceeds normally
+        3. No section is restored
+        4. Final knowledge should not have CROSS-EPISODE section
+        """
+        # No existing file (first update)
+        import os
+        assert not os.path.exists(manager.output_file), "Should start with no existing file"
+
+        # Mock LLM to return initial knowledge
+        llm_generated_knowledge = """# Zork Game World Knowledge Base
+
+## DANGERS & THREATS
+Grue attacks in dark locations.
+
+## STRATEGIC PATTERNS
+Examine before taking objects.
+"""
+
+        # Mock anthropic-style response (response.content.strip())
+        mock_response = Mock()
+        mock_response.content = llm_generated_knowledge
+        manager.client.chat.completions.create = Mock(return_value=mock_response)
+
+        # Write turn events to log
+        actions = [f"action_{i}" for i in range(20)]
+        self.write_turn_events_to_log(manager, actions)
+
+        # Execute update
+        result = manager.update_knowledge_from_turns("test_episode", 1, 20)
+
+        assert result, "First update should succeed"
+
+        # Verify: Knowledge written correctly
+        with open(manager.output_file, "r", encoding="utf-8") as f:
+            final_knowledge = f.read()
+
+        assert "## DANGERS & THREATS" in final_knowledge
+        assert "## STRATEGIC PATTERNS" in final_knowledge
+        assert "## CROSS-EPISODE INSIGHTS" not in final_knowledge, \
+            "First update should not have CROSS-EPISODE section"
+
+    def test_preservation_logging(self, manager):
+        """
+        Verify that preservation and restoration are logged.
+
+        Should see debug logs for:
+        1. Preserving CROSS-EPISODE INSIGHTS
+        2. Restoring CROSS-EPISODE INSIGHTS
+        """
+        # Setup: Existing knowledge with CROSS-EPISODE
+        existing_knowledge = """# Zork Game World Knowledge Base
+
+## DANGERS & THREATS
+Grue attacks in dark locations.
+
+## CROSS-EPISODE INSIGHTS
+Wisdom to preserve.
+
+## STRATEGIC PATTERNS
+Examine before taking objects.
+"""
+
+        with open(manager.output_file, "w", encoding="utf-8") as f:
+            f.write(existing_knowledge)
+
+        # Mock LLM
+        llm_generated_knowledge = """# Zork Game World Knowledge Base
+
+## DANGERS & THREATS
+Updated dangers.
+
+## STRATEGIC PATTERNS
+Updated patterns.
+"""
+
+        # Mock anthropic-style response (response.content.strip())
+        mock_response = Mock()
+        mock_response.content = llm_generated_knowledge
+        manager.client.chat.completions.create = Mock(return_value=mock_response)
+
+        # Write turn events to log
+        actions = [f"action_{i}" for i in range(20)]
+        self.write_turn_events_to_log(manager, actions)
+
+        # Execute update
+        result = manager.update_knowledge_from_turns("test_episode", 1, 20)
+
+        assert result, "Update should succeed"
+
+        # Verify logging calls
+        assert manager.logger.debug.called, "Should have debug log calls"
+
+        # Check for preservation and restoration logs
+        debug_calls = [str(call) for call in manager.logger.debug.call_args_list]
+        debug_messages = " ".join(debug_calls)
+
+        assert "Preserving CROSS-EPISODE INSIGHTS" in debug_messages, \
+            "Should log preservation"
+        assert "Restored CROSS-EPISODE INSIGHTS" in debug_messages, \
+            "Should log restoration"

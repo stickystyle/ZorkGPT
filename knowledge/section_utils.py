@@ -78,6 +78,32 @@ def update_section_content(
         return f"{knowledge_content}\n\n{section_header}\n\n{new_content}\n"
 
 
+def remove_section(knowledge_content: str, section_name: str) -> str:
+    """
+    Remove a section from knowledge base content.
+
+    Args:
+        knowledge_content: Full knowledge base markdown content
+        section_name: Name of section to remove (without ## prefix)
+
+    Returns:
+        Knowledge content with specified section removed
+    """
+    if not knowledge_content:
+        return ""
+
+    # Use regex pattern to match section header and all content until next section or end
+    pattern = rf"## {re.escape(section_name)}(.*?)(?=\n## |$)"
+
+    # Remove the section (replaces with empty string)
+    result = re.sub(pattern, "", knowledge_content, flags=re.DOTALL)
+
+    # Clean up any resulting multiple consecutive newlines (more than 2)
+    result = re.sub(r'\n{3,}', '\n\n', result)
+
+    return result
+
+
 def extract_cross_episode_section(knowledge_content: str) -> str:
     """
     Extract the CROSS-EPISODE INSIGHTS section from existing knowledge base.

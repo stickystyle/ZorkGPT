@@ -265,13 +265,7 @@ FOCUS: Extract the PRINCIPLE, not the instance.
 EXAMPLE: "Multi-step procedures revealed through examining objects" NOT "Window requires open then enter"
 
 ## CROSS-EPISODE INSIGHTS
-Persistent strategic wisdom validated across multiple episodes:
-- **Validated Game Mechanics**: Universal rules confirmed across multiple episodes
-- **Danger Recognition Patterns**: Warning signals and threat categories proven reliable
-- **Strategic Meta-Patterns**: Approaches consistently effective/ineffective across different situations
-- **Critical Discoveries**: Game mechanics or parser behaviors discovered
-
-NOTE: This section is primarily updated during inter-episode synthesis at episode end.
+**DO NOT GENERATE THIS SECTION** - It is managed separately by the cross-episode synthesis system and updated only at episode end. Do not include this section in your output.
 
 CRITICAL REQUIREMENTS:
 1. **Universal Scope**: ONLY include knowledge that applies regardless of location

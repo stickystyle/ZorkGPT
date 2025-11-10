@@ -290,6 +290,24 @@ class AdaptiveKnowledgeManager:
                     extra={"event_type": "knowledge_update", "episode_id": episode_id},
                 )
 
+        # Preserve CROSS-EPISODE INSIGHTS section (updated only at episode end)
+        # Strip it from existing knowledge to prevent LLM regeneration drift
+        cross_episode_preserved = section_utils.extract_section_content(
+            existing_knowledge, "CROSS-EPISODE INSIGHTS"
+        )
+        if cross_episode_preserved:
+            if self.logger:
+                self.logger.debug(
+                    "Preserving CROSS-EPISODE INSIGHTS section during knowledge update",
+                    extra={
+                        "event_type": "knowledge_update",
+                        "preserved_length": len(cross_episode_preserved),
+                    }
+                )
+            existing_knowledge = section_utils.remove_section(
+                existing_knowledge, "CROSS-EPISODE INSIGHTS"
+            )
+
         # Step 4: Generate new knowledge in single pass
         if self.logger:
             self.logger.info(
@@ -308,6 +326,26 @@ class AdaptiveKnowledgeManager:
             analysis_sampling=self.analysis_sampling,
             logger=self.logger
         )
+
+        # Defensively remove any CROSS-EPISODE INSIGHTS the LLM generated
+        # Then restore the preserved version
+        new_knowledge = section_utils.remove_section(
+            new_knowledge, "CROSS-EPISODE INSIGHTS"
+        )
+
+        # Restore preserved CROSS-EPISODE INSIGHTS if it existed
+        if cross_episode_preserved:
+            new_knowledge = section_utils.update_section_content(
+                new_knowledge, "CROSS-EPISODE INSIGHTS", cross_episode_preserved
+            )
+            if self.logger:
+                self.logger.debug(
+                    "Restored CROSS-EPISODE INSIGHTS section after knowledge generation",
+                    extra={
+                        "event_type": "knowledge_update",
+                        "restored_length": len(cross_episode_preserved),
+                    }
+                )
 
         if not new_knowledge or new_knowledge.startswith("SKIP:"):
             if self.logger:
