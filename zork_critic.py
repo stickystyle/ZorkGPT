@@ -596,7 +596,7 @@ class ZorkCritic:
                 )
             raise
 
-    def _validate_against_object_tree(
+    def validate_against_object_tree(
         self,
         action: str,
         jericho_interface
@@ -762,7 +762,7 @@ class ZorkCritic:
         """
         # Validate against object tree if Jericho interface is available
         if jericho_interface:
-            validation_result = self._validate_against_object_tree(
+            validation_result = self.validate_against_object_tree(
                 proposed_action, jericho_interface
             )
 
