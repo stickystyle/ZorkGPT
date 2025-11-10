@@ -726,20 +726,53 @@ Inventory: {", ".join(self.game_state.current_inventory) if self.game_state.curr
 ## Location-Specific Memories
 {memory_context if memory_context else "No memories available for this location."}
 
-**IMPORTANT ZORK GAME MECHANICS**:
-- Score increases often indicate objective completion (acquiring treasures, solving puzzles)
-- "Taken." response means item successfully acquired
-- Location objectives complete when you reach the target location
-- Action objectives complete when the action succeeds (e.g., "open door" → "The door opens")
-- Multi-step objectives may complete after a sequence of actions
+**STRICT COMPLETION RULES**:
 
-**EVALUATION CRITERIA**:
-- Check if the action/response directly achieves an objective
-- Consider if score increase correlates with objective completion
-- Use recent action history to detect multi-step objective completion
-- Use location memories to validate completion (e.g., "I've been here before")
+1. **Item Acquisition Objectives**: ONLY mark complete when:
+   - The EXACT item name from the objective appears in the action (e.g., "take lantern" for "brass lantern" objective)
+   - The response confirms acquisition (e.g., "Taken.")
+   - If objective specifies a location, agent must be AT that location when acquiring
 
-Which objectives (if any) have been completed based on this context?
+2. **Location Objectives**: ONLY mark complete when:
+   - Current Location ID matches the exact ID in the objective
+   - Agent has physically moved to that location (not just looking at it)
+
+3. **Action Objectives**: ONLY mark complete when:
+   - The EXACT action from objective was performed successfully
+   - Game response confirms success (e.g., "opens" for "open door")
+
+4. **Multi-Step Objectives**: ONLY mark complete when:
+   - ALL steps in the sequence have been completed
+   - Final step shows clear success in game response
+
+**IMPORTANT - DO NOT MARK COMPLETE IF**:
+- Agent took different items (e.g., taking "sack, bottle" does NOT complete "acquire lantern")
+- Agent is at wrong location (e.g., Kitchen does NOT complete "acquire from Living Room")
+- Score increased but objective's specific item/location wasn't achieved
+- Action was similar but not exact (e.g., "examine door" does NOT complete "open door")
+- Only partial progress made (e.g., first step of multi-step objective)
+
+**NEGATIVE EXAMPLES** (DO NOT mark these as complete):
+❌ Objective: "Acquire brass lantern from Location 193 (Living Room)"
+   Action: "take sack, bottle" at Kitchen → NOT COMPLETE (wrong item, wrong location)
+
+❌ Objective: "Open the trap door"
+   Action: "examine trap door" → NOT COMPLETE (examined, not opened)
+
+❌ Objective: "Visit Location 152 (Troll Room)"
+   Current Location: 151 → NOT COMPLETE (not at target location yet)
+
+**POSITIVE EXAMPLES** (mark these as complete):
+✅ Objective: "Acquire brass lantern from Location 193 (Living Room)"
+   Action: "take lantern" at Living Room, Response: "Taken." → COMPLETE
+
+✅ Objective: "Open the trap door"
+   Action: "open trap door", Response: "The trap door opens." → COMPLETE
+
+✅ Objective: "Visit Location 152 (Troll Room)"
+   Current Location: 152, Previous Location: 151 → COMPLETE
+
+Which objectives (if any) have been completed based on these STRICT rules?
 
 **CRITICAL - OUTPUT FORMAT:**
 YOU MUST respond with ONLY a valid JSON object. Do not include any text before or after the JSON. Do not include thinking tags or reasoning outside the JSON structure.
@@ -753,7 +786,7 @@ Required JSON format:
 Example valid response:
 {{
   "completed_objectives": ["Acquire the brass lantern from the Living Room"],
-  "reasoning": "Successfully took the lantern, completing this specific acquisition objective."
+  "reasoning": "Agent took lantern at Living Room with 'Taken.' response, meeting all strict criteria."
 }}"""
 
         if self.adaptive_knowledge_manager and self.adaptive_knowledge_manager.client:
