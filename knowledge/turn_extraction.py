@@ -278,3 +278,36 @@ def extract_turn_window_data(
                 game_over_event.update(death_info)
 
     return turn_data if turn_data["actions_and_responses"] else None
+
+
+def episode_ended_in_loop_break(episode_id: str, workdir: str = "game_files") -> bool:
+    """
+    Check if episode ended due to Loop Break timeout (stuck_termination event).
+
+    Loop Break system terminates episodes that are stuck without score progress
+    for 20+ turns. These are system timeouts, NOT game mechanics/deaths.
+
+    Args:
+        episode_id: Episode identifier (e.g., "2025-11-08T23:14:34")
+        workdir: Working directory containing episodes folder
+
+    Returns:
+        True if stuck_termination event found in episode log
+    """
+    episode_log_file = Path(workdir) / "episodes" / episode_id / "episode_log.jsonl"
+    if not episode_log_file.exists():
+        return False
+
+    try:
+        with open(episode_log_file, "r", encoding="utf-8") as f:
+            for line in f:
+                try:
+                    log_entry = json.loads(line.strip())
+                    if log_entry.get("event_type") == "stuck_termination":
+                        return True
+                except json.JSONDecodeError:
+                    continue
+    except FileNotFoundError:
+        return False
+
+    return False

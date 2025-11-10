@@ -11,8 +11,10 @@ discoveries that should persist across multiple game sessions.
 """
 
 from typing import Dict, Optional
+from pathlib import Path
 from knowledge.section_utils import extract_section_content, update_section_content
 from knowledge.knowledge_generation import format_turn_data_for_prompt
+from knowledge.turn_extraction import episode_ended_in_loop_break
 
 # Langfuse observe decorator with graceful fallback
 try:
@@ -141,18 +143,22 @@ def synthesize_inter_episode_wisdom(
     # Prepare death event analysis if applicable
     death_analysis = ""
     if episode_ended_in_death or turn_data.get("death_events"):
-        death_analysis = "\n\nDEATH EVENT ANALYSIS:\n"
-        for event in turn_data.get("death_events", []):
-            death_analysis += (
-                f"Episode {episode_id}, Turn {event['turn']}: {event['reason']}\n"
-            )
-            if event.get("death_context"):
-                death_analysis += f"- Context: {event['death_context']}\n"
-            if event.get("death_location"):
-                death_analysis += f"- Location: {event['death_location']}\n"
-            if event.get("action_taken"):
-                death_analysis += f"- Fatal action: {event['action_taken']}\n"
-            death_analysis += "\n"
+        # Check if episode ended in Loop Break timeout (system behavior, not game mechanic)
+        if episode_ended_in_loop_break(episode_id, workdir=str(Path(output_file).parent)):
+            death_analysis = "\n\nNOTE: Episode ended in Loop Break timeout (system terminated stuck episode). No death analysis - this is not a game mechanic.\n"
+        else:
+            death_analysis = "\n\nDEATH EVENT ANALYSIS:\n"
+            for event in turn_data.get("death_events", []):
+                death_analysis += (
+                    f"Episode {episode_id}, Turn {event['turn']}: {event['reason']}\n"
+                )
+                if event.get("death_context"):
+                    death_analysis += f"- Context: {event['death_context']}\n"
+                if event.get("death_location"):
+                    death_analysis += f"- Location: {event['death_location']}\n"
+                if event.get("action_taken"):
+                    death_analysis += f"- Fatal action: {event['action_taken']}\n"
+                death_analysis += "\n"
 
     # Create synthesis prompt
     prompt = f"""Analyze this completed Zork episode and update the CROSS-EPISODE INSIGHTS section with UNIVERSAL strategic wisdom that persists across future episodes.
@@ -232,6 +238,16 @@ Update the CROSS-EPISODE INSIGHTS section with universal strategic wisdom valida
 ✅ If game mechanic confirmed across episodes → Cross-Episode Insights
 ✅ If danger category validated → Cross-Episode Insights
 
+**BREVITY REQUIREMENT:**
+Keep updates CONCISE and HIGH-VALUE:
+- Each new insight: 1-3 sentences maximum
+- Focus on universal principles, omit verbose context
+- Remove or consolidate redundant entries from existing content
+- NO repetition across subsections - each insight should appear only once
+- Target output: 300-500 tokens total for CROSS-EPISODE INSIGHTS section
+- Prioritize patterns validated across MULTIPLE episodes (not single observations)
+- When in doubt, preserve existing content over adding marginal new insights
+
 **OUTPUT FORMAT:**
 Provide ONLY the updated CROSS-EPISODE INSIGHTS section content (without the ## header).
 Structure with the four subsections above.
@@ -272,7 +288,7 @@ Focus on UNIVERSAL patterns validated across episodes, not location-specific tac
             top_p=analysis_sampling.get("top_p"),
             top_k=analysis_sampling.get("top_k"),
             min_p=analysis_sampling.get("min_p"),
-            max_tokens=analysis_sampling.get("max_tokens") or 2000,
+            max_tokens=analysis_sampling.get("max_tokens") or 1500,  # Reduced from 2000
             name="StrategyGenerator",
         )
 

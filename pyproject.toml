@@ -34,8 +34,7 @@ dev = [
 # LLM Configuration
 client_base_url = "https://openrouter.ai/api/v1"
 agent_model = "deepseek/deepseek-v3.2-exp"
-info_ext_model = "deepseek/deepseek-v3.2-exp"
-#critic_model = "google/gemma-3-12b-it"  # Too small - fails to follow movement validation logic
+info_ext_model = "google/gemma-3-27b-it"
 critic_model = "deepseek/deepseek-v3.2-exp"
 analysis_model = "deepseek/deepseek-v3.2-exp"
 memory_model = "deepseek/deepseek-v3.2-exp"

@@ -12,6 +12,7 @@ and lessons learned.
 
 from typing import Dict, Optional
 from knowledge.section_utils import extract_cross_episode_section
+from knowledge.turn_extraction import episode_ended_in_loop_break
 
 # Langfuse observe decorator with graceful fallback
 try:
@@ -72,13 +73,18 @@ TOTAL ACTIONS: {len(turn_data["actions_and_responses"])}
 
     # Death events with full details
     if turn_data.get("death_events"):
-        output += f"Deaths: {len(turn_data['death_events'])}\n"
-        for death in turn_data["death_events"]:
-            output += f"  - Turn {death['turn']}: {death['reason']}\n"
-            output += f"    Fatal action: {death.get('action_taken', 'Unknown')}\n"
-            output += f"    Location: {death.get('death_location', 'Unknown')}\n"
-            if death.get("death_messages"):
-                output += f"    Messages: {', '.join(death['death_messages'])}\n"
+        episode_id = turn_data.get("episode_id", "unknown")
+        # Filter Loop Break timeouts (system behavior, not game mechanic)
+        if episode_ended_in_loop_break(episode_id, workdir="game_files"):
+            output += "Deaths: Filtered (Loop Break timeout - system terminated stuck episode)\n"
+        else:
+            output += f"Deaths: {len(turn_data['death_events'])}\n"
+            for death in turn_data["death_events"]:
+                output += f"  - Turn {death['turn']}: {death['reason']}\n"
+                output += f"    Fatal action: {death.get('action_taken', 'Unknown')}\n"
+                output += f"    Location: {death.get('death_location', 'Unknown')}\n"
+                if death.get("death_messages"):
+                    output += f"    Messages: {', '.join(death['death_messages'])}\n"
     else:
         output += "Deaths: None\n"
 
@@ -274,6 +280,16 @@ CRITICAL REQUIREMENTS:
 4. **No Location Coupling**: If it requires "at Location X", it belongs in Memory System
 5. **Actionable Guidance**: Provide decision-making principles, not specific tactics
 
+**BREVITY REQUIREMENT:**
+Keep the knowledge base CONCISE and ACTION-ORIENTED:
+- Each insight should be 1-3 sentences maximum
+- Focus on the "what" and "why", omit verbose explanations
+- Use bullet points for clarity, not paragraphs
+- Prioritize high-value insights, discard low-signal observations
+- NO repetition - if similar insight exists in another section, reference it
+- Target output: 200-400 tokens per section (not per insight)
+- When in doubt, OMIT rather than include marginal content
+
 QUALITY CHECKS:
 ❌ If your entry mentions specific locations by name → Move to Memory System
 ❌ If your entry documents "mathematical crisis/death" → Ignore (Loop Break timeout)
@@ -322,7 +338,7 @@ Focus on WHY things happen and HOW to approach situations universally, not WHAT 
             top_p=analysis_sampling.get("top_p"),
             top_k=analysis_sampling.get("top_k"),
             min_p=analysis_sampling.get("min_p"),
-            max_tokens=analysis_sampling.get("max_tokens") or 3000,
+            max_tokens=analysis_sampling.get("max_tokens") or 2000,  # Reduced from 3000
             name="StrategyGenerator",
         )
 
