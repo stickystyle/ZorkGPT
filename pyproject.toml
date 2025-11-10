@@ -169,6 +169,7 @@ game_file_path = "jericho-game-suite/zork1.z5"
 # Progress velocity detection
 max_turns_stuck = 40              # Conservative threshold
 stuck_check_interval = 10         # Check every 10 turns
+enable_objective_based_progress = true  # Enable objective completion as progress (alongside score increases)
 
 # Location revisit penalty (programmatic)
 enable_location_penalty = true

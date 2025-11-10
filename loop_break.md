@@ -6,9 +6,9 @@
 
 The ZorkGPT loop break system prevents wasted tokens on stuck episodes through three complementary mechanisms:
 
-1. **Progress Velocity Detection** - Terminates episodes after 40 turns without score change
+1. **Progress Velocity Detection** - Terminates episodes after 40 turns without progress (score change OR objective completion)
 2. **Location Revisit Penalty** - Applies -0.2 penalty per recent revisit to discourage loops
-3. **Stuck Countdown Warnings** - Shows explicit "you will DIE in {y} turns" warnings to agent
+3. **Stuck Countdown Warnings** - Shows explicit "you will DIE in {y} turns" warnings to agent (adapts to mention objectives when present)
 
 ### Real-World Results
 
@@ -23,24 +23,41 @@ Analysis showed 14 potential termination points where the system would have inte
 
 #### Phase 1A: Progress Velocity Detection (Programmatic Termination)
 
-Tracks score changes and terminates when no progress is made:
+Tracks progress and terminates when no meaningful advancement is made. Progress is defined as:
+
+```
+progress = (score changed in last 40 turns) OR (objective completed in last 40 turns)
+```
+
+**How It Works:**
 
 ```python
 # Checks every 10 turns (configurable)
 if turn_count % stuck_check_interval == 0:
-    turns_stuck = _get_turns_since_score_change()
-    if turns_stuck >= max_turns_stuck:
-        terminate_episode()  # Hard stop after 40 turns stuck
+    # Window-based checking for both metrics
+    score_progress = (current_turn - last_score_change_turn) < max_turns_stuck
+    objective_progress = (current_turn - last_objective_completion_turn) < max_turns_stuck
+
+    progress_made = score_progress OR objective_progress
+
+    if not progress_made:
+        terminate_episode()  # Hard stop after 40 turns without ANY progress
 ```
 
 **Key Features**:
-- O(1) performance using simple counter
+- **Dual progress detection**: Recognizes both score changes AND objective completions
+- **OR logic**: Either form of progress resets the stuck timer
+- **Window-based**: Checks if progress occurred within last 40 turns (configurable)
+- **Fallback behavior**: Reverts to score-only when objectives disabled or empty
+- O(1) performance using simple counter and max() scan
 - Checks at configurable intervals (default: every 10 turns)
 - Terminates after configurable threshold (default: 40 turns)
 - Score change resets the counter (any increase or decrease)
-- Logs `stuck_termination` event with metrics
+- Logs `stuck_termination` event with both metrics
 
-**Implementation**: See `/Volumes/workingfolder/ZorkGPT/orchestration/zork_orchestrator_v2.py` lines 347-380 (tracking) and 526-547 (termination)
+**Configuration**: See `enable_objective_based_progress` flag below
+
+**Implementation**: See `/Volumes/workingfolder/ZorkGPT/orchestration/zork_orchestrator_v2.py` lines 354-463 (tracking) and 803-822 (termination)
 
 #### Phase 1B: Location Revisit Penalty (Programmatic Scoring)
 
@@ -94,6 +111,23 @@ if current_room has unexplored_exits:
 - Action novelty detection (tracks last 15 actions)
 - Unexplored exit suggestions from map data
 - All hints added to agent/critic context
+- **Warning adaptation**: Messages adapt based on objective presence (see below)
+
+#### Warning Message Adaptation
+
+Warnings now adapt based on whether objectives exist:
+
+**With Objectives Present:**
+- Termination message: "If you do not increase your score or complete an objective, you will DIE in {X} turns."
+- Shows "CURRENT OBJECTIVES:" section listing up to 5 active objectives
+- Includes objective-focused suggestions
+
+**Without Objectives:**
+- Termination message: "If you do not increase your score, you will DIE in {X} turns."
+- No objectives section
+- Score-focused suggestions only
+
+This adaptation ensures warnings are relevant to the agent's current situation and available progress paths.
 
 **Implementation**: See `/Volumes/workingfolder/ZorkGPT/orchestration/zork_orchestrator_v2.py` lines 483-522 (warnings) and 849-866 (critic integration)
 
@@ -104,8 +138,9 @@ All settings in `pyproject.toml` under `[tool.zorkgpt.loop_break]`:
 ```toml
 [tool.zorkgpt.loop_break]
 # Phase 1A: Progress velocity detection
-max_turns_stuck = 40          # Turns without score change before termination
+max_turns_stuck = 40          # Turns without progress before termination
 stuck_check_interval = 10     # Check interval (every N turns)
+enable_objective_based_progress = true  # Enable objective completion as progress
 
 # Phase 1B: Location revisit penalty
 enable_location_penalty = true
@@ -119,6 +154,26 @@ enable_exploration_hints = true
 action_novelty_window = 15       # Number of recent actions to track
 ```
 
+#### Configuration: `enable_objective_based_progress`
+
+**Location:** `pyproject.toml` under `[tool.zorkgpt.loop_break]`
+
+**Default:** `true` (enabled)
+
+**Purpose:** Enable objective completion as a form of progress alongside score increases. When enabled, the loop break system recognizes both score changes AND objective completions as valid progress, preventing premature termination when agents are making meaningful advancement without immediate score gains.
+
+**Behavior:**
+- When `true`: Progress = score change OR objective completion
+- When `false`: Progress = score change only (legacy behavior)
+
+**Example:**
+```toml
+[tool.zorkgpt.loop_break]
+enable_objective_based_progress = true  # Enable objective completion as progress
+max_turns_stuck = 40
+stuck_warning_threshold = 20
+```
+
 **Validation Rules**:
 - `max_turns_stuck >= stuck_check_interval` (must check before terminating)
 - `stuck_warning_threshold < max_turns_stuck` (warnings must appear before death)
@@ -129,6 +184,50 @@ action_novelty_window = 15       # Number of recent actions to track
 from session.game_configuration import GameConfiguration
 config = GameConfiguration.from_toml(Path("pyproject.toml"))
 ```
+
+### Example Scenarios
+
+These scenarios demonstrate how objective-based progress tracking prevents false terminations and extends episode lifetimes when agents are making meaningful progress.
+
+#### Scenario 1: Objective Completion Prevents False Termination
+
+**Setup:**
+- Turns 1-30: Agent explores, no score increase
+- Turn 31: Agent completes objective "Explore north to Location 81"
+- Turns 32-50: Agent continues exploring, no score increase
+
+**Current Behavior (score-only):**
+- Turn 41: Episode terminates (40 turns without score change) ❌ FALSE TERMINATION
+
+**New Behavior (score OR objective):**
+- Turn 31: Objective completion → stuck timer resets to 0
+- Turn 51: 20 turns since last progress → warnings start
+- Turn 71: 40 turns since last progress → episode terminates ✅ CORRECT
+
+**Result:** Episode runs 30 turns longer, giving agent more time to make meaningful progress.
+
+#### Scenario 2: Mixed Progress Pattern
+
+**Timeline:**
+- Turn 10: Score increases by 5 → timer resets
+- Turns 11-30: No progress (20 turns) → warnings appear
+- Turn 35: Objective completed → timer resets
+- Turns 36-55: No progress (20 turns) → warnings appear
+- Turn 75: Score increases by 10 → timer resets
+
+**Result:** Episode continues as long as EITHER form of progress occurs within 40-turn windows.
+
+#### Scenario 3: Fallback When No Objectives
+
+**Setup:**
+- Objectives disabled in config OR no objectives in discovered_objectives list
+- Turns 1-40: Agent explores, no score increase
+
+**Behavior:**
+- Episode terminates at turn 41 (same as score-only mode)
+- Falls back to legacy score-based tracking
+
+**Result:** Backward compatible behavior when objectives unavailable.
 
 ### Monitoring & Metrics
 
@@ -169,6 +268,48 @@ Track these events in episode logs:
      "penalty": -0.6
    }
    ```
+
+### Monitoring Objective-Based Progress
+
+**New Log Events:**
+
+Progress check (every turn, DEBUG level):
+```
+Progress check: score_progress=True, objective_progress=False, progress_made=True, turns_stuck=0
+```
+
+Progress detected (when timer resets, INFO level):
+```
+Score changed: 10 → 35 - resetting stuck timer
+```
+or
+```
+Objective progress detected - resetting stuck timer
+```
+
+**Metrics to Track:**
+- `score_progress`: Boolean indicating if score changed in last 40 turns
+- `objective_progress`: Boolean indicating if objective completed in last 40 turns
+- `progress_made`: Boolean indicating if EITHER form of progress occurred (OR logic)
+- `turns_stuck`: Current stuck timer value
+
+**Analysis Queries:**
+
+Episodes terminated by loop break:
+```bash
+grep "Loop break termination" zork_episode_log.jsonl | jq -r '.turns_stuck'
+```
+
+Objective completions that reset timer:
+```bash
+grep "objective completion.*resetting stuck timer" zork_episode_log.jsonl | wc -l
+```
+
+Episodes where objectives prevented termination:
+```bash
+# Episodes with objective progress but no recent score changes
+grep "objective_progress=True.*score_progress=False" zork_episode_log.jsonl
+```
 
 ### Testing
 
@@ -226,6 +367,7 @@ Output shows:
 - **2025-11-05**: Phase 1B (Location Revisit Penalty) - Programmatic penalty system
 - **2025-11-05**: Phase 1C (Exploration Guidance) - Context-based warnings and hints
 - **2025-11-05**: Integration testing and documentation complete
+- **2025-11-10**: Phase 1A Enhancement - Objective-based progress tracking added
 
 ### Design Decisions
 
@@ -264,6 +406,16 @@ Phase 1C adds to context, not scores:
 - Agent sees the problem and can reason about solutions
 - Complements programmatic penalty system
 
+#### Why Include Objective Completion as Progress?
+
+Objective completion broadens progress definition beyond just score:
+- Score is the ultimate goal, but objectives represent intermediate achievements
+- Prevents false terminations when agent is working through multi-step puzzles
+- Objectives are validated by LLM (not agent self-declaration), ensuring quality
+- OR logic means either score OR objectives count (flexible progress paths)
+- Fallback to score-only when objectives unavailable (backward compatible)
+- Same 40-turn window applies to both metrics (consistent thresholds)
+
 ### Future Enhancements (Not Implemented)
 
 These were considered but deprioritized:
@@ -281,6 +433,8 @@ These were considered but deprioritized:
 - Check `max_turns_stuck` setting (default 40)
 - Verify score is actually changing (check episode log)
 - Look for `score_change` events in logs
+- **NEW**: Check if objectives were completed (look for objective completions in log)
+- **NEW**: Verify `enable_objective_based_progress` is true if using objectives
 
 **Issue: Agent still stuck in loops**
 - Check if `enable_location_penalty` is true
@@ -296,6 +450,37 @@ These were considered but deprioritized:
 - Verify pyproject.toml syntax (must be valid TOML)
 - Check that all required fields have valid values
 - Run `/tmp/claude/verify_config.py` to diagnose
+
+**Issue: Episodes running too long despite no real progress**
+
+**Possible Cause:** Trivial objectives being completed repeatedly
+
+**Solution:**
+1. Check objective completion logs to identify low-value objectives
+2. Adjust objective discovery prompts to focus on meaningful goals
+3. Consider disabling feature: `enable_objective_based_progress = false`
+
+---
+
+**Issue: False terminations still occurring**
+
+**Possible Cause:** Objectives not being completed within 40-turn window
+
+**Solution:**
+1. Review objective difficulty (are they achievable?)
+2. Check objective staleness (are objectives being removed too quickly?)
+3. Increase `max_turns_stuck` threshold if objectives require more exploration
+
+---
+
+**Issue: Warnings don't mention objectives**
+
+**Possible Cause:** No objectives exist or `discovered_objectives` list is empty
+
+**Solution:**
+1. Check objective discovery is enabled in config
+2. Verify objective update interval is reasonable (default: 15 turns)
+3. Review logs for objective discovery attempts
 
 ### References
 
@@ -366,7 +551,10 @@ def get_urgency_level(turns_until_death):
 
 ---
 
-**Last Updated**: 2025-11-05
-**Status**: Production Ready
-**Test Coverage**: 66/66 passing
+**Last Updated**: 2025-11-10
+**Status**: Production Ready (Enhanced with objective-based progress tracking)
+**Test Coverage**:
+- Base system: 66/66 passing (velocity, revisit, warnings, integration)
+- Objective-based progress: 38/38 passing (tracking, loop break, config)
+- Total: 104/104 tests passing
 **Documentation**: Complete

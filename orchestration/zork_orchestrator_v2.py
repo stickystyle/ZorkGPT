@@ -352,44 +352,115 @@ class ZorkOrchestratorV2:
                     )
 
     def _track_score_for_progress_detection(self) -> None:
-        """Track score changes for progress detection.
+        """Track score changes and objective completions for progress detection.
+
+        Uses window-based checking (configurable via max_turns_stuck) to detect
+        progress from EITHER score changes OR objective completions. This prevents
+        premature termination when agent is making objective progress without
+        immediate score rewards.
+
+        Window-based logic:
+        - Score progress: Has score changed in last N turns?
+        - Objective progress: Has objective been completed in last N turns?
+        - Progress made: TRUE if EITHER condition is true
+
+        Timer reset logic:
+        - Score changed this turn → Always reset timer
+        - Only objective progress (no recent score change) → Reset timer to prevent termination
 
         Initializes tracking on first call with current turn and score.
-        Detects both score increases and decreases, resetting the stuck
-        counter on any change.
+        Detects both score increases and decreases.
 
         Note: Works correctly even if game starts with non-zero score
         (e.g., restored save state or non-standard game start).
 
         Note: Stuck detection checks occur every N turns (stuck_check_interval),
-        so there may be a delay of up to 1 turn between score change and
-        detection of unstuck behavior.
+        so there may be a delay of up to 1 turn between progress and detection.
         """
+        # Initialize tracking variables on first call
         if not hasattr(self, '_last_score_change_turn'):
             self._last_score_change_turn = 0
             self._last_tracked_score = self.game_state.previous_zork_score
             return
 
+        current_turn = self.game_state.turn_count
         current_score = self.game_state.previous_zork_score
 
-        # Detect any score change (increase or decrease)
-        # Note: Death/penalty resets counter because it represents discovery/learning,
-        # even if progress is negative. This prevents premature termination during
-        # dangerous exploration or combat sequences.
-        if current_score != self._last_tracked_score:
-            self._last_score_change_turn = self.game_state.turn_count
+        # Check if score changed THIS turn
+        score_changed_this_turn = (current_score != self._last_tracked_score)
 
+        # Window-based progress checking
+        turns_stuck = current_turn - self._last_score_change_turn
+
+        # Score progress: Has score changed in last max_turns_stuck turns?
+        score_progress = turns_stuck < self.config.max_turns_stuck
+
+        # Objective progress: Has objective been completed in last max_turns_stuck turns?
+        objective_progress = False
+        recent_objective_completion = False
+        if self.config.enable_objective_based_progress and self.game_state.completed_objectives:
+            last_objective_turn = max(obj["completed_turn"] for obj in self.game_state.completed_objectives)
+            objective_progress = (current_turn - last_objective_turn) < self.config.max_turns_stuck
+            # Check if objective completed this turn or very recently (last 2 turns)
+            # This triggers a timer reset even when score_progress is still True
+            recent_objective_completion = (current_turn - last_objective_turn) <= 1
+
+        # Combined progress check
+        progress_made = score_progress or objective_progress
+
+        # Debug logging every turn
+        self.logger.debug(
+            f"Progress check: score_progress={score_progress}, "
+            f"objective_progress={objective_progress}, "
+            f"progress_made={progress_made}, turns_stuck={turns_stuck}",
+            extra={
+                "event_type": "progress_check",
+                "turn": current_turn,
+                "score_progress": score_progress,
+                "objective_progress": objective_progress,
+                "progress_made": progress_made,
+                "turns_stuck": turns_stuck,
+                "score_changed_this_turn": score_changed_this_turn,
+                "recent_objective_completion": recent_objective_completion,
+            }
+        )
+
+        # Smart timer reset logic
+        if score_changed_this_turn:
+            # Score changed THIS turn - always reset timer and update tracked score
+            old_score = self._last_tracked_score
+            self._last_score_change_turn = current_turn
+            self._last_tracked_score = current_score
+
+            # Info logging when we were stuck before this change
+            if turns_stuck > 0:
+                self.logger.info(
+                    f"Score changed: {old_score} → {current_score} - resetting stuck timer",
+                    extra={
+                        "event_type": "score_change",
+                        "turn": current_turn,
+                        "old_score": old_score,
+                        "new_score": current_score,
+                        "was_stuck_for": turns_stuck,
+                    }
+                )
+        elif recent_objective_completion and turns_stuck > 0:
+            # Objective completed recently AND we're currently stuck
+            # Reset timer using objective progress to prevent termination
+            old_last_change_turn = self._last_score_change_turn
+            self._last_score_change_turn = current_turn
+
+            # Info logging when timer is reset by objective progress
             self.logger.info(
-                f"Score changed: {self._last_tracked_score} → {current_score}",
+                f"Objective progress detected - resetting stuck timer",
                 extra={
-                    "event_type": "score_change",
-                    "turn": self.game_state.turn_count,
-                    "old_score": self._last_tracked_score,
-                    "new_score": current_score,
+                    "event_type": "objective_progress_reset",
+                    "turn": current_turn,
+                    "was_stuck_for": turns_stuck,
+                    "old_last_change_turn": old_last_change_turn,
+                    "new_last_change_turn": self._last_score_change_turn,
                 }
             )
-
-            self._last_tracked_score = current_score
 
     def _get_turns_since_score_change(self) -> int:
         """Calculate turns since last score change."""
@@ -480,7 +551,11 @@ class ZorkOrchestratorV2:
         """Build urgent countdown warning when agent is stuck.
 
         Returns escalating warnings based on how close to termination.
-        Implements Ryan's requirement for explicit countdown messaging.
+        Adapts message based on objective existence:
+        - With objectives: Mentions both score and objectives as progress paths
+        - Without objectives: Focuses only on score increases
+
+        Implements Phase 1C of loop break system with Phase 3 objective awareness.
         """
         if not self.config.enable_stuck_warnings:
             return ""
@@ -504,27 +579,57 @@ class ZorkOrchestratorV2:
             urgency = "⚠️ SCORE STAGNATION DETECTED"
             tone = "IMPORTANT"
 
-        warning = f"""
-{'='*70}
-{urgency}
-{'='*70}
+        # Check if objectives exist
+        has_objectives = bool(self.game_state.discovered_objectives)
 
-Your PRIMARY GOAL is to INCREASE YOUR SCORE.
+        # Build warning parts
+        warning_parts = [
+            "=" * 70,
+            urgency,
+            "=" * 70,
+            "",
+            "Your PRIMARY GOAL is to INCREASE YOUR SCORE.",
+            "",
+        ]
 
-You have made NO SCORE PROGRESS for {turns_stuck} turns.
+        # Progress message (adapt based on objectives)
+        if has_objectives:
+            warning_parts.append(f"You have made NO PROGRESS for {turns_stuck} turns.")
+            warning_parts.append("")
+            warning_parts.append(f"If you do not increase your score or complete an objective, you will DIE in {turns_until_death} turns.")
+        else:
+            warning_parts.append(f"You have made NO SCORE PROGRESS for {turns_stuck} turns.")
+            warning_parts.append("")
+            warning_parts.append(f"If you do not increase your score, you will DIE in {turns_until_death} turns.")
 
-If you do not increase your score, you will DIE in {turns_until_death} turns.
+        # Add current objectives section if they exist
+        if has_objectives:
+            warning_parts.append("")
+            warning_parts.append("CURRENT OBJECTIVES:")
+            for obj in self.game_state.discovered_objectives[:5]:  # Limit to 5
+                warning_parts.append(f"• {obj}")
 
-SUGGESTED STRATEGIES TO BREAK FREE:
-• Try a completely different location (move 3+ rooms away)
-• Attempt a different puzzle approach
-• Explore unexplored exits
-• Consider abandoning your current strategy
+        # Suggestions section
+        warning_parts.append("")
+        warning_parts.append("SUGGESTED STRATEGIES TO BREAK FREE:")
 
-SURVIVAL DEPENDS ON SCORE INCREASE.
-{'='*70}
-"""
-        return warning
+        if has_objectives:
+            warning_parts.append("• Try working on the objectives listed above")
+            warning_parts.append("• Prioritize actions that might increase your score or complete objectives")
+
+        # Always include general suggestions
+        warning_parts.append("• Try a completely different location (move 3+ rooms away)")
+        warning_parts.append("• Attempt a different puzzle approach")
+        warning_parts.append("• Explore unexplored exits")
+        warning_parts.append("• Consider abandoning your current strategy")
+
+        warning_parts.extend([
+            "",
+            "SURVIVAL DEPENDS ON MAKING PROGRESS." if has_objectives else "SURVIVAL DEPENDS ON SCORE INCREASE.",
+            "=" * 70,
+        ])
+
+        return "\n".join(warning_parts)
 
     def _build_exploration_hints(
         self,
