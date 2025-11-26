@@ -1,9 +1,10 @@
 # ABOUTME: Property-based tests for MCP integration using Hypothesis
-# ABOUTME: Validates configuration defaults and LLM client tool calling invariants
+# ABOUTME: Validates configuration defaults, LLM client tool calling, and MCPManager invariants
 
+import json
 import pytest
 from hypothesis import given, strategies as st, settings, HealthCheck
-from unittest.mock import Mock
+from unittest.mock import Mock, AsyncMock, MagicMock, patch
 
 from session.game_configuration import GameConfiguration
 from llm_client import (
@@ -505,3 +506,247 @@ class TestProperty44ToolCallArgumentParsing:
         # Should be parseable as JSON
         parsed = json.loads(tool_call.function.arguments)
         assert parsed == args_dict
+
+
+# =============================================================================
+# MCPManager Property Tests (Tasks 3.2, 3.3)
+# =============================================================================
+
+
+# Strategy for generating valid MCP server config data
+@st.composite
+def valid_mcp_config_strategy(draw):
+    """Generate valid MCP configuration data."""
+    server_name = draw(st.text(
+        alphabet=st.characters(whitelist_categories=("Ll", "Lu", "Nd"), whitelist_characters="_-"),
+        min_size=1,
+        max_size=20,
+    ))
+    command = draw(st.sampled_from(["echo", "node", "python", "npx"]))
+    args = draw(st.lists(st.text(min_size=1, max_size=20), max_size=5))
+    env_vars = draw(st.dictionaries(
+        st.text(alphabet="ABCDEFGHIJKLMNOPQRSTUVWXYZ_", min_size=1, max_size=20),
+        st.text(min_size=0, max_size=50),
+        max_size=5
+    ))
+
+    return {
+        "mcpServers": {
+            server_name or "default": {
+                "command": command,
+                "args": args,
+                "env": env_vars if env_vars else None
+            }
+        }
+    }
+
+
+class TestProperty6SessionLifecycleCoupling:
+    """
+    Property 6: Session Lifecycle Coupling (Req 3.1, 3.5)
+
+    Invariant: Session connect and disconnect are always properly paired.
+    After connect, session is non-None. After disconnect, session is None.
+    """
+
+    @pytest.fixture
+    def mock_mcp_dependencies(self):
+        """Mock MCP SDK dependencies for session lifecycle tests."""
+        mock_context = MagicMock()
+        mock_context.__aenter__ = AsyncMock(return_value=(AsyncMock(), AsyncMock()))
+        mock_context.__aexit__ = AsyncMock(return_value=None)
+
+        mock_session = MagicMock()
+        mock_session.initialize = AsyncMock()
+
+        return mock_context, mock_session
+
+    @settings(max_examples=30, suppress_health_check=[HealthCheck.function_scoped_fixture])
+    @given(config_data=valid_mcp_config_strategy())
+    @pytest.mark.asyncio
+    async def test_property_6_session_connected_after_connect(
+        self, config_data, tmp_path, mock_mcp_dependencies
+    ):
+        """Property 6: After connect_session(), session is non-None."""
+        from managers.mcp_manager import MCPManager
+
+        mock_context, mock_session = mock_mcp_dependencies
+
+        # Create config file
+        config_file = tmp_path / "mcp_config.json"
+        config_file.write_text(json.dumps(config_data))
+
+        config = GameConfiguration(
+            max_turns_per_episode=100,
+            game_file_path="test.z5",
+            mcp_enabled=True,
+            mcp_config_file=str(config_file),
+        )
+
+        with patch("managers.mcp_manager.stdio_client", return_value=mock_context):
+            with patch("managers.mcp_manager.ClientSession", return_value=mock_session):
+                manager = MCPManager(config=config, logger=MagicMock())
+
+                await manager.connect_session()
+
+                # Property: session must be non-None after connect
+                assert manager._session is not None
+
+    @settings(max_examples=30, suppress_health_check=[HealthCheck.function_scoped_fixture])
+    @given(config_data=valid_mcp_config_strategy())
+    @pytest.mark.asyncio
+    async def test_property_6_session_none_after_disconnect(
+        self, config_data, tmp_path, mock_mcp_dependencies
+    ):
+        """Property 6: After disconnect_session(), session is None."""
+        from managers.mcp_manager import MCPManager
+
+        mock_context, mock_session = mock_mcp_dependencies
+
+        # Create config file
+        config_file = tmp_path / "mcp_config.json"
+        config_file.write_text(json.dumps(config_data))
+
+        config = GameConfiguration(
+            max_turns_per_episode=100,
+            game_file_path="test.z5",
+            mcp_enabled=True,
+            mcp_config_file=str(config_file),
+        )
+
+        with patch("managers.mcp_manager.stdio_client", return_value=mock_context):
+            with patch("managers.mcp_manager.ClientSession", return_value=mock_session):
+                manager = MCPManager(config=config, logger=MagicMock())
+
+                await manager.connect_session()
+                await manager.disconnect_session()
+
+                # Property: session must be None after disconnect
+                assert manager._session is None
+                assert manager._stdio_context is None
+
+    @settings(max_examples=30, suppress_health_check=[HealthCheck.function_scoped_fixture])
+    @given(
+        config_data=valid_mcp_config_strategy(),
+        num_cycles=st.integers(min_value=1, max_value=5)
+    )
+    @pytest.mark.asyncio
+    async def test_property_6_connect_disconnect_cycles(
+        self, config_data, num_cycles, tmp_path, mock_mcp_dependencies
+    ):
+        """Property 6: Multiple connect/disconnect cycles maintain consistent state."""
+        from managers.mcp_manager import MCPManager
+
+        mock_context, mock_session = mock_mcp_dependencies
+
+        # Create config file
+        config_file = tmp_path / "mcp_config.json"
+        config_file.write_text(json.dumps(config_data))
+
+        config = GameConfiguration(
+            max_turns_per_episode=100,
+            game_file_path="test.z5",
+            mcp_enabled=True,
+            mcp_config_file=str(config_file),
+        )
+
+        with patch("managers.mcp_manager.stdio_client", return_value=mock_context):
+            with patch("managers.mcp_manager.ClientSession", return_value=mock_session):
+                manager = MCPManager(config=config, logger=MagicMock())
+
+                for _ in range(num_cycles):
+                    await manager.connect_session()
+                    assert manager._session is not None, "Session must be non-None after connect"
+
+                    await manager.disconnect_session()
+                    assert manager._session is None, "Session must be None after disconnect"
+
+
+class TestProperty9SubprocessTerminationOnDisconnect:
+    """
+    Property 9: Subprocess Termination on Disconnect (Req 3.7)
+
+    Invariant: When session disconnects, the subprocess context is properly cleaned up.
+    """
+
+    @settings(max_examples=30, suppress_health_check=[HealthCheck.function_scoped_fixture])
+    @given(config_data=valid_mcp_config_strategy())
+    @pytest.mark.asyncio
+    async def test_property_9_context_exit_called_on_disconnect(
+        self, config_data, tmp_path
+    ):
+        """Property 9: __aexit__ is called on disconnect to terminate subprocess."""
+        from managers.mcp_manager import MCPManager
+
+        # Create tracking mock context fresh for each example
+        mock_context = MagicMock()
+        mock_context.__aenter__ = AsyncMock(return_value=(AsyncMock(), AsyncMock()))
+        exit_called = {"value": False}
+
+        async def track_exit(*args):
+            exit_called["value"] = True
+            return None
+
+        mock_context.__aexit__ = track_exit
+
+        mock_session = MagicMock()
+        mock_session.initialize = AsyncMock()
+
+        # Create config file
+        config_file = tmp_path / "mcp_config.json"
+        config_file.write_text(json.dumps(config_data))
+
+        config = GameConfiguration(
+            max_turns_per_episode=100,
+            game_file_path="test.z5",
+            mcp_enabled=True,
+            mcp_config_file=str(config_file),
+        )
+
+        with patch("managers.mcp_manager.stdio_client", return_value=mock_context):
+            with patch("managers.mcp_manager.ClientSession", return_value=mock_session):
+                manager = MCPManager(config=config, logger=MagicMock())
+
+                await manager.connect_session()
+                assert not exit_called["value"], "Exit should not be called yet"
+
+                await manager.disconnect_session()
+                assert exit_called["value"], "Exit must be called on disconnect"
+
+    @settings(max_examples=30, suppress_health_check=[HealthCheck.function_scoped_fixture])
+    @given(config_data=valid_mcp_config_strategy())
+    @pytest.mark.asyncio
+    async def test_property_9_context_cleared_after_disconnect(
+        self, config_data, tmp_path
+    ):
+        """Property 9: stdio_context is set to None after disconnect."""
+        from managers.mcp_manager import MCPManager
+
+        mock_context = MagicMock()
+        mock_context.__aenter__ = AsyncMock(return_value=(AsyncMock(), AsyncMock()))
+        mock_context.__aexit__ = AsyncMock(return_value=None)
+
+        mock_session = MagicMock()
+        mock_session.initialize = AsyncMock()
+
+        # Create config file
+        config_file = tmp_path / "mcp_config.json"
+        config_file.write_text(json.dumps(config_data))
+
+        config = GameConfiguration(
+            max_turns_per_episode=100,
+            game_file_path="test.z5",
+            mcp_enabled=True,
+            mcp_config_file=str(config_file),
+        )
+
+        with patch("managers.mcp_manager.stdio_client", return_value=mock_context):
+            with patch("managers.mcp_manager.ClientSession", return_value=mock_session):
+                manager = MCPManager(config=config, logger=MagicMock())
+
+                await manager.connect_session()
+                assert manager._stdio_context is not None
+
+                await manager.disconnect_session()
+                # Property: context must be None after disconnect
+                assert manager._stdio_context is None

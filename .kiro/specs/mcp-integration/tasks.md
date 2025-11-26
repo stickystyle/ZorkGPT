@@ -49,7 +49,7 @@
   - **Property 43: ToolCallResult Serialization**
   - **Validates: Requirements 11.3**
 
-- [ ] 3. Implement MCPManager core functionality
+- [x] 3. Implement MCPManager core functionality
   - Create MCPManager class with initialization
   - Implement _load_mcp_config method to load from mcp_config.json
   - Implement connect_session method with stdio transport
@@ -59,18 +59,18 @@
   - Add is_disabled property for graceful degradation tracking
   - _Requirements: 2.1, 2.2, 2.3, 3.1, 3.2, 3.3, 3.5, 3.6, 3.7, 6.9_
 
-- [ ] 3.1 Write unit tests for MCPManager initialization
+- [x] 3.1 Write unit tests for MCPManager initialization
   - Test configuration loading
   - Test error handling for missing config
   - Test error handling for invalid JSON
   - Test environment variable merging
   - _Requirements: 2.1, 2.2, 2.3, 3.2_
 
-- [ ] 3.2 Write property test for session lifecycle
+- [x] 3.2 Write property test for session lifecycle
   - **Property 6: Session Lifecycle Coupling**
   - **Validates: Requirements 3.1, 3.5**
 
-- [ ] 3.3 Write property test for subprocess termination
+- [x] 3.3 Write property test for subprocess termination
   - **Property 9: Subprocess Termination on Disconnect**
   - **Validates: Requirements 3.7**
 

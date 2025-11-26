@@ -8,8 +8,20 @@ from typing import Dict, List, Optional, Tuple
 from pydantic import BaseModel, Field
 
 
-class MCPConfigError(Exception):
-    """Base exception for MCP configuration errors."""
+class MCPError(Exception):
+    """Base exception for MCP-related errors."""
+
+    pass
+
+
+class MCPConfigError(MCPError):
+    """Exception for MCP configuration errors."""
+
+    pass
+
+
+class MCPServerStartupError(MCPError):
+    """Raised when an MCP server fails to start."""
 
     pass
 
