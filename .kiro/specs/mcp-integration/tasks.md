@@ -147,7 +147,7 @@
 - [ ] 7. Checkpoint - Ensure MCPManager tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 8. Implement agent async action generation method
+- [x] 8. Implement agent async action generation method
   - Create _generate_action_async method in ZorkAgent
   - Implement message history building with cache_control
   - Implement MCP session connection at turn start
@@ -155,7 +155,7 @@
   - Add model compatibility check before tool calling
   - _Requirements: 1.1, 3.1, 3.3, 3.4, 4.5, 4.7, 10.1, 10.3, 12.5_
 
-- [ ] 8.1 Write unit tests for async action generation setup
+- [x] 8.1 Write unit tests for async action generation setup
   - Test message history building
   - Test MCP session connection
   - Test tool schema retrieval
