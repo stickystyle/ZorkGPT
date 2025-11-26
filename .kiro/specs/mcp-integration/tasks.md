@@ -20,7 +20,7 @@
   - **Property 45: Configuration Defaults**
   - **Validates: Requirements 13.1, 13.2, 13.3, 13.4, 13.5**
 
-- [ ] 2. Extend LLMClient with tool calling support
+- [x] 2. Extend LLMClient with tool calling support
   - Create ToolCall, FunctionCall, and ToolCallResult dataclasses
   - Extend LLMResponse dataclass with tool_calls and finish_reason fields
   - Add tools and tool_choice parameters to chat_completions_create method
@@ -29,7 +29,7 @@
   - Add cache_control metadata to system and user messages
   - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.7, 11.1, 11.2, 11.3, 11.4, 11.5, 12.1, 12.2, 12.3, 12.4, 12.5_
 
-- [ ] 2.1 Write unit tests for LLMClient extensions
+- [x] 2.1 Write unit tests for LLMClient extensions
   - Test LLMResponse with tool_calls
   - Test tool call parsing from API responses
   - Test tools parameter in requests
@@ -37,15 +37,15 @@
   - Test cache_control metadata
   - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.7, 12.1, 12.2, 12.3, 12.4, 12.5_
 
-- [ ] 2.2 Write property test for response content exclusivity
+- [x] 2.2 Write property test for response content exclusivity
   - **Property 12: Response Content Exclusivity**
   - **Validates: Requirements 4.3, 4.4**
 
-- [ ] 2.3 Write property test for model compatibility detection
+- [x] 2.3 Write property test for model compatibility detection
   - **Property 13: Model Compatibility Detection**
   - **Validates: Requirements 4.5, 12.1, 12.2, 12.3**
 
-- [ ] 2.4 Write property test for ToolCallResult serialization
+- [x] 2.4 Write property test for ToolCallResult serialization
   - **Property 43: ToolCallResult Serialization**
   - **Validates: Requirements 11.3**
 
