@@ -14,13 +14,9 @@ dependencies = [
     "langfuse>=3.8.1,<4.0",
     "filelock>=3.20.0",
     "pydantic-settings>=2.11.0",
+    "mcp>=1.22.0",
 ]
 
-[project.optional-dependencies]
-test = [
-    "pytest>=7.0",
-    "pytest-cov>=4.0",
-]
 s3 = [
     "boto3>=1.34.0",
 ]
@@ -28,6 +24,8 @@ s3 = [
 [dependency-groups]
 dev = [
     "pytest>=8.3.5",
+     "pytest-cov>=4.0",
+    "hypothesis>=6.148.2"
 ]
 
 [tool.zorkgpt.llm]
@@ -121,7 +119,7 @@ turn_delay_seconds = 3.0
 turn_window_size = 100
 min_knowledge_quality = 6.0
 critic_rejection_threshold = -0.2  # More permissive from -0.05 to allow more experimentation
-enable_critic = true  # Toggle LLM critic evaluation (object tree validation always runs)
+enable_critic = false  # Toggle LLM critic evaluation (object tree validation always runs)
 # Exit pruning configuration
 enable_exit_pruning = true
 exit_failure_threshold = 2  # Reduced from 3 to more quickly abandon failed directions
@@ -186,3 +184,13 @@ stuck_warning_threshold = 20      # Start warnings at 20 turns stuck
 [tool.zorkgpt.aws]
 # AWS Configuration (optional)
 s3_key_prefix = "zorkgpt/"
+
+[tool.zorkgpt.mcp]
+# MCP (Model Context Protocol) Integration Configuration
+# When enabled, the agent can use external tools during action generation
+enabled = false
+config_file = "mcp_config.json"
+max_tool_iterations = 20
+tool_call_timeout_seconds = 30
+server_startup_timeout_seconds = 10
+force_tool_support = false
