@@ -1084,3 +1084,660 @@ class TestProperty37CompleteToolTranslation:
                         f"Tool name missing server prefix: {name}"
 
                 await manager.disconnect_session()
+
+
+# =============================================================================
+# Tool Execution Property Tests (Task 5.2, 5.3)
+# =============================================================================
+
+
+class TestProperty28ToolCallLogging:
+    """
+    Property 28: Tool Call Logging (Req 7.1)
+
+    Invariant: For any tool call, the system logs the tool_name and arguments.
+    """
+
+    @settings(max_examples=50, suppress_health_check=[HealthCheck.function_scoped_fixture])
+    @given(
+        tool_name=st.text(
+            min_size=1,
+            max_size=20,
+            alphabet=st.characters(whitelist_categories=("Ll", "Lu", "Nd"), whitelist_characters="_")
+        ).filter(lambda x: x and x[0].isalpha()),
+        server_name=st.text(
+            min_size=1,
+            max_size=20,
+            alphabet=st.characters(whitelist_categories=("Ll", "Lu", "Nd"), whitelist_characters="_-")
+        ).filter(lambda x: x and not x.startswith("-")),
+    )
+    @pytest.mark.asyncio
+    async def test_property_28_tool_call_logs_name_and_arguments(
+        self, tool_name, server_name, tmp_path
+    ):
+        """Property 28: Tool call logging includes tool_name and arguments.
+
+        Validates: Requirements 7.1
+
+        For any tool call, the log entry must contain:
+        - tool_name (the full prefixed name)
+        - arguments (the arguments dict)
+        """
+        from managers.mcp_manager import MCPManager
+
+        # Create config
+        config_data = {
+            "mcpServers": {
+                server_name: {
+                    "command": "echo",
+                    "args": ["test"]
+                }
+            }
+        }
+        config_file = tmp_path / "mcp_config.json"
+        config_file.write_text(json.dumps(config_data))
+
+        config = GameConfiguration(
+            max_turns_per_episode=100,
+            game_file_path="test.z5",
+            mcp_enabled=True,
+            mcp_config_file=str(config_file),
+            mcp_tool_call_timeout_seconds=30,
+        )
+
+        # Setup mocks
+        mock_logger = MagicMock()
+
+        mock_call_result = MagicMock()
+        mock_call_result.content = {"result": "success"}
+        mock_call_result.isError = False
+
+        mock_session = MagicMock()
+        mock_session.initialize = AsyncMock()
+        mock_session.call_tool = AsyncMock(return_value=mock_call_result)
+
+        mock_context = MagicMock()
+        mock_context.__aenter__ = AsyncMock(return_value=(AsyncMock(), AsyncMock()))
+        mock_context.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("managers.mcp_manager.stdio_client", return_value=mock_context):
+            with patch("managers.mcp_manager.ClientSession", return_value=mock_session):
+                manager = MCPManager(config=config, logger=mock_logger)
+
+                await manager.connect_session()
+
+                # Generate test arguments
+                test_args = {"param1": "value1", "param2": 42}
+                full_tool_name = f"{server_name}.{tool_name}"
+
+                # Call tool
+                await manager.call_tool(full_tool_name, test_args)
+
+                # Property: Logger must have been called with tool_name and arguments
+                log_calls = mock_logger.info.call_args_list
+
+                # Find the start log call
+                start_log_found = False
+                for call in log_calls:
+                    if call.kwargs.get("extra"):
+                        extra = call.kwargs["extra"]
+                        if extra.get("event_type") == "mcp_tool_call_start":
+                            # Verify tool_name
+                            assert extra.get("tool_name") == full_tool_name, \
+                                f"Expected tool_name={full_tool_name}, got {extra.get('tool_name')}"
+                            # Verify arguments
+                            assert extra.get("arguments") == test_args, \
+                                f"Expected arguments={test_args}, got {extra.get('arguments')}"
+                            start_log_found = True
+                            break
+
+                assert start_log_found, "Tool call start log not found"
+
+                await manager.disconnect_session()
+
+    @settings(max_examples=30, suppress_health_check=[HealthCheck.function_scoped_fixture])
+    @given(
+        arguments=st.dictionaries(
+            st.text(min_size=1, max_size=20, alphabet=st.characters(whitelist_categories=("Ll", "Lu", "Nd"))),
+            st.one_of(st.text(max_size=50), st.integers(), st.booleans()),
+            max_size=5
+        )
+    )
+    @pytest.mark.asyncio
+    async def test_property_28_arbitrary_arguments_logged(self, arguments, tmp_path):
+        """Property 28: Arbitrary argument dictionaries are logged correctly.
+
+        Validates: Requirements 7.1
+
+        For any valid arguments dict, the log entry preserves the arguments.
+        """
+        from managers.mcp_manager import MCPManager
+
+        # Create config
+        config_data = {
+            "mcpServers": {
+                "test-server": {
+                    "command": "echo",
+                    "args": ["test"]
+                }
+            }
+        }
+        config_file = tmp_path / "mcp_config.json"
+        config_file.write_text(json.dumps(config_data))
+
+        config = GameConfiguration(
+            max_turns_per_episode=100,
+            game_file_path="test.z5",
+            mcp_enabled=True,
+            mcp_config_file=str(config_file),
+            mcp_tool_call_timeout_seconds=30,
+        )
+
+        # Setup mocks
+        mock_logger = MagicMock()
+
+        mock_call_result = MagicMock()
+        mock_call_result.content = {"result": "success"}
+        mock_call_result.isError = False
+
+        mock_session = MagicMock()
+        mock_session.initialize = AsyncMock()
+        mock_session.call_tool = AsyncMock(return_value=mock_call_result)
+
+        mock_context = MagicMock()
+        mock_context.__aenter__ = AsyncMock(return_value=(AsyncMock(), AsyncMock()))
+        mock_context.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("managers.mcp_manager.stdio_client", return_value=mock_context):
+            with patch("managers.mcp_manager.ClientSession", return_value=mock_session):
+                manager = MCPManager(config=config, logger=mock_logger)
+
+                await manager.connect_session()
+
+                # Call tool with generated arguments
+                await manager.call_tool("test-server.test_tool", arguments)
+
+                # Property: Arguments are preserved in log
+                log_calls = mock_logger.info.call_args_list
+                for call in log_calls:
+                    if call.kwargs.get("extra"):
+                        extra = call.kwargs["extra"]
+                        if extra.get("event_type") == "mcp_tool_call_start":
+                            assert extra.get("arguments") == arguments, \
+                                "Arguments not preserved in log"
+                            break
+
+                await manager.disconnect_session()
+
+
+class TestProperty29ToolResultLogging:
+    """
+    Property 29: Tool Result Logging (Req 7.2)
+
+    Invariant: For any tool call completion, the system logs result type, length, and duration.
+    """
+
+    @settings(max_examples=50, suppress_health_check=[HealthCheck.function_scoped_fixture])
+    @given(
+        result_content=st.one_of(
+            st.text(max_size=100),
+            st.dictionaries(st.text(min_size=1, max_size=10), st.text(max_size=20), max_size=3),
+            st.lists(st.text(max_size=20), max_size=5),
+            st.integers(),
+        )
+    )
+    @pytest.mark.asyncio
+    async def test_property_29_result_logging_includes_type_length_duration(
+        self, result_content, tmp_path
+    ):
+        """Property 29: Tool result logging includes type, length, and duration.
+
+        Validates: Requirements 7.2
+
+        For any tool call completion:
+        - result_type is logged
+        - result_length is logged (as string length)
+        - duration_ms is logged
+        """
+        from managers.mcp_manager import MCPManager
+
+        # Create config
+        config_data = {
+            "mcpServers": {
+                "test-server": {
+                    "command": "echo",
+                    "args": ["test"]
+                }
+            }
+        }
+        config_file = tmp_path / "mcp_config.json"
+        config_file.write_text(json.dumps(config_data))
+
+        config = GameConfiguration(
+            max_turns_per_episode=100,
+            game_file_path="test.z5",
+            mcp_enabled=True,
+            mcp_config_file=str(config_file),
+            mcp_tool_call_timeout_seconds=30,
+        )
+
+        # Setup mocks
+        mock_logger = MagicMock()
+
+        mock_call_result = MagicMock()
+        mock_call_result.content = result_content
+        mock_call_result.isError = False
+
+        mock_session = MagicMock()
+        mock_session.initialize = AsyncMock()
+        mock_session.call_tool = AsyncMock(return_value=mock_call_result)
+
+        mock_context = MagicMock()
+        mock_context.__aenter__ = AsyncMock(return_value=(AsyncMock(), AsyncMock()))
+        mock_context.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("managers.mcp_manager.stdio_client", return_value=mock_context):
+            with patch("managers.mcp_manager.ClientSession", return_value=mock_session):
+                manager = MCPManager(config=config, logger=mock_logger)
+
+                await manager.connect_session()
+
+                # Call tool
+                await manager.call_tool("test-server.test_tool", {"arg": "value"})
+
+                # Property: Find success log with required fields
+                log_calls = mock_logger.info.call_args_list
+                success_log_found = False
+
+                for call in log_calls:
+                    if call.kwargs.get("extra"):
+                        extra = call.kwargs["extra"]
+                        if extra.get("event_type") == "mcp_tool_call_success":
+                            # Verify result_type is logged
+                            assert "result_type" in extra, "result_type not logged"
+                            assert extra["result_type"] == type(result_content).__name__, \
+                                f"Expected result_type={type(result_content).__name__}"
+
+                            # Verify result_length is logged
+                            assert "result_length" in extra, "result_length not logged"
+                            expected_length = len(str(result_content)) if result_content else 0
+                            assert extra["result_length"] == expected_length, \
+                                f"Expected result_length={expected_length}, got {extra['result_length']}"
+
+                            # Verify duration_ms is logged
+                            assert "duration_ms" in extra, "duration_ms not logged"
+                            assert isinstance(extra["duration_ms"], (int, float)), \
+                                "duration_ms must be a number"
+                            assert extra["duration_ms"] >= 0, "duration_ms must be non-negative"
+
+                            success_log_found = True
+                            break
+
+                assert success_log_found, "Tool call success log not found"
+
+                await manager.disconnect_session()
+
+    @settings(max_examples=30, suppress_health_check=[HealthCheck.function_scoped_fixture])
+    @given(
+        error_message=st.text(min_size=1, max_size=200)
+    )
+    @pytest.mark.asyncio
+    async def test_property_29_error_logging_includes_duration(
+        self, error_message, tmp_path
+    ):
+        """Property 29: Error logging also includes duration.
+
+        Validates: Requirements 7.2
+
+        Even on error, duration_ms should be logged.
+        """
+        from managers.mcp_manager import MCPManager
+
+        # Create config
+        config_data = {
+            "mcpServers": {
+                "test-server": {
+                    "command": "echo",
+                    "args": ["test"]
+                }
+            }
+        }
+        config_file = tmp_path / "mcp_config.json"
+        config_file.write_text(json.dumps(config_data))
+
+        config = GameConfiguration(
+            max_turns_per_episode=100,
+            game_file_path="test.z5",
+            mcp_enabled=True,
+            mcp_config_file=str(config_file),
+            mcp_tool_call_timeout_seconds=30,
+        )
+
+        # Setup mocks with error
+        mock_logger = MagicMock()
+
+        mock_session = MagicMock()
+        mock_session.initialize = AsyncMock()
+        mock_session.call_tool = AsyncMock(side_effect=Exception(error_message))
+
+        mock_context = MagicMock()
+        mock_context.__aenter__ = AsyncMock(return_value=(AsyncMock(), AsyncMock()))
+        mock_context.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("managers.mcp_manager.stdio_client", return_value=mock_context):
+            with patch("managers.mcp_manager.ClientSession", return_value=mock_session):
+                manager = MCPManager(config=config, logger=mock_logger)
+
+                await manager.connect_session()
+
+                # Call tool (will fail)
+                result = await manager.call_tool("test-server.test_tool", {"arg": "value"})
+
+                # Property: Error log should have duration_ms
+                log_calls = mock_logger.error.call_args_list
+                error_log_found = False
+
+                for call in log_calls:
+                    if call.kwargs.get("extra"):
+                        extra = call.kwargs["extra"]
+                        if extra.get("event_type") == "mcp_tool_call_error":
+                            # Verify duration_ms is logged even on error
+                            assert "duration_ms" in extra, "duration_ms not logged on error"
+                            assert isinstance(extra["duration_ms"], (int, float)), \
+                                "duration_ms must be a number"
+                            assert extra["duration_ms"] >= 0, "duration_ms must be non-negative"
+
+                            # Verify error is logged
+                            assert "error" in extra, "error not logged"
+
+                            error_log_found = True
+                            break
+
+                assert error_log_found, "Tool call error log not found"
+
+                await manager.disconnect_session()
+
+
+# =============================================================================
+# MCP Graceful Degradation Property Tests (Tasks 6.2, 6.3)
+# =============================================================================
+
+
+class TestMCPGracefulDegradationProperties:
+    """
+    Property tests for MCP graceful degradation and retry logic.
+
+    These tests verify that connection retry and graceful degradation
+    behavior holds across many randomly generated inputs.
+    """
+
+    @pytest.mark.asyncio
+    @settings(max_examples=50, suppress_health_check=[HealthCheck.function_scoped_fixture])
+    @given(
+        successful_connections=st.integers(min_value=1, max_value=100)
+    )
+    async def test_property_26_retry_exactly_once_on_subsequent_turn(
+        self, tmp_path, successful_connections
+    ):
+        """Property 26: Subsequent turn failures retry exactly once (Req 6.7).
+
+        For any _successful_connections > 0 (subsequent turn),
+        when connection fails, exactly one retry should be attempted.
+
+        Validates: Requirements 6.7
+        """
+        from managers.mcp_manager import MCPManager
+
+        # Create config
+        config_data = {
+            "mcpServers": {
+                "test-server": {
+                    "command": "echo",
+                    "args": ["test"]
+                }
+            }
+        }
+        config_file = tmp_path / "mcp_config.json"
+        config_file.write_text(json.dumps(config_data))
+
+        config = GameConfiguration(
+            max_turns_per_episode=100,
+            game_file_path="test.z5",
+            mcp_enabled=True,
+            mcp_config_file=str(config_file),
+        )
+
+        manager = MCPManager(config=config, logger=MagicMock())
+
+        # Set successful_connections to simulate subsequent turn
+        manager._successful_connections = successful_connections
+
+        # Mock stdio_client: first call fails, second call succeeds
+        mock_context = MagicMock()
+        mock_context.__aenter__ = AsyncMock(return_value=(AsyncMock(), AsyncMock()))
+        mock_context.__aexit__ = AsyncMock(return_value=None)
+
+        mock_session = MagicMock()
+        mock_session.initialize = AsyncMock()
+
+        call_count = {"value": 0}
+
+        def track_calls(*args, **kwargs):
+            call_count["value"] += 1
+            if call_count["value"] == 1:
+                raise Exception("First connection failed")
+            return mock_context
+
+        with patch("managers.mcp_manager.stdio_client", side_effect=track_calls):
+            with patch("managers.mcp_manager.ClientSession", return_value=mock_session):
+                # Should succeed after retry
+                await manager.connect_session()
+
+        # Property: Exactly one retry (2 total calls to stdio_client)
+        assert call_count["value"] == 2, \
+            f"Expected exactly 2 connection attempts (initial + retry), got {call_count['value']}"
+
+        # Property: Connection succeeded after retry
+        assert manager._session is not None, "Session should be non-None after successful retry"
+
+        # Property: Retry flag was set
+        assert manager._retry_attempted is False, \
+            "Retry flag should be reset after successful connection"
+
+        # Property: Counter incremented
+        assert manager._successful_connections == successful_connections + 1, \
+            "Successful connections counter should increment after retry success"
+
+    @pytest.mark.asyncio
+    @settings(max_examples=50, suppress_health_check=[HealthCheck.function_scoped_fixture])
+    @given(
+        successful_connections=st.integers(min_value=1, max_value=100)
+    )
+    async def test_property_27_graceful_degradation_after_retry_failure(
+        self, tmp_path, successful_connections
+    ):
+        """Property 27: Retry failure disables MCP (Req 6.8, 6.9).
+
+        For any _successful_connections > 0 (subsequent turn),
+        when both initial and retry connections fail,
+        MCP should be disabled for remainder of episode.
+
+        Validates: Requirements 6.8, 6.9
+        """
+        from managers.mcp_manager import MCPManager
+
+        # Create config
+        config_data = {
+            "mcpServers": {
+                "test-server": {
+                    "command": "echo",
+                    "args": ["test"]
+                }
+            }
+        }
+        config_file = tmp_path / "mcp_config.json"
+        config_file.write_text(json.dumps(config_data))
+
+        config = GameConfiguration(
+            max_turns_per_episode=100,
+            game_file_path="test.z5",
+            mcp_enabled=True,
+            mcp_config_file=str(config_file),
+        )
+
+        manager = MCPManager(config=config, logger=MagicMock())
+
+        # Set successful_connections to simulate subsequent turn
+        manager._successful_connections = successful_connections
+
+        # Mock stdio_client: both calls fail
+        call_count = {"value": 0}
+
+        def track_failed_calls(*args, **kwargs):
+            call_count["value"] += 1
+            raise Exception(f"Connection failed (attempt {call_count['value']})")
+
+        with patch("managers.mcp_manager.stdio_client", side_effect=track_failed_calls):
+            # Should NOT raise exception (graceful degradation)
+            await manager.connect_session()
+
+        # Property: Manager is disabled
+        assert manager._disabled is True, "Manager should be disabled after retry failure"
+        assert manager.is_disabled is True, "is_disabled property should reflect disabled state"
+
+        # Property: Session was not established
+        assert manager._session is None, "Session should remain None after failed retry"
+
+        # Property: Counter did NOT increment
+        assert manager._successful_connections == successful_connections, \
+            "Successful connections counter should not increment after failed retry"
+
+        # Property: Future connect_session() calls return immediately
+        with patch("managers.mcp_manager.stdio_client") as mock_stdio:
+            await manager.connect_session()
+            mock_stdio.assert_not_called()
+
+    @pytest.mark.asyncio
+    @settings(max_examples=50, suppress_health_check=[HealthCheck.function_scoped_fixture])
+    @given(
+        any_value=st.integers(min_value=0, max_value=100)  # Just for variation
+    )
+    async def test_property_26_first_turn_never_retries(
+        self, tmp_path, any_value
+    ):
+        """Property 26 (complement): First turn never retries (Req 6.1).
+
+        For _successful_connections == 0 (first turn),
+        connection failure should raise immediately without retry.
+
+        Validates: Requirements 6.1
+        """
+        from managers.mcp_manager import MCPManager
+        from managers.mcp_config import MCPServerStartupError
+
+        # Create config
+        config_data = {
+            "mcpServers": {
+                "test-server": {
+                    "command": "echo",
+                    "args": ["test"]
+                }
+            }
+        }
+        config_file = tmp_path / "mcp_config.json"
+        config_file.write_text(json.dumps(config_data))
+
+        config = GameConfiguration(
+            max_turns_per_episode=100,
+            game_file_path="test.z5",
+            mcp_enabled=True,
+            mcp_config_file=str(config_file),
+        )
+
+        manager = MCPManager(config=config, logger=MagicMock())
+
+        # Verify initial state
+        assert manager._successful_connections == 0, "Should start with 0 successful connections"
+
+        # Mock stdio_client: connection fails
+        call_count = {"value": 0}
+
+        def track_calls(*args, **kwargs):
+            call_count["value"] += 1
+            raise Exception("First turn connection failed")
+
+        with patch("managers.mcp_manager.stdio_client", side_effect=track_calls):
+            # Should raise MCPServerStartupError
+            with pytest.raises(MCPServerStartupError):
+                await manager.connect_session()
+
+        # Property: No retry attempted (only 1 call to stdio_client)
+        assert call_count["value"] == 1, \
+            f"Expected exactly 1 connection attempt (no retry), got {call_count['value']}"
+
+        # Property: Retry flag not set
+        assert manager._retry_attempted is False, "Retry flag should not be set on first turn"
+
+        # Property: Manager not disabled
+        assert manager._disabled is False, "Manager should not be disabled on first turn failure"
+
+        # Property: Counter did not increment
+        assert manager._successful_connections == 0, \
+            "Counter should remain 0 after first turn failure"
+
+    @pytest.mark.asyncio
+    @settings(max_examples=50, suppress_health_check=[HealthCheck.function_scoped_fixture])
+    @given(
+        any_value=st.integers(min_value=0, max_value=100)
+    )
+    async def test_property_27_disabled_flag_prevents_all_connections(
+        self, tmp_path, any_value
+    ):
+        """Property 27: Disabled flag prevents all future connection attempts.
+
+        Once _disabled is True, connect_session() should return
+        immediately without any connection attempt.
+
+        Validates: Requirements 6.9
+        """
+        from managers.mcp_manager import MCPManager
+
+        # Create config
+        config_data = {
+            "mcpServers": {
+                "test-server": {
+                    "command": "echo",
+                    "args": ["test"]
+                }
+            }
+        }
+        config_file = tmp_path / "mcp_config.json"
+        config_file.write_text(json.dumps(config_data))
+
+        config = GameConfiguration(
+            max_turns_per_episode=100,
+            game_file_path="test.z5",
+            mcp_enabled=True,
+            mcp_config_file=str(config_file),
+        )
+
+        manager = MCPManager(config=config, logger=MagicMock())
+
+        # Set disabled flag
+        manager._disabled = True
+
+        # Track if stdio_client is called
+        with patch("managers.mcp_manager.stdio_client") as mock_stdio:
+            # Call connect_session multiple times
+            await manager.connect_session()
+            await manager.connect_session()
+            await manager.connect_session()
+
+            # Property: stdio_client was never called
+            mock_stdio.assert_not_called()
+
+        # Property: disabled remains True
+        assert manager._disabled is True, "Disabled flag should remain True"
+
+        # Property: session remains None
+        assert manager._session is None, "Session should remain None when disabled"

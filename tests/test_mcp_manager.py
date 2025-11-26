@@ -540,3 +540,314 @@ class TestMCPManagerErrorHandling:
             # State should still be cleaned up
             assert manager._session is None
             assert manager._stdio_context is None
+
+
+# =============================================================================
+# Task 6.1: Unit Tests for MCP Graceful Degradation
+# =============================================================================
+
+
+class TestMCPManagerGracefulDegradation:
+    """Test MCP graceful degradation and retry logic (Requirements 6.1, 6.7, 6.8, 6.9)."""
+
+    def test_successful_connections_counter_starts_at_zero(
+        self, mock_logger, game_config_with_mcp
+    ):
+        """
+        Test _successful_connections counter initialized to zero.
+
+        Verifies initial state before any connection attempts.
+        """
+        from managers.mcp_manager import MCPManager
+
+        manager = MCPManager(
+            config=game_config_with_mcp,
+            logger=mock_logger,
+        )
+
+        assert manager._successful_connections == 0
+
+    @pytest.mark.asyncio
+    async def test_successful_connections_increments_after_connect(
+        self,
+        mock_logger,
+        game_config_with_mcp,
+        mock_stdio_client,
+        mock_client_session,
+    ):
+        """
+        Test _successful_connections increments after successful connection.
+
+        Verifies counter increments to distinguish first turn from subsequent turns.
+        """
+        from managers.mcp_manager import MCPManager
+
+        manager = MCPManager(
+            config=game_config_with_mcp,
+            logger=mock_logger,
+        )
+
+        # First successful connection
+        await manager.connect_session()
+        assert manager._successful_connections == 1
+
+        # Disconnect and reconnect
+        await manager.disconnect_session()
+        await manager.connect_session()
+        assert manager._successful_connections == 2
+
+    @pytest.mark.asyncio
+    async def test_first_turn_failure_no_retry(
+        self,
+        mock_logger,
+        game_config_with_mcp,
+    ):
+        """
+        Test first turn failure fails fast without retry (Requirement 6.1).
+
+        When _successful_connections == 0 and connection fails:
+        - Should raise MCPServerStartupError immediately
+        - Should NOT attempt retry
+        - Should NOT set _disabled flag
+        """
+        from managers.mcp_manager import MCPManager
+
+        manager = MCPManager(
+            config=game_config_with_mcp,
+            logger=mock_logger,
+        )
+
+        # Verify initial state
+        assert manager._successful_connections == 0
+        assert manager._retry_attempted is False
+
+        # Mock connection failure
+        with patch(
+            "managers.mcp_manager.stdio_client",
+            side_effect=Exception("First turn connection failed"),
+        ):
+            with pytest.raises(MCPServerStartupError) as exc_info:
+                await manager.connect_session()
+
+            # Verify error details
+            error_msg = str(exc_info.value)
+            assert "failed to start" in error_msg.lower()
+
+        # Verify no retry was attempted
+        assert manager._retry_attempted is False
+        assert manager._disabled is False
+        assert manager._successful_connections == 0
+
+    @pytest.mark.asyncio
+    async def test_subsequent_turn_failure_with_successful_retry(
+        self,
+        mock_logger,
+        game_config_with_mcp,
+        mock_client_session,
+    ):
+        """
+        Test subsequent turn failure with successful retry (Requirement 6.7).
+
+        When _successful_connections > 0 and connection fails once then succeeds:
+        - Should retry exactly once
+        - Should succeed on retry
+        - Should log warning for retry attempt
+        - Should log info for retry success
+        - Should increment successful_connections counter
+        """
+        from managers.mcp_manager import MCPManager
+
+        manager = MCPManager(
+            config=game_config_with_mcp,
+            logger=mock_logger,
+        )
+
+        # Simulate previous successful connection
+        manager._successful_connections = 1
+
+        # Mock stdio_client: fail first time, succeed second time
+        mock_context = MagicMock()
+        mock_context.__aenter__ = AsyncMock(return_value=(AsyncMock(), AsyncMock()))
+        mock_context.__aexit__ = AsyncMock(return_value=None)
+
+        with patch(
+            "managers.mcp_manager.stdio_client",
+            side_effect=[
+                Exception("Transient failure"),  # First attempt fails
+                mock_context,  # Second attempt succeeds
+            ],
+        ):
+            # Should succeed after retry
+            await manager.connect_session()
+
+        # Verify session was established
+        assert manager._session is not None
+        assert manager._successful_connections == 2
+
+        # Verify retry warning was logged
+        warning_calls = [
+            call for call in mock_logger.warning.call_args_list
+            if "retry" in str(call).lower()
+        ]
+        assert len(warning_calls) >= 1, "Should log warning for retry attempt"
+
+        # Verify retry success was logged
+        info_calls = [
+            call for call in mock_logger.info.call_args_list
+            if "retry" in str(call).lower() and "success" in str(call).lower()
+        ]
+        assert len(info_calls) >= 1, "Should log info for retry success"
+
+    @pytest.mark.asyncio
+    async def test_subsequent_turn_failure_with_failed_retry(
+        self,
+        mock_logger,
+        game_config_with_mcp,
+    ):
+        """
+        Test subsequent turn failure with failed retry (Requirements 6.8, 6.9).
+
+        When _successful_connections > 0 and both connection attempts fail:
+        - Should retry exactly once
+        - Should NOT raise exception (graceful degradation)
+        - Should set _disabled = True
+        - Should log warning for degradation
+        - Should NOT increment successful_connections counter
+        """
+        from managers.mcp_manager import MCPManager
+
+        manager = MCPManager(
+            config=game_config_with_mcp,
+            logger=mock_logger,
+        )
+
+        # Simulate previous successful connection
+        manager._successful_connections = 1
+
+        # Mock stdio_client: fail both times
+        with patch(
+            "managers.mcp_manager.stdio_client",
+            side_effect=[
+                Exception("First failure"),
+                Exception("Second failure"),
+            ],
+        ):
+            # Should NOT raise exception
+            await manager.connect_session()
+
+        # Verify manager is disabled
+        assert manager._disabled is True
+        assert manager.is_disabled is True
+
+        # Verify session was NOT established
+        assert manager._session is None
+
+        # Verify counter did NOT increment
+        assert manager._successful_connections == 1
+
+        # Verify degradation warning was logged
+        warning_calls = [
+            call for call in mock_logger.warning.call_args_list
+            if "disabl" in str(call).lower() or "degrad" in str(call).lower()
+        ]
+        assert len(warning_calls) >= 1, "Should log warning for degradation"
+
+    @pytest.mark.asyncio
+    async def test_disabled_flag_prevents_connection_attempts(
+        self,
+        mock_logger,
+        game_config_with_mcp,
+    ):
+        """
+        Test _disabled flag prevents future connection attempts (Requirement 6.9).
+
+        When _disabled = True:
+        - connect_session should return immediately
+        - Should not attempt any connection
+        - Should not modify state
+        """
+        from managers.mcp_manager import MCPManager
+
+        manager = MCPManager(
+            config=game_config_with_mcp,
+            logger=mock_logger,
+        )
+
+        # Manually disable manager
+        manager._disabled = True
+
+        # Mock stdio_client to track if it's called
+        with patch("managers.mcp_manager.stdio_client") as mock_stdio:
+            await manager.connect_session()
+
+            # Should not have attempted connection
+            mock_stdio.assert_not_called()
+
+        # State should remain unchanged
+        assert manager._session is None
+        assert manager._successful_connections == 0
+
+    @pytest.mark.asyncio
+    async def test_retry_attempted_flag_resets_on_success(
+        self,
+        mock_logger,
+        game_config_with_mcp,
+        mock_stdio_client,
+        mock_client_session,
+    ):
+        """
+        Test _retry_attempted flag resets after successful connection.
+
+        Ensures retry flag doesn't persist across successful connections.
+        """
+        from managers.mcp_manager import MCPManager
+
+        manager = MCPManager(
+            config=game_config_with_mcp,
+            logger=mock_logger,
+        )
+
+        # Simulate previous retry state
+        manager._retry_attempted = True
+        manager._successful_connections = 1
+
+        # Successful connection should reset flag
+        await manager.connect_session()
+
+        assert manager._retry_attempted is False
+        assert manager._successful_connections == 2
+
+    @pytest.mark.asyncio
+    async def test_no_retry_on_first_subsequent_failure_if_retry_used(
+        self,
+        mock_logger,
+        game_config_with_mcp,
+    ):
+        """
+        Test only one retry attempt per episode.
+
+        If retry already used (_retry_attempted=True), subsequent failures
+        should disable immediately without additional retry.
+        """
+        from managers.mcp_manager import MCPManager
+
+        manager = MCPManager(
+            config=game_config_with_mcp,
+            logger=mock_logger,
+        )
+
+        # Simulate state after a retry was already used
+        manager._successful_connections = 1
+        manager._retry_attempted = True
+
+        # Connection failure should disable immediately
+        with patch(
+            "managers.mcp_manager.stdio_client",
+            side_effect=Exception("Connection failed"),
+        ):
+            await manager.connect_session()
+
+        # Should be disabled without additional retry
+        assert manager._disabled is True
+        assert manager._retry_attempted is True  # Should remain True
+        assert manager._successful_connections == 1  # Should not increment

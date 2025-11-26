@@ -1,13 +1,17 @@
 # ABOUTME: MCPManager handles MCP server connections and session lifecycle.
 # ABOUTME: Uses MCP SDK for stdio transport, manages per-turn sessions.
 
+import asyncio
 import logging
 import os
+import time
+from contextlib import nullcontext
 from typing import Any, Dict, List, Optional, Tuple
 
 from mcp import ClientSession
 from mcp.client.stdio import stdio_client, StdioServerParameters
 
+from llm_client import ToolCallResult
 from session.game_configuration import GameConfiguration
 from managers.mcp_config import (
     MCPConfig,
@@ -52,6 +56,7 @@ class MCPManager:
         self._stdio_context: Optional[Any] = None
         self._disabled: bool = False
         self._retry_attempted: bool = False
+        self._successful_connections: int = 0
 
         # Load server configuration
         self._mcp_config: MCPConfig = self._load_mcp_config()
@@ -76,26 +81,77 @@ class MCPManager:
         return self._disabled
 
     async def connect_session(self) -> None:
-        """Connect MCP session and spawn subprocess.
+        """Connect MCP session with retry-on-failure for subsequent turns.
 
-        Called at turn start. Spawns subprocess via stdio transport,
-        creates ClientSession, and performs protocol handshake.
+        First turn (no successful connections yet): Fail fast without retry.
+        Subsequent turns: Retry once on failure, then gracefully degrade.
 
         Raises:
-            MCPServerStartupError: If server fails to start
+            MCPServerStartupError: If first turn connection fails
         """
         if self._disabled:
+            self.logger.debug("MCP disabled, skipping connection")
             return
+
+        is_first_connection = self._successful_connections == 0
 
         try:
             await self._connect_session_impl()
+            self._successful_connections += 1
+            self._retry_attempted = False  # Reset for next turn
         except Exception as e:
-            # Re-raise as MCPServerStartupError
-            raise MCPServerStartupError(
-                f"Failed to start MCP server '{self._server_name}': {e}\n"
-                f"Command: {self._server_config.command} {' '.join(self._server_config.args)}\n"
-                f"Check that the server command is available and properly configured."
-            ) from e
+            if is_first_connection:
+                # First turn: fail fast, no retry
+                raise MCPServerStartupError(
+                    f"Failed to start MCP server '{self._server_name}': {e}\n"
+                    f"Command: {self._server_config.command} {' '.join(self._server_config.args)}\n"
+                    f"Check that the server command is available and properly configured."
+                ) from e
+
+            # Subsequent turn: retry once if not already tried
+            if not self._retry_attempted:
+                self._retry_attempted = True
+                self.logger.warning(
+                    f"MCP session connect failed, retrying: {e}",
+                    extra={
+                        "event_type": "mcp_session_connect_retry",
+                        "server_name": self._server_name,
+                        "error": str(e),
+                    },
+                )
+                try:
+                    await self._connect_session_impl()
+                    self._successful_connections += 1
+                    self._retry_attempted = False  # Reset for next turn
+                    self.logger.info(
+                        "MCP session retry successful",
+                        extra={
+                            "event_type": "mcp_session_retry_success",
+                            "server_name": self._server_name,
+                        },
+                    )
+                except Exception as retry_e:
+                    # Retry failed: graceful degradation
+                    self.logger.warning(
+                        f"MCP retry failed, disabling MCP for episode: {retry_e}",
+                        extra={
+                            "event_type": "mcp_session_degradation",
+                            "server_name": self._server_name,
+                            "error": str(retry_e),
+                        },
+                    )
+                    self._disabled = True
+            else:
+                # Retry already attempted: graceful degradation
+                self.logger.warning(
+                    f"MCP connection failed after retry, disabling MCP: {e}",
+                    extra={
+                        "event_type": "mcp_session_degradation",
+                        "server_name": self._server_name,
+                        "error": str(e),
+                    },
+                )
+                self._disabled = True
 
     async def _connect_session_impl(self) -> None:
         """Internal implementation of session connection."""
@@ -286,3 +342,186 @@ class MCPManager:
         )
 
         return schemas
+
+    async def call_tool(
+        self,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        timeout_seconds: Optional[int] = None,
+    ) -> ToolCallResult:
+        """Call a tool on the MCP server with timeout handling.
+
+        Args:
+            tool_name: Prefixed tool name (e.g., "thoughtbox.think")
+            arguments: Tool arguments as dict
+            timeout_seconds: Timeout for tool execution (defaults to config value)
+
+        Returns:
+            ToolCallResult with content or error
+
+        Raises:
+            asyncio.TimeoutError: If tool call exceeds timeout
+            RuntimeError: If session not connected
+            ValueError: If tool name format is invalid
+        """
+        # Check session connected first
+        if self._session is None:
+            raise RuntimeError("MCP session not connected")
+
+        # Parse tool name
+        server_name, actual_tool_name = self._parse_tool_name(tool_name)
+
+        # Get timeout
+        timeout = (
+            timeout_seconds
+            if timeout_seconds is not None
+            else self.config.mcp_tool_call_timeout_seconds
+        )
+
+        # Log tool call start (Req 7.1)
+        self.logger.info(
+            f"MCP tool call: {tool_name}",
+            extra={
+                "event_type": "mcp_tool_call_start",
+                "tool_name": tool_name,
+                "server_name": server_name,
+                "arguments": arguments,
+            },
+        )
+
+        # Setup Langfuse span if available
+        start_time = time.perf_counter()
+
+        if self.langfuse_client:
+            tracing_context = self.langfuse_client.start_as_current_span(
+                name=f"mcp-tool-{actual_tool_name}",
+                input=arguments,
+                metadata={
+                    "tool_name": tool_name,
+                    "server_name": server_name,
+                    "timeout_seconds": timeout,
+                },
+            )
+        else:
+            tracing_context = nullcontext()
+
+        # Execute tool call with timeout inside context
+        with tracing_context as span:
+            try:
+                result = await asyncio.wait_for(
+                    self._session.call_tool(actual_tool_name, arguments),
+                    timeout=timeout,
+                )
+                duration_ms = (time.perf_counter() - start_time) * 1000
+
+                # Extract content from MCP result
+                content = result.content
+
+                # Check if MCP returned an error response (isError field)
+                # Note: Use hasattr + getattr to avoid MagicMock returning MagicMock for missing attrs
+                is_error = hasattr(result, "isError") and result.isError is True
+
+                if is_error:
+                    # MCP server returned error - wrap as error result
+                    # Extract error details from content if available
+                    error_details = str(content) if content else "MCP server returned error"
+                    tool_result = ToolCallResult(
+                        content=content,
+                        is_error=True,
+                        error_message=error_details,
+                    )
+
+                    # Log error
+                    self.logger.error(
+                        f"MCP tool call returned error: {tool_name}",
+                        extra={
+                            "event_type": "mcp_tool_call_error",
+                            "tool_name": tool_name,
+                            "error": "MCP server error",
+                            "duration_ms": duration_ms,
+                        },
+                    )
+
+                    if span and hasattr(span, "update"):
+                        span.update(
+                            output=tool_result.to_dict(),
+                            metadata={"duration_ms": duration_ms, "is_error": True},
+                        )
+
+                    return tool_result
+
+                # Wrap success (Req 11.1)
+                tool_result = ToolCallResult(content=content, is_error=False)
+
+                # Log success (Req 7.2)
+                self.logger.info(
+                    f"MCP tool call success: {tool_name}",
+                    extra={
+                        "event_type": "mcp_tool_call_success",
+                        "tool_name": tool_name,
+                        "result_type": type(content).__name__,
+                        "result_length": len(str(content)) if content else 0,
+                        "duration_ms": duration_ms,
+                    },
+                )
+
+                # Update Langfuse span
+                if span and hasattr(span, "update"):
+                    span.update(
+                        output=tool_result.to_dict(),
+                        metadata={"duration_ms": duration_ms, "is_error": False},
+                    )
+
+                return tool_result
+
+            except asyncio.TimeoutError:
+                # Re-raise for batch handling upstream (Req 6.5)
+                duration_ms = (time.perf_counter() - start_time) * 1000
+                self.logger.warning(
+                    f"MCP tool call timeout: {tool_name}",
+                    extra={
+                        "event_type": "mcp_tool_call_timeout",
+                        "tool_name": tool_name,
+                        "arguments": arguments,
+                        "timeout_seconds": timeout,
+                        "duration_ms": duration_ms,
+                    },
+                )
+                if span and hasattr(span, "update"):
+                    span.update(
+                        metadata={
+                            "duration_ms": duration_ms,
+                            "is_error": True,
+                            "error_type": "timeout",
+                        },
+                    )
+                raise
+
+            except Exception as e:
+                # Wrap error (Req 11.2, 11.4)
+                duration_ms = (time.perf_counter() - start_time) * 1000
+                error_msg = str(e)
+                tool_result = ToolCallResult(
+                    content={"error": error_msg},
+                    is_error=True,
+                    error_message=error_msg,
+                )
+
+                # Log error (Req 6.2)
+                self.logger.error(
+                    f"MCP tool call failed: {tool_name}: {error_msg}",
+                    extra={
+                        "event_type": "mcp_tool_call_error",
+                        "tool_name": tool_name,
+                        "error": error_msg,
+                        "duration_ms": duration_ms,
+                    },
+                )
+
+                if span and hasattr(span, "update"):
+                    span.update(
+                        output=tool_result.to_dict(),
+                        metadata={"duration_ms": duration_ms, "is_error": True},
+                    )
+
+                return tool_result

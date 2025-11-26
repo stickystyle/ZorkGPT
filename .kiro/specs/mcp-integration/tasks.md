@@ -97,7 +97,7 @@
   - **Property 37: Complete Tool Translation**
   - **Validates: Requirements 8.5**
 
-- [ ] 5. Implement tool execution with error handling
+- [x] 5. Implement tool execution with error handling
   - Implement call_tool method with timeout handling
   - Implement ToolCallResult wrapping for success and error cases
   - Add timeout handling with asyncio.TimeoutError
@@ -105,7 +105,7 @@
   - Integrate Langfuse tracking for tool calls (if enabled)
   - _Requirements: 5.1, 6.2, 6.4, 6.5, 6.6, 7.1, 7.2, 7.4, 11.1, 11.2, 11.4_
 
-- [ ] 5.1 Write unit tests for tool execution
+- [x] 5.1 Write unit tests for tool execution
   - Test successful tool calls
   - Test tool call failures
   - Test timeout handling
@@ -113,15 +113,15 @@
   - Test error logging
   - _Requirements: 5.1, 6.2, 6.4, 6.5, 6.6, 11.1, 11.2, 11.4_
 
-- [ ] 5.2 Write property test for tool call logging
+- [x] 5.2 Write property test for tool call logging
   - **Property 28: Tool Call Logging**
   - **Validates: Requirements 7.1**
 
-- [ ] 5.3 Write property test for tool result logging
+- [x] 5.3 Write property test for tool result logging
   - **Property 29: Tool Result Logging**
   - **Validates: Requirements 7.2**
 
-- [ ] 6. Implement graceful degradation and retry logic
+- [x] 6. Implement graceful degradation and retry logic
   - Implement retry logic in connect_session for subsequent turn failures
   - Add _retry_attempted flag to track retry attempts
   - Implement graceful degradation by setting _disabled flag after failed retry
@@ -129,18 +129,18 @@
   - Distinguish between first-turn failures (fail-fast) and subsequent-turn failures (retry)
   - _Requirements: 6.1, 6.7, 6.8, 6.9_
 
-- [ ] 6.1 Write unit tests for graceful degradation
+- [x] 6.1 Write unit tests for graceful degradation
   - Test first-turn failure (fail-fast, no retry)
   - Test subsequent-turn failure with successful retry
   - Test subsequent-turn failure with failed retry (graceful degradation)
   - Test disabled flag behavior
   - _Requirements: 6.1, 6.7, 6.8, 6.9_
 
-- [ ] 6.2 Write property test for connection retry logic
+- [x] 6.2 Write property test for connection retry logic
   - **Property 26: Connection Retry Logic**
   - **Validates: Requirements 6.7**
 
-- [ ] 6.3 Write property test for graceful degradation
+- [x] 6.3 Write property test for graceful degradation
   - **Property 27: Graceful Degradation After Retry Failure**
   - **Validates: Requirements 6.8, 6.9**
 
@@ -270,30 +270,34 @@
   - **Property 30: Session Summary Logging**
   - **Validates: Requirements 7.3**
 
-- [ ] 13. Implement sync wrapper for backward compatibility
-  - Modify get_action_with_reasoning to check if MCP is enabled
-  - If MCP enabled, use asyncio.run to call _generate_action_async
-  - If MCP disabled, use existing synchronous implementation
-  - Ensure public API remains synchronous
+- [ ] 13. Implement sync wrapper to maintain existing agent API
+  - Modify get_action_with_reasoning to always use asyncio.run to call _generate_action_async
+  - The async implementation handles both MCP enabled and disabled cases internally
+  - When MCP is disabled, _generate_action_async skips MCP session connection and tool calling
+  - Ensure public API remains synchronous (orchestrator doesn't need changes)
+  - This provides a single unified code path regardless of MCP configuration
   - _Requirements: 1.5, 10.1, 10.2, 10.4, 10.5, 15.5_
 
 - [ ] 13.1 Write unit tests for sync wrapper
-  - Test MCP enabled path
-  - Test MCP disabled path (backward compatibility)
-  - Test asyncio.run boundary
+  - Test MCP enabled path (connects session, uses tools)
+  - Test MCP disabled path (skips session connection, no tools)
+  - Test asyncio.run boundary (only one call)
   - Test no nested event loops
+  - Test both paths use same async implementation
   - _Requirements: 1.5, 10.1, 10.2, 10.4, 10.5, 15.5_
 
 - [ ] 13.2 Write property test for single asyncio.run boundary
   - **Property 39: Single Asyncio.run Boundary**
   - **Validates: Requirements 10.1**
 
-- [ ] 13.3 Write property test for backward compatibility
+- [ ] 13.3 Write property test for MCP disabled behavior
   - **Property 48: AgentResponse Backward Compatibility**
   - **Validates: Requirements 15.5**
+  - Ensures agent with MCP disabled works identically to pre-MCP agent
 
 - [ ] 14. Checkpoint - Ensure agent tests pass
   - Ensure all tests pass, ask the user if questions arise.
+  - **Note**: Agent MCP functionality is complete, but orchestrator integration (Task 15) is needed for full system testing
 
 - [ ] 15. Integrate MCPManager into orchestrator
   - Add MCPManager initialization in _initialize_managers
@@ -301,6 +305,7 @@
   - Pass MCPManager to ZorkAgent during initialization
   - Add conditional initialization based on mcp_enabled config
   - Ensure orchestrator remains synchronous
+  - **Note**: After this task, the full system is integrated and ready for end-to-end testing with real MCP servers
   - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5, 10.2_
 
 - [ ] 15.1 Write unit tests for orchestrator integration
@@ -339,6 +344,7 @@
   - Test subsequent-turn failure with graceful degradation
   - Test timeout handling
   - Test max iterations handling
+  - **Note**: This is the comprehensive end-to-end testing phase with full orchestrator integration
   - _Requirements: All requirements_
 
 - [ ] 19. Final checkpoint - Ensure all tests pass
