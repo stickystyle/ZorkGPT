@@ -750,3 +750,337 @@ class TestProperty9SubprocessTerminationOnDisconnect:
                 await manager.disconnect_session()
                 # Property: context must be None after disconnect
                 assert manager._stdio_context is None
+
+
+# =============================================================================
+# MCP Schema Translation Property Tests (Tasks 4.2, 4.3)
+# =============================================================================
+
+
+class TestProperty34ToolNameFormat:
+    """
+    Property 34: Tool Name Format (Req 8.2)
+
+    Invariant: Translated tool names follow {server_name}.{tool_name} format.
+    Parsing the result should roundtrip correctly.
+    """
+
+    @settings(max_examples=100, suppress_health_check=[HealthCheck.function_scoped_fixture])
+    @given(
+        server_name=st.text(
+            min_size=1,
+            max_size=20,
+            alphabet=st.characters(whitelist_categories=("Ll", "Lu", "Nd"), whitelist_characters="_-")
+        ).filter(lambda x: x and not x.startswith("-") and not x.endswith("-")),
+        tool_name=st.text(
+            min_size=1,
+            max_size=20,
+            alphabet=st.characters(whitelist_categories=("Ll", "Lu", "Nd"), whitelist_characters="_")
+        ).filter(lambda x: x and x[0].isalpha())  # Tool names typically start with letter
+    )
+    def test_property_tool_name_format_roundtrip(self, server_name, tool_name, tmp_path):
+        """Property 34: Tool names follow {server_name}.{tool_name} format.
+
+        Validates: Requirements 8.2
+
+        For any server name and tool name, the translated tool name should:
+        1. Follow format {server_name}.{tool_name}
+        2. Parsing the result should roundtrip correctly
+        """
+        from managers.mcp_manager import MCPManager
+
+        # Create minimal MCP config
+        config_data = {
+            "mcpServers": {
+                server_name: {
+                    "command": "echo",
+                    "args": ["test"]
+                }
+            }
+        }
+        config_file = tmp_path / "mcp_config.json"
+        config_file.write_text(json.dumps(config_data))
+
+        config = GameConfiguration(
+            max_turns_per_episode=100,
+            game_file_path="test.z5",
+            mcp_enabled=True,
+            mcp_config_file=str(config_file),
+        )
+
+        manager = MCPManager(config=config, logger=MagicMock())
+
+        # Create mock tool with given name
+        mock_tool = MagicMock()
+        mock_tool.name = tool_name
+        mock_tool.description = "Test tool"
+        mock_tool.inputSchema = {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+
+        # Translate tool schema
+        translated = manager._translate_tool_schema(tool=mock_tool, server_name=server_name)
+
+        # Property 1: Result name matches format {server_name}.{tool_name}
+        expected_name = f"{server_name}.{tool_name}"
+        assert translated["function"]["name"] == expected_name, \
+            f"Expected {expected_name}, got {translated['function']['name']}"
+
+        # Property 2: Parsing the result returns original server_name and tool_name
+        parsed_server, parsed_tool = manager._parse_tool_name(translated["function"]["name"])
+        assert parsed_server == server_name, \
+            f"Server name roundtrip failed: {server_name} != {parsed_server}"
+        assert parsed_tool == tool_name, \
+            f"Tool name roundtrip failed: {tool_name} != {parsed_tool}"
+
+    @settings(max_examples=50, suppress_health_check=[HealthCheck.function_scoped_fixture])
+    @given(
+        server_name=st.text(
+            min_size=1,
+            max_size=15,
+            alphabet=st.characters(whitelist_categories=("Ll", "Lu", "Nd"), whitelist_characters="_-")
+        ).filter(lambda x: x and not x.startswith("-")),
+        tool_name=st.text(
+            min_size=1,
+            max_size=15,
+            alphabet=st.characters(whitelist_categories=("Ll", "Lu", "Nd"), whitelist_characters="_")
+        ).filter(lambda x: x and x[0].isalpha())
+    )
+    def test_property_tool_name_has_single_dot_separator(self, server_name, tool_name, tmp_path):
+        """Property 34: Tool names have exactly one dot separator.
+
+        Validates: Requirements 8.2
+
+        The format {server_name}.{tool_name} implies exactly one dot.
+        """
+        from managers.mcp_manager import MCPManager
+
+        # Create minimal MCP config
+        config_data = {
+            "mcpServers": {
+                server_name: {
+                    "command": "echo",
+                    "args": ["test"]
+                }
+            }
+        }
+        config_file = tmp_path / "mcp_config.json"
+        config_file.write_text(json.dumps(config_data))
+
+        config = GameConfiguration(
+            max_turns_per_episode=100,
+            game_file_path="test.z5",
+            mcp_enabled=True,
+            mcp_config_file=str(config_file),
+        )
+
+        manager = MCPManager(config=config, logger=MagicMock())
+
+        # Create mock tool
+        mock_tool = MagicMock()
+        mock_tool.name = tool_name
+        mock_tool.description = "Test"
+        mock_tool.inputSchema = {"type": "object", "properties": {}}
+
+        # Translate
+        translated = manager._translate_tool_schema(tool=mock_tool, server_name=server_name)
+        result_name = translated["function"]["name"]
+
+        # Property: Exactly one dot separator
+        assert result_name.count(".") == 1, \
+            f"Tool name must have exactly 1 dot, found {result_name.count('.')}: {result_name}"
+
+
+class TestProperty37CompleteToolTranslation:
+    """
+    Property 37: Complete Tool Translation (Req 8.5)
+
+    Invariant: All tools from server are translated and available.
+    Each translated tool has required OpenAI format fields.
+    """
+
+    @settings(max_examples=50, suppress_health_check=[HealthCheck.function_scoped_fixture])
+    @given(num_tools=st.integers(min_value=1, max_value=10))
+    @pytest.mark.asyncio
+    async def test_property_all_tools_translated(self, num_tools, tmp_path):
+        """Property 37: All tools from server are translated and available.
+
+        Validates: Requirements 8.5
+
+        For any number of tools on a server:
+        1. All tools should be translated
+        2. Each translated tool should have required OpenAI format fields
+        """
+        from managers.mcp_manager import MCPManager
+
+        # Create config
+        config_data = {
+            "mcpServers": {
+                "test-server": {
+                    "command": "echo",
+                    "args": ["test"]
+                }
+            }
+        }
+        config_file = tmp_path / "mcp_config.json"
+        config_file.write_text(json.dumps(config_data))
+
+        config = GameConfiguration(
+            max_turns_per_episode=100,
+            game_file_path="test.z5",
+            mcp_enabled=True,
+            mcp_config_file=str(config_file),
+        )
+
+        # Generate num_tools mock MCP tools
+        mock_tools = []
+        for i in range(num_tools):
+            mock_tool = MagicMock()
+            mock_tool.name = f"tool_{i}"
+            mock_tool.description = f"Test tool {i}"
+            mock_tool.inputSchema = {
+                "type": "object",
+                "properties": {
+                    f"param_{i}": {"type": "string", "description": f"Parameter {i}"}
+                },
+                "required": [f"param_{i}"]
+            }
+            mock_tools.append(mock_tool)
+
+        # Mock list_tools result
+        mock_list_tools_result = MagicMock()
+        mock_list_tools_result.tools = mock_tools
+
+        # Mock session
+        mock_session = MagicMock()
+        mock_session.initialize = AsyncMock()
+        mock_session.list_tools = AsyncMock(return_value=mock_list_tools_result)
+
+        # Mock stdio client
+        mock_context = MagicMock()
+        mock_context.__aenter__ = AsyncMock(return_value=(AsyncMock(), AsyncMock()))
+        mock_context.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("managers.mcp_manager.stdio_client", return_value=mock_context):
+            with patch("managers.mcp_manager.ClientSession", return_value=mock_session):
+                manager = MCPManager(config=config, logger=MagicMock())
+
+                # Connect session
+                await manager.connect_session()
+
+                # Call get_tool_schemas() (mocked)
+                result = await manager.get_tool_schemas()
+
+                # Property 1: All tools translated (count matches)
+                assert len(result) == num_tools, \
+                    f"Expected {num_tools} tools, got {len(result)}"
+
+                # Property 2: Each has required OpenAI format fields
+                for tool_schema in result:
+                    assert "type" in tool_schema, "Missing 'type' field"
+                    assert tool_schema["type"] == "function", \
+                        f"Expected type='function', got {tool_schema['type']}"
+
+                    assert "function" in tool_schema, "Missing 'function' field"
+
+                    function_def = tool_schema["function"]
+                    assert "name" in function_def, "Missing 'function.name' field"
+                    assert "description" in function_def, "Missing 'function.description' field"
+                    assert "parameters" in function_def, "Missing 'function.parameters' field"
+
+                    # Verify name format (server.tool)
+                    assert "." in function_def["name"], \
+                        f"Tool name missing server prefix: {function_def['name']}"
+
+                    # Verify parameters is object schema
+                    parameters = function_def["parameters"]
+                    assert "type" in parameters, "Missing 'parameters.type' field"
+                    assert parameters["type"] == "object", \
+                        f"Expected parameters.type='object', got {parameters['type']}"
+
+                # Disconnect
+                await manager.disconnect_session()
+
+    @settings(max_examples=30, suppress_health_check=[HealthCheck.function_scoped_fixture])
+    @given(
+        num_tools=st.integers(min_value=1, max_value=5),
+        server_name=st.text(
+            min_size=1,
+            max_size=20,
+            alphabet=st.characters(whitelist_categories=("Ll", "Lu", "Nd"), whitelist_characters="_-")
+        ).filter(lambda x: x and not x.startswith("-"))
+    )
+    @pytest.mark.asyncio
+    async def test_property_tool_names_unique_after_translation(
+        self, num_tools, server_name, tmp_path
+    ):
+        """Property 37: Translated tool names are unique.
+
+        Validates: Requirements 8.5
+
+        After translation with server prefix, all tool names should be unique.
+        """
+        from managers.mcp_manager import MCPManager
+
+        # Create config with given server name
+        config_data = {
+            "mcpServers": {
+                server_name: {
+                    "command": "echo",
+                    "args": ["test"]
+                }
+            }
+        }
+        config_file = tmp_path / "mcp_config.json"
+        config_file.write_text(json.dumps(config_data))
+
+        config = GameConfiguration(
+            max_turns_per_episode=100,
+            game_file_path="test.z5",
+            mcp_enabled=True,
+            mcp_config_file=str(config_file),
+        )
+
+        # Generate tools with unique names
+        mock_tools = []
+        for i in range(num_tools):
+            mock_tool = MagicMock()
+            mock_tool.name = f"unique_tool_{i}"
+            mock_tool.description = f"Tool {i}"
+            mock_tool.inputSchema = {"type": "object", "properties": {}}
+            mock_tools.append(mock_tool)
+
+        # Mock session
+        mock_list_tools_result = MagicMock()
+        mock_list_tools_result.tools = mock_tools
+
+        mock_session = MagicMock()
+        mock_session.initialize = AsyncMock()
+        mock_session.list_tools = AsyncMock(return_value=mock_list_tools_result)
+
+        mock_context = MagicMock()
+        mock_context.__aenter__ = AsyncMock(return_value=(AsyncMock(), AsyncMock()))
+        mock_context.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("managers.mcp_manager.stdio_client", return_value=mock_context):
+            with patch("managers.mcp_manager.ClientSession", return_value=mock_session):
+                manager = MCPManager(config=config, logger=MagicMock())
+
+                await manager.connect_session()
+                result = await manager.get_tool_schemas()
+
+                # Extract all translated names
+                translated_names = [tool["function"]["name"] for tool in result]
+
+                # Property: All names are unique
+                assert len(translated_names) == len(set(translated_names)), \
+                    f"Duplicate tool names found: {translated_names}"
+
+                # Property: All names have server prefix
+                for name in translated_names:
+                    assert name.startswith(f"{server_name}."), \
+                        f"Tool name missing server prefix: {name}"
+
+                await manager.disconnect_session()

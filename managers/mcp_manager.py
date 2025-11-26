@@ -3,7 +3,7 @@
 
 import logging
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from mcp import ClientSession
 from mcp.client.stdio import stdio_client, StdioServerParameters
@@ -177,3 +177,112 @@ class MCPManager:
         finally:
             self._session = None
             self._stdio_context = None
+
+    def _translate_tool_schema(self, tool: Any, server_name: str) -> Dict[str, Any]:
+        """Translate MCP tool schema to OpenAI format.
+
+        Args:
+            tool: Tool object from MCP server (has name, description, inputSchema)
+            server_name: Name of server for prefixing
+
+        Returns:
+            OpenAI-compatible tool schema dict in format:
+            {
+                "type": "function",
+                "function": {
+                    "name": "{server_name}.{tool_name}",
+                    "description": "...",
+                    "parameters": {...}  # From inputSchema
+                }
+            }
+        """
+        # Handle missing inputSchema (default to empty object schema)
+        input_schema = getattr(tool, "inputSchema", {"type": "object", "properties": {}})
+
+        # Build OpenAI-compatible schema
+        return {
+            "type": "function",
+            "function": {
+                "name": f"{server_name}.{tool.name}",
+                "description": tool.description,
+                "parameters": input_schema,
+            },
+        }
+
+    def _parse_tool_name(self, tool_name: str) -> Tuple[str, str]:
+        """Parse prefixed tool name to extract server and tool names.
+
+        Args:
+            tool_name: Prefixed tool name (e.g., "thoughtbox.think")
+
+        Returns:
+            Tuple of (server_name, tool_name)
+
+        Raises:
+            ValueError: If format is invalid (no dot or multiple dots)
+        """
+        # Split on all dots to check for multiple dots
+        parts = tool_name.split(".")
+
+        if len(parts) != 2:
+            raise ValueError(
+                f"Invalid tool name format: '{tool_name}'. "
+                f"Expected format: 'server_name.tool_name'"
+            )
+
+        return parts[0], parts[1]
+
+    async def _discover_tools_from_server(self) -> List[Any]:
+        """Discover available tools from connected MCP server.
+
+        Calls session.list_tools() to get available tools.
+
+        Returns:
+            List of MCP Tool objects from server
+
+        Raises:
+            RuntimeError: If session not connected
+        """
+        if self._session is None:
+            raise RuntimeError("MCP session not connected")
+
+        result = await self._session.list_tools()
+        return result.tools
+
+    async def get_tool_schemas(self) -> List[Dict[str, Any]]:
+        """Get OpenAI-compatible tool schemas from connected server.
+
+        Returns:
+            List of tool schemas with prefixed names (e.g., "thoughtbox.think")
+            Returns empty list if MCP is disabled.
+
+        Raises:
+            RuntimeError: If session not connected (when not disabled)
+        """
+        # Early exit if disabled
+        if self._disabled:
+            return []
+
+        # Check session connected
+        if self._session is None:
+            raise RuntimeError("MCP session not connected")
+
+        # Discover tools from server
+        tools = await self._discover_tools_from_server()
+
+        # Translate each tool to OpenAI format
+        schemas = [
+            self._translate_tool_schema(tool, self._server_name) for tool in tools
+        ]
+
+        # Log discovery info
+        self.logger.info(
+            f"Discovered {len(tools)} tools from '{self._server_name}'",
+            extra={
+                "event_type": "mcp_tools_discovered",
+                "server_name": self._server_name,
+                "tool_count": len(tools),
+            },
+        )
+
+        return schemas

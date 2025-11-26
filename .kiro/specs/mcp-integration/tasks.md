@@ -74,7 +74,7 @@
   - **Property 9: Subprocess Termination on Disconnect**
   - **Validates: Requirements 3.7**
 
-- [ ] 4. Implement tool schema discovery and translation
+- [x] 4. Implement tool schema discovery and translation
   - Implement get_tool_schemas method to discover tools from MCP server
   - Implement _discover_tools_from_server method
   - Implement _translate_schema method to convert MCP schemas to OpenAI format
@@ -82,18 +82,18 @@
   - Implement _parse_tool_name method to extract server name from prefixed tool name
   - _Requirements: 3.4, 8.1, 8.2, 8.3, 8.4, 8.5, 8.6_
 
-- [ ] 4.1 Write unit tests for schema translation
+- [x] 4.1 Write unit tests for schema translation
   - Test MCP to OpenAI schema conversion
   - Test tool name prefixing
   - Test tool name parsing
   - Test multiple tools translation
   - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6_
 
-- [ ] 4.2 Write property test for tool name format
+- [x] 4.2 Write property test for tool name format
   - **Property 34: Tool Name Format**
   - **Validates: Requirements 8.2**
 
-- [ ] 4.3 Write property test for complete tool translation
+- [x] 4.3 Write property test for complete tool translation
   - **Property 37: Complete Tool Translation**
   - **Validates: Requirements 8.5**
 
