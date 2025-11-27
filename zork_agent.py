@@ -3,6 +3,7 @@ ZorkAgent module for generating actions and managing game memory.
 """
 
 import re
+import json
 from typing import Optional, List, Tuple, Dict, TYPE_CHECKING, Any
 from collections import Counter
 import os
@@ -221,12 +222,12 @@ The following strategic guide has been compiled from analyzing previous episodes
                 f"  3. Set mcp.force_tool_support = true to override"
             )
 
-    async def _generate_action_async(
+    async def _setup_mcp_context(
         self,
         game_state_text: str,
         relevant_memories: Optional[str] = None,
     ) -> MCPContext:
-        """Async setup for action generation with MCP support.
+        """Setup MCP context for action generation with tool calling.
 
         Handles:
         - MCP session lifecycle (connect, will disconnect in finally of caller)
@@ -240,7 +241,7 @@ The following strategic guide has been compiled from analyzing previous episodes
 
         Returns:
             MCPContext with messages, tool_schemas, and connection status
-            (Task #9 will use this to run the tool-calling loop)
+            for use in tool-calling loop
 
         Raises:
             MCPError: If model is incompatible with tool calling
@@ -299,6 +300,217 @@ The following strategic guide has been compiled from analyzing previous episodes
             tool_schemas=tool_schemas,
             mcp_connected=mcp_connected,
         )
+
+    async def _run_tool_calling_loop(
+        self,
+        mcp_context: MCPContext,
+        max_iterations: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Run the tool-calling loop until LLM returns content.
+
+        Implements Requirements:
+        - 5.1: Execute tool calls via MCPManager
+        - 5.2: Sequential tool execution (not parallel)
+        - 5.3: JSON argument parsing before execution
+        - 5.4: Append tool results to message history
+        - 5.5: Call LLM again after tool results
+        - 5.6: Exit loop when LLM returns content
+        - 5.10: Log warning and exit on neither content nor tool_calls
+        - 4.6: response_format NOT used during loop (OpenRouter compatibility)
+
+        Args:
+            mcp_context: MCPContext with messages, tool_schemas, and connection status
+            max_iterations: Maximum number of iterations (defaults to config value)
+
+        Returns:
+            Dict with either:
+            - 'action', 'reasoning', 'new_objective' (on success)
+            - '_needs_forced_action': True, 'messages': [...] (on max iterations)
+        """
+        messages = mcp_context.messages.copy()
+        iteration = 0
+
+        if max_iterations is None:
+            max_iterations = self.config.mcp_max_tool_iterations
+
+        while iteration < max_iterations:
+            iteration += 1
+
+            # Call LLM with tools (NO response_format during loop - Req 4.6)
+            response = self.client.client.chat_completions_create(
+                model=self.model,
+                messages=messages,
+                tools=mcp_context.tool_schemas if mcp_context.mcp_connected else None,
+                tool_choice="auto" if mcp_context.mcp_connected else None,
+                temperature=self.temperature,
+                top_p=self.top_p,
+                top_k=self.top_k,
+                min_p=self.min_p,
+                max_tokens=self.max_tokens,
+                # NOTE: response_format=None during loop for OpenRouter compatibility
+            )
+
+            # Exit on content (Req 5.6)
+            if response.content:
+                return self._parse_agent_response(response.content)
+
+            # Execute tool calls (Req 5.1)
+            if response.tool_calls:
+                # Add assistant message with tool_calls to history
+                messages.append({
+                    "role": "assistant",
+                    "tool_calls": [
+                        {
+                            "id": tc.id,
+                            "type": tc.type,
+                            "function": {
+                                "name": tc.function.name,
+                                "arguments": tc.function.arguments
+                            }
+                        }
+                        for tc in response.tool_calls
+                    ]
+                })
+
+                # Execute each tool sequentially (Req 5.2)
+                for tool_call in response.tool_calls:
+                    # Validate argument size before parsing
+                    if len(tool_call.function.arguments) > 100_000:  # 100KB limit
+                        if self.logger:
+                            self.logger.error(
+                                f"Tool arguments exceed size limit: {len(tool_call.function.arguments)} bytes"
+                            )
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": json.dumps({"error": "Tool arguments exceed size limit"})
+                        })
+                        continue
+
+                    # Parse JSON arguments (Req 5.3)
+                    try:
+                        arguments = json.loads(tool_call.function.arguments)
+                    except json.JSONDecodeError as e:
+                        if self.logger:
+                            self.logger.error(
+                                f"Failed to parse tool arguments for {tool_call.function.name}: {e}"
+                            )
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": json.dumps({"error": f"Invalid JSON arguments: {str(e)}"})
+                        })
+                        continue
+
+                    # Execute via MCPManager (Req 5.1)
+                    result = await self.mcp_manager.call_tool(
+                        tool_name=tool_call.function.name,
+                        arguments=arguments
+                    )
+
+                    # Append tool result to history (Req 5.4)
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "content": json.dumps(result.to_dict())
+                    })
+
+                # Log iteration info
+                if self.logger:
+                    self.logger.debug(
+                        f"Tool-calling iteration {iteration}: executed {len(response.tool_calls)} tools"
+                    )
+
+                # Continue loop for next LLM call (Req 5.5)
+                continue
+
+            # Neither content nor tool_calls (Req 5.10)
+            if self.logger:
+                self.logger.warning(
+                    f"LLM returned neither content nor tool_calls at iteration {iteration}"
+                )
+            break
+
+        # Max iterations reached - will be handled by Task #11 (forced final action)
+        return {"_needs_forced_action": True, "messages": messages}
+
+    async def _generate_action_async(
+        self,
+        game_state_text: str,
+        relevant_memories: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Async implementation of action generation with tool calling.
+
+        Orchestrates:
+        1. MCP setup (connect session, get tools)
+        2. Tool-calling loop (when MCP connected)
+        3. Direct LLM call (when MCP not connected)
+
+        Args:
+            game_state_text: Current game state text
+            relevant_memories: Formatted string of relevant memories
+
+        Returns:
+            Dict with 'action', 'reasoning', and optional 'new_objective'
+            Or dict with '_needs_forced_action' if max iterations reached
+        """
+        # Step 1: Setup (current Task #8 implementation)
+        mcp_context = await self._setup_mcp_context(game_state_text, relevant_memories)
+
+        try:
+            if mcp_context.mcp_connected:
+                # Step 2: Run tool-calling loop
+                return await self._run_tool_calling_loop(mcp_context)
+            else:
+                # No MCP - direct LLM call without tools
+                response = self.client.client.chat_completions_create(
+                    model=self.model,
+                    messages=mcp_context.messages,
+                    temperature=self.temperature,
+                    top_p=self.top_p,
+                    top_k=self.top_k,
+                    min_p=self.min_p,
+                    max_tokens=self.max_tokens,
+                    response_format=create_json_schema(AgentResponse),
+                    # No tools parameter when MCP not connected
+                )
+
+                if response.content:
+                    return self._parse_agent_response(response.content)
+                else:
+                    # Fallback for unexpected case
+                    if self.logger:
+                        self.logger.warning("LLM returned no content without MCP")
+                    return {"_needs_forced_action": True, "messages": mcp_context.messages}
+        finally:
+            # Ensure MCP session is always disconnected (Req 3.5)
+            if mcp_context.mcp_connected and self.mcp_manager:
+                await self.mcp_manager.disconnect_session()
+
+    def _parse_agent_response(self, content: str) -> Dict[str, Any]:
+        """Parse LLM response content into action data.
+
+        Args:
+            content: Raw LLM response content (should be JSON)
+
+        Returns:
+            Dict with 'action', 'reasoning', and optional 'new_objective'
+        """
+        try:
+            data = json.loads(content)
+            return {
+                "action": data.get("action", "look"),
+                "reasoning": data.get("thinking", ""),
+                "new_objective": data.get("new_objective"),
+            }
+        except json.JSONDecodeError:
+            # Fallback for non-JSON response
+            if self.logger:
+                self.logger.warning(f"Failed to parse agent response as JSON: {content[:100]}")
+            return {
+                "action": content.strip() if content else "look",
+                "reasoning": "",
+            }
 
     @observe(name="agent-generate-action")
     def get_action_with_reasoning(

@@ -121,7 +121,7 @@ class TestMessageHistoryBuilding:
     @pytest.mark.asyncio
     async def test_system_message_has_cache_control(self, agent_without_mcp):
         """System message should have ephemeral cache control."""
-        result = await agent_without_mcp._generate_action_async(
+        result = await agent_without_mcp._setup_mcp_context(
             game_state_text="You are in a room.", relevant_memories=None
         )
 
@@ -137,7 +137,7 @@ class TestMessageHistoryBuilding:
     @pytest.mark.asyncio
     async def test_user_message_has_cache_control(self, agent_without_mcp):
         """User message should have ephemeral cache control."""
-        result = await agent_without_mcp._generate_action_async(
+        result = await agent_without_mcp._setup_mcp_context(
             game_state_text="You are in a room.", relevant_memories=None
         )
 
@@ -155,7 +155,7 @@ class TestMessageHistoryBuilding:
         """Memories should be combined with game state in user message."""
         memories = "Memory 1: Found a lamp\nMemory 2: Opened mailbox"
 
-        result = await agent_without_mcp._generate_action_async(
+        result = await agent_without_mcp._setup_mcp_context(
             game_state_text="You are in a room.", relevant_memories=memories
         )
 
@@ -174,7 +174,7 @@ class TestMessageHistoryBuilding:
     @pytest.mark.asyncio
     async def test_o1_model_system_prompt_in_user_role(self, agent_o1_model):
         """O1 models should have system prompt in user role, not system role."""
-        result = await agent_o1_model._generate_action_async(
+        result = await agent_o1_model._setup_mcp_context(
             game_state_text="You are in a room.", relevant_memories=None
         )
 
@@ -195,7 +195,7 @@ class TestMessageHistoryBuilding:
     @pytest.mark.asyncio
     async def test_o3_model_system_prompt_in_user_role(self, agent_o3_model):
         """O3 models should have system prompt in user role, not system role."""
-        result = await agent_o3_model._generate_action_async(
+        result = await agent_o3_model._setup_mcp_context(
             game_state_text="You are in a room.", relevant_memories=None
         )
 
@@ -227,7 +227,7 @@ class TestMCPSessionConnection:
         self, agent_with_mcp, mock_mcp_manager
     ):
         """MCP session should connect when manager is provided and enabled."""
-        await agent_with_mcp._generate_action_async(
+        await agent_with_mcp._setup_mcp_context(
             game_state_text="You are in a room.", relevant_memories=None
         )
 
@@ -237,7 +237,7 @@ class TestMCPSessionConnection:
     @pytest.mark.asyncio
     async def test_mcp_session_not_connected_when_disabled(self, agent_without_mcp):
         """MCP session should not connect when manager is None."""
-        result = await agent_without_mcp._generate_action_async(
+        result = await agent_without_mcp._setup_mcp_context(
             game_state_text="You are in a room.", relevant_memories=None
         )
 
@@ -251,7 +251,7 @@ class TestMCPSessionConnection:
         """MCP session should not connect when manager.is_disabled is True."""
         mock_mcp_manager.is_disabled = True
 
-        result = await agent_with_mcp._generate_action_async(
+        result = await agent_with_mcp._setup_mcp_context(
             game_state_text="You are in a room.", relevant_memories=None
         )
 
@@ -275,7 +275,7 @@ class TestToolSchemaRetrieval:
         self, agent_with_mcp, mock_mcp_manager
     ):
         """Tool schemas should be retrieved when MCP is enabled."""
-        await agent_with_mcp._generate_action_async(
+        await agent_with_mcp._setup_mcp_context(
             game_state_text="You are in a room.", relevant_memories=None
         )
 
@@ -285,7 +285,7 @@ class TestToolSchemaRetrieval:
     @pytest.mark.asyncio
     async def test_tool_schemas_none_when_mcp_disabled(self, agent_without_mcp):
         """Tool schemas should be None when MCP is disabled."""
-        result = await agent_without_mcp._generate_action_async(
+        result = await agent_without_mcp._setup_mcp_context(
             game_state_text="You are in a room.", relevant_memories=None
         )
 
@@ -306,7 +306,7 @@ class TestToolSchemaRetrieval:
         ]
         mock_mcp_manager.get_tool_schemas = AsyncMock(return_value=expected_schemas)
 
-        result = await agent_with_mcp._generate_action_async(
+        result = await agent_with_mcp._setup_mcp_context(
             game_state_text="You are in a room.", relevant_memories=None
         )
 
@@ -339,7 +339,7 @@ class TestModelCompatibilityCheck:
             agent.system_prompt = "You are a Zork agent."
 
         with pytest.raises(MCPError) as exc_info:
-            await agent._generate_action_async(
+            await agent._setup_mcp_context(
                 game_state_text="You are in a room.", relevant_memories=None
             )
 
@@ -352,7 +352,7 @@ class TestModelCompatibilityCheck:
         mock_llm_client.client._supports_tool_calling = MagicMock(return_value=True)
 
         # Should not raise
-        result = await agent_with_mcp._generate_action_async(
+        result = await agent_with_mcp._setup_mcp_context(
             game_state_text="You are in a room.", relevant_memories=None
         )
 
@@ -379,7 +379,7 @@ class TestModelCompatibilityCheck:
             agent.system_prompt = "You are a Zork agent."
 
         # Should not raise despite incompatible model
-        result = await agent._generate_action_async(
+        result = await agent._setup_mcp_context(
             game_state_text="You are in a room.", relevant_memories=None
         )
 
@@ -397,7 +397,7 @@ class TestMCPContextResult:
     @pytest.mark.asyncio
     async def test_returns_mcp_context_dataclass(self, agent_without_mcp):
         """Should return an MCPContext dataclass instance."""
-        result = await agent_without_mcp._generate_action_async(
+        result = await agent_without_mcp._setup_mcp_context(
             game_state_text="You are in a room.", relevant_memories=None
         )
 
@@ -407,7 +407,7 @@ class TestMCPContextResult:
     @pytest.mark.asyncio
     async def test_mcp_context_has_messages(self, agent_without_mcp):
         """MCPContext should have messages field populated."""
-        result = await agent_without_mcp._generate_action_async(
+        result = await agent_without_mcp._setup_mcp_context(
             game_state_text="You are in a room.", relevant_memories=None
         )
 
@@ -420,7 +420,7 @@ class TestMCPContextResult:
         self, agent_with_mcp, mock_mcp_manager
     ):
         """MCPContext.mcp_connected should be True when MCP connects."""
-        result = await agent_with_mcp._generate_action_async(
+        result = await agent_with_mcp._setup_mcp_context(
             game_state_text="You are in a room.", relevant_memories=None
         )
 
@@ -434,7 +434,7 @@ class TestMCPContextResult:
         """MCPContext.mcp_connected should be False when manager is disabled."""
         mock_mcp_manager.is_disabled = True
 
-        result = await agent_with_mcp._generate_action_async(
+        result = await agent_with_mcp._setup_mcp_context(
             game_state_text="You are in a room.", relevant_memories=None
         )
 
@@ -443,7 +443,7 @@ class TestMCPContextResult:
     @pytest.mark.asyncio
     async def test_mcp_context_has_all_required_fields(self, agent_with_mcp):
         """MCPContext should have all required fields."""
-        result = await agent_with_mcp._generate_action_async(
+        result = await agent_with_mcp._setup_mcp_context(
             game_state_text="You are in a room.", relevant_memories=None
         )
 

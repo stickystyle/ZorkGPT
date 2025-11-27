@@ -166,7 +166,7 @@
   - **Property 1: Tool Schema Availability**
   - **Validates: Requirements 1.1**
 
-- [ ] 9. Implement tool-calling loop
+- [x] 9. Implement tool-calling loop
   - Implement iteration loop with max_tool_iterations limit
   - Implement LLM call with tools parameter (response_format disabled during loop)
   - Implement tool_calls detection and execution
@@ -178,7 +178,7 @@
   - Implement loop exit on neither content nor tool_calls
   - _Requirements: 1.2, 1.3, 4.6, 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.10_
 
-- [ ] 9.1 Write unit tests for tool-calling loop
+- [x] 9.1 Write unit tests for tool-calling loop
   - Test loop with successful tool calls
   - Test loop exit on content
   - Test loop exit on max iterations
