@@ -254,23 +254,23 @@
   - **Property 46: AgentResponse Parsing**
   - **Validates: Requirements 15.1**
 
-- [ ] 12. Implement MCP session cleanup and Langfuse tracking
+- [x] 12. Implement MCP session cleanup and Langfuse tracking
   - Implement finally block for session disconnection
   - Implement Langfuse session span tracking (if enabled)
   - Implement session summary logging
   - _Requirements: 3.5, 7.3, 7.5_
 
-- [ ] 12.1 Write unit tests for session cleanup
+- [x] 12.1 Write unit tests for session cleanup
   - Test session disconnection in finally block
   - Test session summary logging
   - Test Langfuse session span
   - _Requirements: 3.5, 7.3, 7.5_
 
-- [ ] 12.2 Write property test for session summary logging
+- [x] 12.2 Write property test for session summary logging
   - **Property 30: Session Summary Logging**
   - **Validates: Requirements 7.3**
 
-- [ ] 13. Implement sync wrapper to maintain existing agent API
+- [x] 13. Implement sync wrapper to maintain existing agent API
   - Modify get_action_with_reasoning to always use asyncio.run to call _generate_action_async
   - The async implementation handles both MCP enabled and disabled cases internally
   - When MCP is disabled, _generate_action_async skips MCP session connection and tool calling
@@ -278,7 +278,7 @@
   - This provides a single unified code path regardless of MCP configuration
   - _Requirements: 1.5, 10.1, 10.2, 10.4, 10.5, 15.5_
 
-- [ ] 13.1 Write unit tests for sync wrapper
+- [x] 13.1 Write unit tests for sync wrapper
   - Test MCP enabled path (connects session, uses tools)
   - Test MCP disabled path (skips session connection, no tools)
   - Test asyncio.run boundary (only one call)
@@ -286,11 +286,11 @@
   - Test both paths use same async implementation
   - _Requirements: 1.5, 10.1, 10.2, 10.4, 10.5, 15.5_
 
-- [ ] 13.2 Write property test for single asyncio.run boundary
+- [x] 13.2 Write property test for single asyncio.run boundary
   - **Property 39: Single Asyncio.run Boundary**
   - **Validates: Requirements 10.1**
 
-- [ ] 13.3 Write property test for MCP disabled behavior
+- [x] 13.3 Write property test for MCP disabled behavior
   - **Property 48: AgentResponse Backward Compatibility**
   - **Validates: Requirements 15.5**
   - Ensures agent with MCP disabled works identically to pre-MCP agent

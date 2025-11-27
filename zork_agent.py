@@ -5,8 +5,10 @@ ZorkAgent module for generating actions and managing game memory.
 import asyncio
 import re
 import json
+import time
 from typing import Optional, List, Tuple, Dict, TYPE_CHECKING, Any
 from collections import Counter
+from contextlib import nullcontext
 import os
 from pathlib import Path
 from dataclasses import dataclass
@@ -78,6 +80,7 @@ class ZorkAgent:
         logger=None,
         episode_id: str = "unknown",
         mcp_manager: Optional["MCPManager"] = None,
+        langfuse_client: Optional[Any] = None,
     ):
         """
         Initialize the ZorkAgent.
@@ -94,6 +97,7 @@ class ZorkAgent:
             logger: Logger instance for tracking
             episode_id: Current episode ID for logging
             mcp_manager: Optional MCPManager instance for MCP tool calling support
+            langfuse_client: Optional Langfuse client for tracing MCP sessions
         """
         self.config = config
 
@@ -127,6 +131,7 @@ class ZorkAgent:
         self._load_system_prompt()
 
         self.mcp_manager = mcp_manager
+        self.langfuse_client = langfuse_client
 
     def _load_system_prompt(self) -> None:
         """Load agent system prompt from markdown files and enhance with knowledge."""
@@ -318,6 +323,7 @@ The following strategic guide has been compiled from analyzing previous episodes
         - 5.6: Exit loop when LLM returns content
         - 5.10: Log warning and exit on neither content nor tool_calls
         - 4.6: response_format NOT used during loop (OpenRouter compatibility)
+        - 7.3: Track iterations and tool calls for logging
 
         Args:
             mcp_context: MCPContext with messages, tool_schemas, and connection status
@@ -325,11 +331,13 @@ The following strategic guide has been compiled from analyzing previous episodes
 
         Returns:
             Dict with either:
-            - 'action', 'reasoning', 'new_objective' (on success)
-            - '_needs_forced_action': True, 'messages': [...] (on max iterations)
+            - 'action', 'reasoning', 'new_objective', '_metadata' (on success)
+            - '_needs_forced_action': True, 'messages': [...], '_metadata' (on max iterations)
         """
         messages = mcp_context.messages.copy()
         iteration = 0
+        start_time = time.perf_counter()
+        tool_call_count = 0
 
         if max_iterations is None:
             max_iterations = self.config.mcp_max_tool_iterations
@@ -353,7 +361,13 @@ The following strategic guide has been compiled from analyzing previous episodes
 
             # Exit on content (Req 5.6)
             if response.content:
-                return self._parse_agent_response(response.content)
+                result = self._parse_agent_response(response.content)
+                result["_metadata"] = {
+                    "iterations": iteration,
+                    "tool_calls": tool_call_count,
+                    "duration_ms": int((time.perf_counter() - start_time) * 1000),
+                }
+                return result
 
             # Execute tool calls (Req 5.1)
             if response.tool_calls:
@@ -409,6 +423,9 @@ The following strategic guide has been compiled from analyzing previous episodes
                             tool_name=tool_call.function.name,
                             arguments=arguments
                         )
+
+                        # Increment tool call count (Req 7.3)
+                        tool_call_count += 1
 
                         # Append tool result to history (Req 5.4, 6.2)
                         # Non-timeout errors return ToolCallResult(is_error=True) and continue (Req 6.4)
@@ -480,17 +497,39 @@ The following strategic guide has been compiled from analyzing previous episodes
 
             # Parse and return (Req 15.1, 15.2, 15.3)
             if forced_response.content:
-                return self._parse_agent_response(forced_response.content)
+                result = self._parse_agent_response(forced_response.content)
+                result["_metadata"] = {
+                    "iterations": iteration,
+                    "tool_calls": tool_call_count,
+                    "duration_ms": int((time.perf_counter() - start_time) * 1000),
+                }
+                return result
             else:
                 # Fallback to safe defaults (Req 15.3)
                 if self.logger:
                     self.logger.warning("Forced final action returned no content")
-                return {"action": "look", "reasoning": ""}
+                return {
+                    "action": "look",
+                    "reasoning": "",
+                    "_metadata": {
+                        "iterations": iteration,
+                        "tool_calls": tool_call_count,
+                        "duration_ms": int((time.perf_counter() - start_time) * 1000),
+                    }
+                }
         except Exception as e:
             # Fallback on LLM call failure (Req 15.3)
             if self.logger:
                 self.logger.error(f"Forced final action LLM call failed: {e}")
-            return {"action": "look", "reasoning": ""}
+            return {
+                "action": "look",
+                "reasoning": "",
+                "_metadata": {
+                    "iterations": iteration,
+                    "tool_calls": tool_call_count,
+                    "duration_ms": int((time.perf_counter() - start_time) * 1000),
+                }
+            }
 
     async def _generate_action_async(
         self,
@@ -503,6 +542,12 @@ The following strategic guide has been compiled from analyzing previous episodes
         1. MCP setup (connect session, get tools)
         2. Tool-calling loop (when MCP connected)
         3. Direct LLM call (when MCP not connected)
+        4. Session cleanup and summary logging
+
+        Implements Requirements:
+        - 3.5: MCP session disconnect in finally block
+        - 7.3: Session summary logging
+        - 7.5: Langfuse session span tracking
 
         Args:
             game_state_text: Current game state text
@@ -512,38 +557,86 @@ The following strategic guide has been compiled from analyzing previous episodes
             Dict with 'action', 'reasoning', and optional 'new_objective'
             Or dict with '_needs_forced_action' if max iterations reached
         """
-        # Step 1: Setup (current Task #8 implementation)
+        # Step 1: Setup
         mcp_context = await self._setup_mcp_context(game_state_text, relevant_memories)
 
-        try:
-            if mcp_context.mcp_connected:
-                # Step 2: Run tool-calling loop
-                return await self._run_tool_calling_loop(mcp_context)
-            else:
-                # No MCP - direct LLM call without tools
-                response = self.client.client.chat_completions_create(
-                    model=self.model,
-                    messages=mcp_context.messages,
-                    temperature=self.temperature,
-                    top_p=self.top_p,
-                    top_k=self.top_k,
-                    min_p=self.min_p,
-                    max_tokens=self.max_tokens,
-                    response_format=create_json_schema(AgentResponse),
-                    # No tools parameter when MCP not connected
-                )
+        # Setup Langfuse span context (Req 7.5)
+        start_time = time.perf_counter()
+        if self.langfuse_client and mcp_context.mcp_connected:
+            span_context = self.langfuse_client.start_as_current_span(
+                name="mcp-session",
+                input={"tool_count": len(mcp_context.tool_schemas or [])},
+                metadata={"server_name": getattr(self.mcp_manager, "_server_name", "unknown")},
+            )
+        else:
+            # Use nullcontext() as a no-op context manager when Langfuse is disabled
+            span_context = nullcontext()
 
-                if response.content:
-                    return self._parse_agent_response(response.content)
+        result = {}
+        try:
+            with span_context as session_span:
+                if mcp_context.mcp_connected:
+                    # Step 2: Run tool-calling loop
+                    result = await self._run_tool_calling_loop(mcp_context)
                 else:
-                    # Fallback for unexpected case
-                    if self.logger:
-                        self.logger.warning("LLM returned no content without MCP")
-                    return {"_needs_forced_action": True, "messages": mcp_context.messages}
+                    # No MCP - direct LLM call without tools
+                    response = self.client.client.chat_completions_create(
+                        model=self.model,
+                        messages=mcp_context.messages,
+                        temperature=self.temperature,
+                        top_p=self.top_p,
+                        top_k=self.top_k,
+                        min_p=self.min_p,
+                        max_tokens=self.max_tokens,
+                        response_format=create_json_schema(AgentResponse),
+                    )
+
+                    if response.content:
+                        result = self._parse_agent_response(response.content)
+                    else:
+                        # Fallback for unexpected case
+                        if self.logger:
+                            self.logger.warning("LLM returned no content without MCP")
+                        result = {"_needs_forced_action": True, "messages": mcp_context.messages}
+
+                # Update Langfuse span with results (Req 7.5)
+                if session_span and hasattr(session_span, "update"):
+                    try:
+                        metadata = result.get("_metadata", {})
+                        session_span.update(
+                            output={
+                                "action": result.get("action"),
+                                "iterations": metadata.get("iterations", 0),
+                                "tool_calls": metadata.get("tool_calls", 0),
+                                "duration_ms": metadata.get("duration_ms", int((time.perf_counter() - start_time) * 1000)),
+                            },
+                        )
+                    except Exception as e:
+                        # Don't let Langfuse issues break the agent
+                        if self.logger:
+                            self.logger.warning(f"Failed to update Langfuse span: {e}")
         finally:
             # Ensure MCP session is always disconnected (Req 3.5)
             if mcp_context.mcp_connected and self.mcp_manager:
                 await self.mcp_manager.disconnect_session()
+
+                # Session summary logging (Req 7.3)
+                if self.logger:
+                    metadata = result.get("_metadata", {})
+                    iterations = metadata.get("iterations", 0)
+                    tool_calls = metadata.get("tool_calls", 0)
+                    duration_ms = metadata.get("duration_ms", int((time.perf_counter() - start_time) * 1000))
+                    self.logger.info(
+                        f"MCP session complete: {iterations} iterations, {tool_calls} tool calls",
+                        extra={
+                            "event_type": "mcp_session_summary",
+                            "iterations": iterations,
+                            "tool_calls": tool_calls,
+                            "duration_ms": duration_ms,
+                        }
+                    )
+
+        return result
 
     def _parse_agent_response(self, content: str) -> Dict[str, Any]:
         """Parse LLM response content into action data.
@@ -552,7 +645,7 @@ The following strategic guide has been compiled from analyzing previous episodes
             content: Raw LLM response content (should be JSON)
 
         Returns:
-            Dict with 'action', 'reasoning', and optional 'new_objective'
+            Dict with 'action', 'reasoning', optional 'new_objective', and 'raw_response'
         """
         try:
             data = json.loads(content)
@@ -560,6 +653,7 @@ The following strategic guide has been compiled from analyzing previous episodes
                 "action": data.get("action", "look"),
                 "reasoning": data.get("thinking", ""),
                 "new_objective": data.get("new_objective"),
+                "raw_response": content,
             }
         except json.JSONDecodeError:
             # Fallback for non-JSON response
@@ -568,6 +662,7 @@ The following strategic guide has been compiled from analyzing previous episodes
             return {
                 "action": content.strip() if content else "look",
                 "reasoning": "",
+                "raw_response": content,
             }
 
     @observe(name="agent-generate-action")
@@ -576,83 +671,37 @@ The following strategic guide has been compiled from analyzing previous episodes
         game_state_text: str,
         relevant_memories: Optional[str] = None,
     ) -> Dict[str, str]:
-        """
-        Gets an action from the Agent LM with reasoning preserved.
+        """Gets an action from the Agent LM with reasoning preserved.
+
+        This sync wrapper calls the async implementation via asyncio.run().
+        Both MCP enabled and disabled cases are handled by _generate_action_async.
+
+        Implements Requirements:
+        - 10.1: Single asyncio.run boundary
+        - 10.4: Public API remains synchronous
+        - 10.5: No nested event loops
+        - 15.5: AgentResponse backward compatibility
 
         Args:
             game_state_text: Current game state text
             relevant_memories: Formatted string of relevant memories (includes reasoning history)
 
         Returns:
-            Dict with 'action' (cleaned) and 'reasoning' (raw thinking/reasoning)
+            Dict with 'action' (cleaned), 'reasoning', 'new_objective', 'raw_response'
         """
-        if "o1" in self.model:
-            # Use user prompt for o1 models with caching
-            messages = [
-                {
-                    "role": "user",
-                    "content": self.system_prompt,
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ]
-        else:
-            messages = [
-                {
-                    "role": "system",
-                    "content": self.system_prompt,
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ]
-
-        # Combine game state with relevant memories if available
-        user_content = game_state_text
-        if relevant_memories:
-            if user_content:
-                user_content = f"{user_content}\n\n{relevant_memories}"
-            else:
-                user_content = relevant_memories
-
-        messages.append({"role": "user", "content": user_content})
-
         try:
-            client_args = dict(
-                model=self.model,
-                messages=messages,
-                stop=None,
-                temperature=self.temperature,
-                top_p=self.top_p,
-                top_k=self.top_k,
-                min_p=self.min_p,
-                max_tokens=self.max_tokens,
-                name="Agent",
-                response_format=create_json_schema(AgentResponse),
+            result = asyncio.run(
+                self._generate_action_async(game_state_text, relevant_memories)
             )
 
-            response = self.client.chat.completions.create(**client_args)
-            raw_response = response.content.strip()
-
-            # Parse structured JSON response
-            try:
-                agent_response = AgentResponse.model_validate_json(raw_response)
-            except Exception as e:
-                # Fallback to safe defaults on parsing error
-                if self.logger:
-                    self.logger.error(f"Failed to parse agent response: {e}")
-                    self.logger.error(f"Raw response: {raw_response}")
-                agent_response = AgentResponse(
-                    thinking="[Error parsing response]",
-                    action="look",
-                    new_objective=None
-                )
-
-            # Clean and validate action
-            cleaned_action = self._clean_action(agent_response.action)
+            # Clean action for game compatibility
+            cleaned_action = self._clean_action(result.get("action", "look"))
 
             return {
                 "action": cleaned_action,
-                "reasoning": agent_response.thinking,
-                "new_objective": agent_response.new_objective,
-                "raw_response": raw_response,
+                "reasoning": result.get("reasoning", ""),
+                "new_objective": result.get("new_objective"),
+                "raw_response": result.get("raw_response"),
             }
         except Exception as e:
             if self.logger:
@@ -665,7 +714,7 @@ The following strategic guide has been compiled from analyzing previous episodes
                 "reasoning": None,
                 "new_objective": None,
                 "raw_response": None,
-            }  # Default safe action on error
+            }
 
     def _clean_action(self, action: str) -> str:
         """Clean and validate an action command from the agent.
