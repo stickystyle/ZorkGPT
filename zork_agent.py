@@ -134,14 +134,17 @@ class ZorkAgent:
         self.langfuse_client = langfuse_client
 
     def _load_system_prompt(self) -> None:
-        """Load agent system prompt from markdown files and enhance with knowledge."""
+        """Load agent system prompt from markdown files and enhance with knowledge/MCP."""
         try:
             # Load base agent prompt
             with open("agent.md") as fh:
                 base_agent_prompt = fh.read()
 
             # Try to enhance with knowledge base
-            self.system_prompt = self._enhance_prompt_with_knowledge(base_agent_prompt)
+            enhanced_prompt = self._enhance_prompt_with_knowledge(base_agent_prompt)
+
+            # Conditionally enhance with MCP tool guidance
+            self.system_prompt = self._enhance_prompt_with_mcp(enhanced_prompt)
 
         except FileNotFoundError as e:
             if self.logger:
@@ -205,6 +208,76 @@ The following strategic guide has been compiled from analyzing previous episodes
                     f"Could not load knowledge from {knowledge_file}: {e}"
                 )
             return base_prompt
+
+    def _enhance_prompt_with_mcp(self, base_prompt: str) -> str:
+        """Enhance the agent prompt with MCP tool guidance when MCP is enabled.
+
+        Only injects guidance when config.mcp_enabled is True. The guidance
+        explains when and how to use the thoughtbox structured reasoning tool.
+
+        Args:
+            base_prompt: The current prompt (possibly already enhanced with knowledge)
+
+        Returns:
+            Enhanced prompt with MCP guidance, or original if MCP disabled
+        """
+        if not self.config.mcp_enabled:
+            return base_prompt
+
+        mcp_section = '''
+**STRUCTURED REASONING TOOL:**
+
+You have access to `thoughtbox.clear_thought` for iterative reasoning on complex problems.
+
+**Use thoughtbox when:**
+- Puzzle feedback requires systematic experimentation (see Puzzle-Solving Protocols)
+- Planning multi-turn objectives (3+ steps to goal)
+- Stuck 3+ turns at same location with no new feedback
+- Weighing multiple strategic options with unclear best choice
+
+**Do NOT use thoughtbox for:**
+- Simple movement or navigation
+- Obvious single actions (take visible item, open door)
+- Combat situations (act quickly)
+- When you already know what to do
+
+**How to use:**
+1. Call `thoughtbox.clear_thought` with your reasoning, thought number, and estimated total thoughts
+2. Set `nextThoughtNeeded: true` to continue, `false` when ready to decide
+3. Typical usage: 2-4 thoughts for puzzles, 1-2 for strategic decisions
+4. After reasoning completes, provide your final JSON response
+
+**Example:**
+- Puzzle: Crystal phases when touched, room mentions "unstable magic"
+- Thought 1: "Standard TAKE fails with phasing effect. Environment emphasizes instability."
+- Thought 2: "Need verb addressing magic. Options: STABILIZE, DISPEL, GROUND."
+- Thought 3: "STABILIZE gave new response. Magic responds to state-change verbs."
+- Final output:
+```json
+{
+  "thinking": "Crystal puzzle analyzed via thoughtbox - magic responds to state-change verbs, DISPEL most likely",
+  "action": "dispel crystal",
+  "new_objective": null
+}
+```
+
+'''
+
+        # Insert before OUTPUT FORMAT section (same pattern as knowledge injection)
+        if "**OUTPUT FORMAT" in base_prompt:
+            insertion_point = base_prompt.find("**OUTPUT FORMAT")
+            enhanced_prompt = (
+                base_prompt[:insertion_point]
+                + mcp_section
+                + base_prompt[insertion_point:]
+            )
+        else:
+            enhanced_prompt = base_prompt + mcp_section
+
+        if self.logger:
+            self.logger.info("Enhanced prompt with MCP tool guidance")
+
+        return enhanced_prompt
 
     def _check_model_tool_compatibility(self) -> None:
         """Check if model supports tool calling when MCP is enabled.
@@ -421,7 +494,8 @@ The following strategic guide has been compiled from analyzing previous episodes
                     try:
                         result = await self.mcp_manager.call_tool(
                             tool_name=tool_call.function.name,
-                            arguments=arguments
+                            arguments=arguments,
+                            iteration=iteration  # Req 7.1
                         )
 
                         # Increment tool call count (Req 7.3)

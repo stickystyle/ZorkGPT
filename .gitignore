@@ -272,3 +272,4 @@ repomix-output.xml
 
 # MCP configuration (user-specific)
 mcp_config.json
+node_modules/

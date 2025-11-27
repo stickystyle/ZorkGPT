@@ -53,6 +53,7 @@ class MCPManager:
 
         # Session state
         self._session: Optional[ClientSession] = None
+        self._session_entered: bool = False  # Track if session context was entered
         self._stdio_context: Optional[Any] = None
         self._disabled: bool = False
         self._retry_attempted: bool = False
@@ -79,6 +80,11 @@ class MCPManager:
     def is_disabled(self) -> bool:
         """Check if MCP has been disabled due to repeated failures."""
         return self._disabled
+
+    @property
+    def server_name(self) -> str:
+        """Get the name of the configured MCP server."""
+        return self._server_name
 
     async def connect_session(self) -> None:
         """Connect MCP session with retry-on-failure for subsequent turns.
@@ -154,7 +160,37 @@ class MCPManager:
                 self._disabled = True
 
     async def _connect_session_impl(self) -> None:
-        """Internal implementation of session connection."""
+        """Internal implementation of session connection with timeout."""
+        timeout = self.config.mcp_server_startup_timeout_seconds
+
+        try:
+            await asyncio.wait_for(
+                self._connect_session_inner(),
+                timeout=timeout,
+            )
+        except asyncio.TimeoutError:
+            # Clean up any partial connection state
+            # Exit session context first if it was entered
+            if self._session_entered and self._session:
+                try:
+                    await self._session.__aexit__(None, None, None)
+                except Exception:
+                    pass
+                self._session_entered = False
+            # Then exit stdio context
+            if self._stdio_context:
+                try:
+                    await self._stdio_context.__aexit__(None, None, None)
+                except Exception:
+                    pass
+                self._stdio_context = None
+            self._session = None
+            raise asyncio.TimeoutError(
+                f"MCP server '{self._server_name}' startup timed out after {timeout}s"
+            )
+
+    async def _connect_session_inner(self) -> None:
+        """Inner connection logic wrapped by timeout."""
         # Build environment with merging
         env = self._build_subprocess_env()
 
@@ -169,8 +205,10 @@ class MCPManager:
         self._stdio_context = stdio_client(server_params)
         read_stream, write_stream = await self._stdio_context.__aenter__()
 
-        # Create session
+        # Create session and enter context (starts message receive loop)
         self._session = ClientSession(read_stream, write_stream)
+        await self._session.__aenter__()
+        self._session_entered = True
 
         # Protocol handshake (Req 3.3)
         await self._session.initialize()
@@ -206,14 +244,49 @@ class MCPManager:
 
         Called at turn end. Closes session and terminates subprocess
         to ensure clean state (Req 3.5, 3.7).
+
+        Note: The MCP SDK uses anyio cancel scopes which are task-local.
+        Cleanup may produce "cancel scope in different task" errors when
+        contexts were entered/exited across method boundaries. This is
+        expected and doesn't affect functionality.
         """
         if self._session is None:
             return
 
         try:
-            # Close session context (terminates subprocess)
+            # Exit session context first (stops message receive loop)
+            if self._session_entered:
+                try:
+                    await self._session.__aexit__(None, None, None)
+                except RuntimeError as e:
+                    # Expected: anyio cancel scope task mismatch during cleanup
+                    if "cancel scope" in str(e).lower():
+                        self.logger.debug(
+                            f"Expected cleanup error (cancel scope): {e}",
+                            extra={
+                                "event_type": "mcp_session_cleanup_expected_error",
+                                "server_name": self._server_name,
+                            },
+                        )
+                    else:
+                        raise
+
+            # Then close stdio context (terminates subprocess)
             if self._stdio_context:
-                await self._stdio_context.__aexit__(None, None, None)
+                try:
+                    await self._stdio_context.__aexit__(None, None, None)
+                except RuntimeError as e:
+                    # Expected: anyio cancel scope task mismatch during cleanup
+                    if "cancel scope" in str(e).lower():
+                        self.logger.debug(
+                            f"Expected cleanup error (cancel scope): {e}",
+                            extra={
+                                "event_type": "mcp_session_cleanup_expected_error",
+                                "server_name": self._server_name,
+                            },
+                        )
+                    else:
+                        raise
 
             self.logger.info(
                 f"MCP session disconnected from '{self._server_name}'",
@@ -232,6 +305,7 @@ class MCPManager:
             )
         finally:
             self._session = None
+            self._session_entered = False
             self._stdio_context = None
 
     def _translate_tool_schema(self, tool: Any, server_name: str) -> Dict[str, Any]:
@@ -348,6 +422,7 @@ class MCPManager:
         tool_name: str,
         arguments: Dict[str, Any],
         timeout_seconds: Optional[int] = None,
+        iteration: Optional[int] = None,
     ) -> ToolCallResult:
         """Call a tool on the MCP server with timeout handling.
 
@@ -355,6 +430,7 @@ class MCPManager:
             tool_name: Prefixed tool name (e.g., "thoughtbox.think")
             arguments: Tool arguments as dict
             timeout_seconds: Timeout for tool execution (defaults to config value)
+            iteration: Tool-calling loop iteration number (for logging)
 
         Returns:
             ToolCallResult with content or error
@@ -386,6 +462,7 @@ class MCPManager:
                 "tool_name": tool_name,
                 "server_name": server_name,
                 "arguments": arguments,
+                "iteration": iteration,
             },
         )
 
