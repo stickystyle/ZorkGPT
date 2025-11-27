@@ -230,7 +230,7 @@
   - **Property 24: Timeout Batch Abort**
   - **Validates: Requirements 6.5**
 
-- [ ] 11. Implement forced final action handling
+- [x] 11. Implement forced final action handling
   - Implement max iterations check
   - Implement user message appending ("provide final action")
   - Implement tools=None and tool_choice=None on forced call
@@ -239,7 +239,7 @@
   - Implement fallback to safe defaults on parsing failure
   - _Requirements: 1.4, 4.6, 5.7, 5.8, 5.9, 15.1, 15.2, 15.3, 15.4_
 
-- [ ] 11.1 Write unit tests for forced final action
+- [x] 11.1 Write unit tests for forced final action
   - Test max iterations handling
   - Test forced call parameters
   - Test AgentResponse parsing

@@ -451,8 +451,46 @@ The following strategic guide has been compiled from analyzing previous episodes
                 )
             break
 
-        # Max iterations reached - will be handled by Task #11 (forced final action)
-        return {"_needs_forced_action": True, "messages": messages}
+        # Max iterations reached - force final action (Req 5.7, 5.8, 5.9)
+        if self.logger:
+            self.logger.warning(
+                f"Max iterations ({max_iterations}) reached, forcing final action"
+            )
+
+        # Append user message requesting final action (Req 5.7)
+        messages.append({
+            "role": "user",
+            "content": "Max iterations reached. Please provide your final game action now."
+        })
+
+        # Force final LLM call without tools (Req 5.8, 5.9)
+        try:
+            forced_response = self.client.client.chat_completions_create(
+                model=self.model,
+                messages=messages,
+                # NO tools parameter (Req 5.8)
+                # NO tool_choice parameter (Req 5.8)
+                response_format=create_json_schema(AgentResponse),  # Req 5.9
+                temperature=self.temperature,
+                top_p=self.top_p,
+                top_k=self.top_k,
+                min_p=self.min_p,
+                max_tokens=self.max_tokens,
+            )
+
+            # Parse and return (Req 15.1, 15.2, 15.3)
+            if forced_response.content:
+                return self._parse_agent_response(forced_response.content)
+            else:
+                # Fallback to safe defaults (Req 15.3)
+                if self.logger:
+                    self.logger.warning("Forced final action returned no content")
+                return {"action": "look", "reasoning": ""}
+        except Exception as e:
+            # Fallback on LLM call failure (Req 15.3)
+            if self.logger:
+                self.logger.error(f"Forced final action LLM call failed: {e}")
+            return {"action": "look", "reasoning": ""}
 
     async def _generate_action_async(
         self,

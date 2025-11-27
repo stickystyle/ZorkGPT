@@ -143,14 +143,24 @@ class TestLoopExitConditions:
         - Loop exits gracefully
         - No infinite loop occurs
         """
-        # Mock LLM response with neither content nor tool_calls
-        llm_response = LLMResponse(
+        # Mock LLM response with neither content nor tool_calls (first call)
+        # Then provide content for forced final action (second call)
+        llm_response_no_content = LLMResponse(
             content=None,
             model="gpt-4",
             finish_reason="stop",
             tool_calls=None,
         )
-        mock_llm_client.client.chat_completions_create.return_value = llm_response
+        llm_response_with_content = LLMResponse(
+            content='{"action": "look", "thinking": "Recovering from error"}',
+            model="gpt-4",
+            finish_reason="stop",
+            tool_calls=None,
+        )
+        mock_llm_client.client.chat_completions_create.side_effect = [
+            llm_response_no_content,
+            llm_response_with_content,
+        ]
 
         # Mock logger to capture warning
         with patch.object(agent_with_mcp, "logger") as mock_logger:
@@ -160,8 +170,8 @@ class TestLoopExitConditions:
             assert mock_logger is not None
             # Note: Specific warning check depends on implementation
 
-        # Verify loop exited (only 1 LLM call)
-        assert mock_llm_client.client.chat_completions_create.call_count == 1
+        # Verify loop exited with forced final action (2 LLM calls)
+        assert mock_llm_client.client.chat_completions_create.call_count == 2
 
     @pytest.mark.asyncio
     async def test_loop_exits_on_max_iterations(
@@ -171,41 +181,53 @@ class TestLoopExitConditions:
 
         Verifies:
         - Loop respects max_iterations limit
-        - Returns indicator for forced action (Task #11)
+        - Forces final action after max iterations (Task #11)
         - Prevents infinite loops
         """
-        # Mock LLM to always return tool_calls (infinite loop scenario)
+        # Mock LLM to return tool_calls for first 3 iterations
+        # Then return content for forced final action
         tool_call = ToolCall(
             id="call_123",
             type="function",
             function=FunctionCall(name="test.tool", arguments="{}"),
         )
-        llm_response = LLMResponse(
+        llm_response_tool_calls = LLMResponse(
             content=None,
             model="gpt-4",
             finish_reason="tool_calls",
             tool_calls=[tool_call],
         )
-        mock_llm_client.client.chat_completions_create.return_value = llm_response
+        llm_response_content = LLMResponse(
+            content='{"action": "look", "thinking": "Final action"}',
+            model="gpt-4",
+            finish_reason="stop",
+            tool_calls=None,
+        )
+        mock_llm_client.client.chat_completions_create.side_effect = [
+            llm_response_tool_calls,  # Iteration 1
+            llm_response_tool_calls,  # Iteration 2
+            llm_response_tool_calls,  # Iteration 3
+            llm_response_content,     # Forced final action
+        ]
 
         # Mock tool execution
         agent_with_mcp.mcp_manager.call_tool.return_value = ToolCallResult(
             content={"result": "success"}
         )
 
-        # Call loop with low max_iterations (will fail until implemented)
-        # Note: Implementation should accept max_iterations parameter
+        # Call loop with low max_iterations
         result = await agent_with_mcp._run_tool_calling_loop(
             sample_mcp_context, max_iterations=3
         )
 
-        # Verify loop stopped at max_iterations
-        # Should have: max_iterations LLM calls + (max_iterations * tool executions)
-        assert mock_llm_client.client.chat_completions_create.call_count == 3
+        # Verify loop stopped at max_iterations + forced final action
+        # Should have: max_iterations (3) + forced final action (1) = 4 LLM calls
+        assert mock_llm_client.client.chat_completions_create.call_count == 4
 
-        # Verify forced action indicator returned
-        # Note: Exact format depends on implementation
+        # Verify valid action dict returned (from forced final action)
         assert result is not None
+        assert "action" in result
+        assert result["action"] == "look"
 
 
 class TestToolExecution:
@@ -1127,3 +1149,352 @@ class TestBatchErrorHandling:
         assert "timeout" in str(second_msg["content"]).lower(), (
             "Second tool should have timeout error"
         )
+
+
+class TestForcedFinalAction:
+    """Tests for forced final action when max iterations reached (Task #11)."""
+
+    @pytest.mark.asyncio
+    async def test_max_iterations_appends_user_message(
+        self, agent_with_mcp, mock_llm_client, sample_mcp_context
+    ):
+        """When max iterations reached, user message requesting final action is appended.
+
+        Verifies:
+        - Loop reaches max_iterations without content
+        - User message appended to history
+        - Message requests final action from LLM
+        """
+        # Mock LLM to return tool_calls for iterations 1-3
+        tool_call = ToolCall(
+            id="call_loop",
+            type="function",
+            function=FunctionCall(name="test.tool", arguments="{}"),
+        )
+        tool_response = LLMResponse(
+            content=None,
+            model="gpt-4",
+            finish_reason="tool_calls",
+            tool_calls=[tool_call],
+        )
+        # Forced final response
+        final_response = LLMResponse(
+            content='{"thinking": "Forced to decide", "action": "look"}',
+            model="gpt-4",
+            finish_reason="stop",
+            tool_calls=None,
+        )
+        mock_llm_client.client.chat_completions_create.side_effect = [
+            tool_response,
+            tool_response,
+            tool_response,  # 3 iterations
+            final_response,  # forced final
+        ]
+        agent_with_mcp.mcp_manager.call_tool.return_value = ToolCallResult(
+            content={"result": "ok"}
+        )
+
+        result = await agent_with_mcp._run_tool_calling_loop(
+            sample_mcp_context, max_iterations=3
+        )
+
+        # Verify 4 LLM calls (3 loop + 1 forced)
+        assert mock_llm_client.client.chat_completions_create.call_count == 4
+
+        # Get 4th call's messages
+        fourth_call_kwargs = (
+            mock_llm_client.client.chat_completions_create.call_args_list[3][1]
+        )
+        messages_in_fourth_call = fourth_call_kwargs["messages"]
+
+        # Verify user message was appended
+        user_messages = [
+            msg for msg in messages_in_fourth_call if msg.get("role") == "user"
+        ]
+        assert len(user_messages) >= 2, "Should have original user message + forced action request"
+
+        # Verify last user message requests final action
+        last_user_msg = user_messages[-1]
+        content_lower = last_user_msg["content"].lower()
+        assert "final" in content_lower or "action" in content_lower, (
+            "User message should request final action"
+        )
+
+    @pytest.mark.asyncio
+    async def test_max_iterations_forces_call_without_tools(
+        self, agent_with_mcp, mock_llm_client, sample_mcp_context
+    ):
+        """Forced call after max iterations has no tools/tool_choice.
+
+        Verifies:
+        - Forced call has tools=None
+        - Forced call has tool_choice=None
+        - Prevents infinite tool-calling loop
+        """
+        # Mock LLM to return tool_calls for iterations 1-3
+        tool_call = ToolCall(
+            id="call_loop",
+            type="function",
+            function=FunctionCall(name="test.tool", arguments="{}"),
+        )
+        tool_response = LLMResponse(
+            content=None,
+            model="gpt-4",
+            finish_reason="tool_calls",
+            tool_calls=[tool_call],
+        )
+        # Forced final response
+        final_response = LLMResponse(
+            content='{"thinking": "Forced to decide", "action": "wait"}',
+            model="gpt-4",
+            finish_reason="stop",
+            tool_calls=None,
+        )
+        mock_llm_client.client.chat_completions_create.side_effect = [
+            tool_response,
+            tool_response,
+            tool_response,  # 3 iterations
+            final_response,  # forced final
+        ]
+        agent_with_mcp.mcp_manager.call_tool.return_value = ToolCallResult(
+            content={"result": "ok"}
+        )
+
+        result = await agent_with_mcp._run_tool_calling_loop(
+            sample_mcp_context, max_iterations=3
+        )
+
+        # Verify 4 LLM calls (3 loop + 1 forced)
+        assert mock_llm_client.client.chat_completions_create.call_count == 4
+
+        # Get 4th call's kwargs
+        fourth_call_kwargs = (
+            mock_llm_client.client.chat_completions_create.call_args_list[3][1]
+        )
+
+        # Verify tools=None and tool_choice=None
+        assert fourth_call_kwargs.get("tools") is None, (
+            "Forced call should not pass tools parameter"
+        )
+        assert fourth_call_kwargs.get("tool_choice") is None, (
+            "Forced call should not pass tool_choice parameter"
+        )
+
+    @pytest.mark.asyncio
+    async def test_max_iterations_uses_response_format(
+        self, agent_with_mcp, mock_llm_client, sample_mcp_context
+    ):
+        """Forced call after max iterations uses response_format with AgentResponse schema.
+
+        Verifies:
+        - Forced call has response_format key
+        - response_format uses JSON schema mode
+        - Schema matches AgentResponse structure
+        """
+        # Mock LLM to return tool_calls for iterations 1-3
+        tool_call = ToolCall(
+            id="call_loop",
+            type="function",
+            function=FunctionCall(name="test.tool", arguments="{}"),
+        )
+        tool_response = LLMResponse(
+            content=None,
+            model="gpt-4",
+            finish_reason="tool_calls",
+            tool_calls=[tool_call],
+        )
+        # Forced final response
+        final_response = LLMResponse(
+            content='{"thinking": "Forced to decide", "action": "look"}',
+            model="gpt-4",
+            finish_reason="stop",
+            tool_calls=None,
+        )
+        mock_llm_client.client.chat_completions_create.side_effect = [
+            tool_response,
+            tool_response,
+            tool_response,  # 3 iterations
+            final_response,  # forced final
+        ]
+        agent_with_mcp.mcp_manager.call_tool.return_value = ToolCallResult(
+            content={"result": "ok"}
+        )
+
+        result = await agent_with_mcp._run_tool_calling_loop(
+            sample_mcp_context, max_iterations=3
+        )
+
+        # Verify 4 LLM calls (3 loop + 1 forced)
+        assert mock_llm_client.client.chat_completions_create.call_count == 4
+
+        # Get 4th call's kwargs
+        fourth_call_kwargs = (
+            mock_llm_client.client.chat_completions_create.call_args_list[3][1]
+        )
+
+        # Verify response_format exists
+        assert "response_format" in fourth_call_kwargs, (
+            "Forced call should use response_format for structured JSON output"
+        )
+
+    @pytest.mark.asyncio
+    async def test_forced_action_parses_agent_response(
+        self, agent_with_mcp, mock_llm_client, sample_mcp_context
+    ):
+        """Forced action response is parsed using _parse_agent_response.
+
+        Verifies:
+        - Response content is valid JSON matching AgentResponse schema
+        - _parse_agent_response extracts thinking and action
+        - Returned dict has correct structure
+        """
+        # Mock LLM to return tool_calls for iterations 1-3
+        tool_call = ToolCall(
+            id="call_loop",
+            type="function",
+            function=FunctionCall(name="test.tool", arguments="{}"),
+        )
+        tool_response = LLMResponse(
+            content=None,
+            model="gpt-4",
+            finish_reason="tool_calls",
+            tool_calls=[tool_call],
+        )
+        # Forced final response with valid AgentResponse JSON
+        final_response = LLMResponse(
+            content='{"thinking": "I need to look around", "action": "look"}',
+            model="gpt-4",
+            finish_reason="stop",
+            tool_calls=None,
+        )
+        mock_llm_client.client.chat_completions_create.side_effect = [
+            tool_response,
+            tool_response,
+            tool_response,  # 3 iterations
+            final_response,  # forced final
+        ]
+        agent_with_mcp.mcp_manager.call_tool.return_value = ToolCallResult(
+            content={"result": "ok"}
+        )
+
+        result = await agent_with_mcp._run_tool_calling_loop(
+            sample_mcp_context, max_iterations=3
+        )
+
+        # Verify result parsed correctly
+        assert result is not None
+        assert "reasoning" in result, "Result should have reasoning field"
+        assert "action" in result, "Result should have action field"
+        assert result["action"] == "look", "Action should be extracted from response"
+        assert "look around" in result["reasoning"].lower(), (
+            "Reasoning should contain thinking text"
+        )
+
+    @pytest.mark.asyncio
+    async def test_forced_action_fallback_on_parse_failure(
+        self, agent_with_mcp, mock_llm_client, sample_mcp_context
+    ):
+        """Forced action falls back to safe defaults when parsing fails.
+
+        Verifies:
+        - Invalid/empty response content handled gracefully
+        - Falls back to safe default action (e.g., 'look')
+        - No exception raised
+        - Always returns valid action dict
+        """
+        # Mock LLM to return tool_calls for iterations 1-3
+        tool_call = ToolCall(
+            id="call_loop",
+            type="function",
+            function=FunctionCall(name="test.tool", arguments="{}"),
+        )
+        tool_response = LLMResponse(
+            content=None,
+            model="gpt-4",
+            finish_reason="tool_calls",
+            tool_calls=[tool_call],
+        )
+        # Forced final response with INVALID JSON
+        final_response = LLMResponse(
+            content="",  # Empty content causes parse failure
+            model="gpt-4",
+            finish_reason="stop",
+            tool_calls=None,
+        )
+        mock_llm_client.client.chat_completions_create.side_effect = [
+            tool_response,
+            tool_response,
+            tool_response,  # 3 iterations
+            final_response,  # forced final with invalid content
+        ]
+        agent_with_mcp.mcp_manager.call_tool.return_value = ToolCallResult(
+            content={"result": "ok"}
+        )
+
+        # Should not raise exception
+        result = await agent_with_mcp._run_tool_calling_loop(
+            sample_mcp_context, max_iterations=3
+        )
+
+        # Verify fallback to safe defaults
+        assert result is not None, "Should return valid result even on parse failure"
+        assert "action" in result, "Result should have action field"
+        assert "reasoning" in result, "Result should have reasoning field"
+        # Verify it's a safe default action
+        assert result["action"] in ["look", "wait"], (
+            "Should fall back to safe action like 'look' or 'wait'"
+        )
+
+    @pytest.mark.asyncio
+    async def test_forced_action_returns_valid_dict(
+        self, agent_with_mcp, mock_llm_client, sample_mcp_context
+    ):
+        """Forced action always returns a valid action dict conforming to Req 1.4.
+
+        Verifies:
+        - Result is a dict (not None, not exception)
+        - Dict has 'action' key (required)
+        - Dict has 'reasoning' key (required)
+        - Action is a string command
+        - Follows same contract as normal loop exit
+        """
+        # Mock LLM to return tool_calls for iterations 1-3
+        tool_call = ToolCall(
+            id="call_loop",
+            type="function",
+            function=FunctionCall(name="test.tool", arguments="{}"),
+        )
+        tool_response = LLMResponse(
+            content=None,
+            model="gpt-4",
+            finish_reason="tool_calls",
+            tool_calls=[tool_call],
+        )
+        # Forced final response
+        final_response = LLMResponse(
+            content='{"thinking": "Time to act", "action": "go north"}',
+            model="gpt-4",
+            finish_reason="stop",
+            tool_calls=None,
+        )
+        mock_llm_client.client.chat_completions_create.side_effect = [
+            tool_response,
+            tool_response,
+            tool_response,  # 3 iterations
+            final_response,  # forced final
+        ]
+        agent_with_mcp.mcp_manager.call_tool.return_value = ToolCallResult(
+            content={"result": "ok"}
+        )
+
+        result = await agent_with_mcp._run_tool_calling_loop(
+            sample_mcp_context, max_iterations=3
+        )
+
+        # Verify valid action dict structure
+        assert isinstance(result, dict), "Result must be a dict"
+        assert "action" in result, "Result must have 'action' key"
+        assert "reasoning" in result, "Result must have 'reasoning' key"
+        assert isinstance(result["action"], str), "Action must be a string"
+        assert isinstance(result["reasoning"], str), "Reasoning must be a string"
+        assert len(result["action"]) > 0, "Action must not be empty"
