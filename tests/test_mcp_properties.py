@@ -1,6 +1,7 @@
 # ABOUTME: Property-based tests for MCP integration using Hypothesis
 # ABOUTME: Validates configuration defaults, LLM client tool calling, and MCPManager invariants
 
+import asyncio
 import json
 import pytest
 from hypothesis import given, strategies as st, settings, HealthCheck
@@ -1741,3 +1742,329 @@ class TestMCPGracefulDegradationProperties:
 
         # Property: session remains None
         assert manager._session is None, "Session should remain None when disabled"
+
+
+# =============================================================================
+# Batch Error Handling Property Tests (Task #9)
+# =============================================================================
+
+
+class TestProperty22_23_24_BatchErrorHandling:
+    """
+    Property tests for batch error handling in the tool-calling loop.
+
+    These tests verify that error handling behavior holds across
+    many randomly generated inputs.
+    """
+
+    @pytest.mark.asyncio
+    @settings(max_examples=50, suppress_health_check=[HealthCheck.function_scoped_fixture])
+    @given(
+        num_tool_calls=st.integers(min_value=1, max_value=5)
+    )
+    async def test_property_22_batch_processing(
+        self, num_tool_calls, test_config, tmp_path
+    ):
+        """Property 22: Batch Error Handling (Req 6.3).
+
+        For any number of tool calls in a single LLM response,
+        all tool calls should be treated as part of the same batch
+        and processed sequentially.
+
+        Validates: Requirements 6.3
+        """
+        import asyncio
+        from zork_agent import ZorkAgent, MCPContext
+
+        # Setup agent with mocked MCP manager
+        mock_mcp_manager = MagicMock()
+        mock_mcp_manager.call_tool = AsyncMock(return_value=ToolCallResult(
+            content={"result": "success"},
+            is_error=False
+        ))
+        mock_mcp_manager.is_disabled = False
+
+        mock_llm_client = MagicMock()
+        mock_llm_client.client = MagicMock()
+        mock_llm_client.client._supports_tool_calling = MagicMock(return_value=True)
+
+        with patch.object(ZorkAgent, "_load_system_prompt"):
+            agent = ZorkAgent(
+                config=test_config,
+                model="gpt-4",
+                client=mock_llm_client,
+                mcp_manager=mock_mcp_manager,
+            )
+            agent.system_prompt = "Test agent"
+
+        # Generate num_tool_calls tool calls in one response
+        tool_calls = [
+            ToolCall(
+                id=f"call_{i}",
+                type="function",
+                function=FunctionCall(name=f"test.tool_{i}", arguments="{}")
+            )
+            for i in range(num_tool_calls)
+        ]
+
+        # First response: all tool calls in one batch
+        first_response = LLMResponse(
+            content=None,
+            model="gpt-4",
+            finish_reason="tool_calls",
+            tool_calls=tool_calls
+        )
+
+        # Second response: content (exit loop)
+        second_response = LLMResponse(
+            content='{"thinking": "Done", "action": "wait"}',
+            model="gpt-4",
+            finish_reason="stop",
+            tool_calls=None
+        )
+
+        mock_llm_client.client.chat_completions_create = MagicMock(
+            side_effect=[first_response, second_response]
+        )
+
+        # Create context
+        mcp_context = MCPContext(
+            messages=[{"role": "system", "content": "Test"}],
+            tool_schemas=[{"type": "function", "function": {"name": "test.tool", "description": "Test"}}],
+            mcp_connected=True
+        )
+
+        # Run loop
+        result = await agent._run_tool_calling_loop(mcp_context)
+
+        # Property 1: All tools executed (count matches)
+        assert mock_mcp_manager.call_tool.call_count == num_tool_calls, \
+            f"Expected {num_tool_calls} tool executions, got {mock_mcp_manager.call_tool.call_count}"
+
+        # Property 2: Sequential execution within batch (not parallel)
+        # Verify call_tool was awaited num_tool_calls times
+        assert len(mock_mcp_manager.call_tool.call_args_list) == num_tool_calls, \
+            "All tool calls should be executed sequentially"
+
+        # Property 3: Loop exited with content
+        assert result is not None
+        assert "action" in result
+
+    @pytest.mark.asyncio
+    @settings(max_examples=30, suppress_health_check=[HealthCheck.function_scoped_fixture])
+    @given(
+        error_position=st.integers(min_value=0, max_value=3),
+        total_tools=st.integers(min_value=2, max_value=5)
+    )
+    async def test_property_23_non_timeout_error_recovery(
+        self, error_position, total_tools, test_config
+    ):
+        """Property 23: Non-Timeout Error Recovery (Req 6.4).
+
+        For any tool that returns ToolCallResult(is_error=True),
+        the next tool in the batch should still execute.
+
+        Validates: Requirements 6.4
+        """
+        import asyncio
+        from zork_agent import ZorkAgent, MCPContext
+
+        # Ensure error_position is within bounds
+        if error_position >= total_tools:
+            error_position = total_tools - 1
+
+        # Setup agent
+        mock_mcp_manager = MagicMock()
+
+        # Create side_effect list: error at error_position, success elsewhere
+        call_results = []
+        for i in range(total_tools):
+            if i == error_position:
+                call_results.append(ToolCallResult(
+                    content=None,
+                    is_error=True,
+                    error_message="Tool execution failed"
+                ))
+            else:
+                call_results.append(ToolCallResult(
+                    content={"result": f"success_{i}"},
+                    is_error=False
+                ))
+
+        mock_mcp_manager.call_tool = AsyncMock(side_effect=call_results)
+        mock_mcp_manager.is_disabled = False
+
+        mock_llm_client = MagicMock()
+        mock_llm_client.client = MagicMock()
+        mock_llm_client.client._supports_tool_calling = MagicMock(return_value=True)
+
+        with patch.object(ZorkAgent, "_load_system_prompt"):
+            agent = ZorkAgent(
+                config=test_config,
+                model="gpt-4",
+                client=mock_llm_client,
+                mcp_manager=mock_mcp_manager,
+            )
+            agent.system_prompt = "Test agent"
+
+        # Generate tool calls
+        tool_calls = [
+            ToolCall(
+                id=f"call_{i}",
+                type="function",
+                function=FunctionCall(name=f"test.tool_{i}", arguments="{}")
+            )
+            for i in range(total_tools)
+        ]
+
+        # Mock LLM responses
+        first_response = LLMResponse(
+            content=None,
+            model="gpt-4",
+            finish_reason="tool_calls",
+            tool_calls=tool_calls
+        )
+
+        second_response = LLMResponse(
+            content='{"thinking": "Done", "action": "wait"}',
+            model="gpt-4",
+            finish_reason="stop",
+            tool_calls=None
+        )
+
+        mock_llm_client.client.chat_completions_create = MagicMock(
+            side_effect=[first_response, second_response]
+        )
+
+        # Create context
+        mcp_context = MCPContext(
+            messages=[{"role": "system", "content": "Test"}],
+            tool_schemas=[{"type": "function", "function": {"name": "test.tool", "description": "Test"}}],
+            mcp_connected=True
+        )
+
+        # Run loop
+        result = await agent._run_tool_calling_loop(mcp_context)
+
+        # Property: All tools executed despite error at error_position
+        assert mock_mcp_manager.call_tool.call_count == total_tools, \
+            f"All {total_tools} tools should execute despite error at position {error_position}"
+
+        # Property: Result was returned (loop didn't abort)
+        assert result is not None
+        assert "action" in result
+
+    @pytest.mark.asyncio
+    @settings(max_examples=30, suppress_health_check=[HealthCheck.function_scoped_fixture])
+    @given(
+        timeout_position=st.integers(min_value=0, max_value=3),
+        total_tools=st.integers(min_value=2, max_value=5)
+    )
+    async def test_property_24_timeout_batch_abort(
+        self, timeout_position, total_tools, test_config
+    ):
+        """Property 24: Timeout Batch Abort (Req 6.5).
+
+        For any tool that raises asyncio.TimeoutError,
+        remaining tools in the batch should NOT be executed.
+
+        Validates: Requirements 6.5
+        """
+        import asyncio
+        from zork_agent import ZorkAgent, MCPContext
+
+        # Ensure timeout_position is within bounds
+        if timeout_position >= total_tools:
+            timeout_position = total_tools - 1
+
+        # Setup agent
+        mock_mcp_manager = MagicMock()
+
+        # Create side_effect list: timeout at timeout_position, success before
+        call_results = []
+        for i in range(total_tools):
+            if i < timeout_position:
+                call_results.append(ToolCallResult(
+                    content={"result": f"success_{i}"},
+                    is_error=False
+                ))
+            elif i == timeout_position:
+                # Timeout error
+                call_results.append(asyncio.TimeoutError("Tool call timeout"))
+            else:
+                # Should never be called
+                call_results.append(ToolCallResult(
+                    content={"result": f"success_{i}"},
+                    is_error=False
+                ))
+
+        mock_mcp_manager.call_tool = AsyncMock(side_effect=call_results)
+        mock_mcp_manager.is_disabled = False
+
+        mock_llm_client = MagicMock()
+        mock_llm_client.client = MagicMock()
+        mock_llm_client.client._supports_tool_calling = MagicMock(return_value=True)
+
+        with patch.object(ZorkAgent, "_load_system_prompt"):
+            agent = ZorkAgent(
+                config=test_config,
+                model="gpt-4",
+                client=mock_llm_client,
+                mcp_manager=mock_mcp_manager,
+            )
+            agent.system_prompt = "Test agent"
+
+        # Generate tool calls
+        tool_calls = [
+            ToolCall(
+                id=f"call_{i}",
+                type="function",
+                function=FunctionCall(name=f"test.tool_{i}", arguments="{}")
+            )
+            for i in range(total_tools)
+        ]
+
+        # Mock LLM responses
+        first_response = LLMResponse(
+            content=None,
+            model="gpt-4",
+            finish_reason="tool_calls",
+            tool_calls=tool_calls
+        )
+
+        second_response = LLMResponse(
+            content='{"thinking": "Done", "action": "wait"}',
+            model="gpt-4",
+            finish_reason="stop",
+            tool_calls=None
+        )
+
+        mock_llm_client.client.chat_completions_create = MagicMock(
+            side_effect=[first_response, second_response]
+        )
+
+        # Create context
+        mcp_context = MCPContext(
+            messages=[{"role": "system", "content": "Test"}],
+            tool_schemas=[{"type": "function", "function": {"name": "test.tool", "description": "Test"}}],
+            mcp_connected=True
+        )
+
+        # Run loop
+        result = await agent._run_tool_calling_loop(mcp_context)
+
+        # Property: Only tools up to and including timeout_position executed
+        expected_calls = timeout_position + 1
+        assert mock_mcp_manager.call_tool.call_count == expected_calls, \
+            f"Expected {expected_calls} tool calls (up to timeout), got {mock_mcp_manager.call_tool.call_count}"
+
+        # Property: Remaining tools (after timeout) were NOT executed
+        remaining_tools = total_tools - expected_calls
+        if remaining_tools > 0:
+            # Verify we didn't call more than expected
+            assert mock_mcp_manager.call_tool.call_count < total_tools, \
+                f"Timeout should abort batch, but all {total_tools} tools were executed"
+
+        # Property: Result was returned (loop didn't crash)
+        assert result is not None
+        assert "action" in result

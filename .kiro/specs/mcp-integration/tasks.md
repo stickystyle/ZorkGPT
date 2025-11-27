@@ -203,7 +203,7 @@
   - **Property 20: Loop Exit on Content**
   - **Validates: Requirements 5.6**
 
-- [ ] 10. Implement batch error handling in tool-calling loop
+- [x] 10. Implement batch error handling in tool-calling loop
   - Implement batch concept for multiple tool_calls in one response
   - Implement non-timeout error handling (continue with remaining tools)
   - Implement timeout error handling (abort batch, skip remaining tools)
@@ -211,22 +211,22 @@
   - Implement timeout message appending to history
   - _Requirements: 6.2, 6.3, 6.4, 6.5, 6.6_
 
-- [ ] 10.1 Write unit tests for batch error handling
+- [x] 10.1 Write unit tests for batch error handling
   - Test non-timeout error recovery
   - Test timeout batch abort
   - Test error messages in history
   - Test timeout messages in history
   - _Requirements: 6.2, 6.3, 6.4, 6.5, 6.6_
 
-- [ ] 10.2 Write property test for batch error handling
+- [x] 10.2 Write property test for batch error handling
   - **Property 22: Batch Error Handling**
   - **Validates: Requirements 6.3**
 
-- [ ] 10.3 Write property test for non-timeout error recovery
+- [x] 10.3 Write property test for non-timeout error recovery
   - **Property 23: Non-Timeout Error Recovery**
   - **Validates: Requirements 6.4**
 
-- [ ] 10.4 Write property test for timeout batch abort
+- [x] 10.4 Write property test for timeout batch abort
   - **Property 24: Timeout Batch Abort**
   - **Validates: Requirements 6.5**
 

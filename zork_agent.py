@@ -2,6 +2,7 @@
 ZorkAgent module for generating actions and managing game memory.
 """
 
+import asyncio
 import re
 import json
 from typing import Optional, List, Tuple, Dict, TYPE_CHECKING, Any
@@ -402,18 +403,37 @@ The following strategic guide has been compiled from analyzing previous episodes
                         })
                         continue
 
-                    # Execute via MCPManager (Req 5.1)
-                    result = await self.mcp_manager.call_tool(
-                        tool_name=tool_call.function.name,
-                        arguments=arguments
-                    )
+                    # Execute via MCPManager with timeout handling (Req 5.1, 6.3, 6.4, 6.5)
+                    try:
+                        result = await self.mcp_manager.call_tool(
+                            tool_name=tool_call.function.name,
+                            arguments=arguments
+                        )
 
-                    # Append tool result to history (Req 5.4)
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "content": json.dumps(result.to_dict())
-                    })
+                        # Append tool result to history (Req 5.4, 6.2)
+                        # Non-timeout errors return ToolCallResult(is_error=True) and continue (Req 6.4)
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": json.dumps(result.to_dict())
+                        })
+
+                    except asyncio.TimeoutError:
+                        # Timeout - abort batch (Req 6.5)
+                        if self.logger:
+                            self.logger.warning(
+                                f"Tool call timeout, aborting batch: {tool_call.function.name}"
+                            )
+                        # Add timeout message to history (Req 6.6)
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": json.dumps({
+                                "error": f"Tool call timeout: {tool_call.function.name}"
+                            })
+                        })
+                        # Skip remaining tools in this batch
+                        break
 
                 # Log iteration info
                 if self.logger:

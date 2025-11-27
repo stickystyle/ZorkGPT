@@ -806,3 +806,324 @@ class TestMultipleToolCallIterations:
         assert result is not None
         assert "reasoning" in result
         assert "action" in result
+
+
+class TestBatchErrorHandling:
+    """Tests for batch error handling in tool-calling loop (Req 6.2-6.6).
+
+    These tests validate error handling for multiple tool_calls in a single LLM response:
+    - Non-timeout errors: continue with remaining tools
+    - Timeout errors: abort batch and skip remaining tools
+    - Error messages added to history for LLM decision-making
+    """
+
+    @pytest.mark.asyncio
+    async def test_non_timeout_error_continues_batch(
+        self, agent_with_mcp, mock_llm_client, sample_mcp_context
+    ):
+        """Non-timeout error in batch continues with remaining tools (Req 6.4).
+
+        Verifies:
+        - First tool fails with non-timeout error
+        - Second and third tools execute successfully
+        - All 3 tool results added to message history
+        - Error message properly formatted in history
+        """
+        # LLM response with 3 tool calls
+        tool_call_1 = ToolCall(
+            id="call_1",
+            type="function",
+            function=FunctionCall(name="tool.one", arguments="{}"),
+        )
+        tool_call_2 = ToolCall(
+            id="call_2",
+            type="function",
+            function=FunctionCall(name="tool.two", arguments="{}"),
+        )
+        tool_call_3 = ToolCall(
+            id="call_3",
+            type="function",
+            function=FunctionCall(name="tool.three", arguments="{}"),
+        )
+
+        first_response = LLMResponse(
+            content=None,
+            model="gpt-4",
+            finish_reason="tool_calls",
+            tool_calls=[tool_call_1, tool_call_2, tool_call_3],
+        )
+
+        # Second response: content (exit loop)
+        second_response = LLMResponse(
+            content='{"thinking": "Some tools failed, but continuing", "action": "wait"}',
+            model="gpt-4",
+            finish_reason="stop",
+            tool_calls=None,
+        )
+
+        mock_llm_client.client.chat_completions_create.side_effect = [
+            first_response,
+            second_response,
+        ]
+
+        # Mock tool execution: first fails, others succeed
+        agent_with_mcp.mcp_manager.call_tool.side_effect = [
+            ToolCallResult(
+                is_error=True,
+                error_message="first tool failed",
+                content={"error": "fail"},
+            ),
+            ToolCallResult(is_error=False, content={"result": "ok"}),
+            ToolCallResult(is_error=False, content={"result": "ok"}),
+        ]
+
+        # Call loop
+        result = await agent_with_mcp._run_tool_calling_loop(sample_mcp_context)
+
+        # Verify all 3 tool calls were executed
+        assert agent_with_mcp.mcp_manager.call_tool.call_count == 3, (
+            "All tools in batch should execute despite non-timeout error"
+        )
+
+        # Verify second LLM call has 3 tool messages in history
+        second_call_kwargs = mock_llm_client.client.chat_completions_create.call_args_list[1][1]
+        messages_in_second_call = second_call_kwargs['messages']
+
+        tool_messages = [msg for msg in messages_in_second_call if msg.get("role") == "tool"]
+        assert len(tool_messages) == 3, "All 3 tool results should be in history"
+
+        # Verify first message contains error
+        first_tool_msg = next(
+            msg for msg in messages_in_second_call
+            if msg.get("role") == "tool" and msg.get("tool_call_id") == "call_1"
+        )
+        assert "error" in str(first_tool_msg["content"]).lower(), (
+            "Error message should be present in tool result"
+        )
+
+    @pytest.mark.asyncio
+    async def test_timeout_aborts_batch(
+        self, agent_with_mcp, mock_llm_client, sample_mcp_context
+    ):
+        """Timeout error aborts batch and skips remaining tools (Req 6.5).
+
+        Verifies:
+        - First tool raises TimeoutError
+        - Remaining tools (2nd, 3rd) are NOT executed
+        - Only 1 tool message added to history (timeout error)
+        - Loop continues to second LLM call
+        """
+        # LLM response with 3 tool calls
+        tool_call_1 = ToolCall(
+            id="call_1",
+            type="function",
+            function=FunctionCall(name="tool.slow", arguments="{}"),
+        )
+        tool_call_2 = ToolCall(
+            id="call_2",
+            type="function",
+            function=FunctionCall(name="tool.two", arguments="{}"),
+        )
+        tool_call_3 = ToolCall(
+            id="call_3",
+            type="function",
+            function=FunctionCall(name="tool.three", arguments="{}"),
+        )
+
+        first_response = LLMResponse(
+            content=None,
+            model="gpt-4",
+            finish_reason="tool_calls",
+            tool_calls=[tool_call_1, tool_call_2, tool_call_3],
+        )
+
+        # Second response: content (exit loop)
+        second_response = LLMResponse(
+            content='{"thinking": "Tool timed out, trying different approach", "action": "wait"}',
+            model="gpt-4",
+            finish_reason="stop",
+            tool_calls=None,
+        )
+
+        mock_llm_client.client.chat_completions_create.side_effect = [
+            first_response,
+            second_response,
+        ]
+
+        # Mock tool execution: first raises TimeoutError
+        agent_with_mcp.mcp_manager.call_tool.side_effect = asyncio.TimeoutError()
+
+        # Call loop
+        result = await agent_with_mcp._run_tool_calling_loop(sample_mcp_context)
+
+        # Verify only 1 tool call was made (remaining skipped)
+        assert agent_with_mcp.mcp_manager.call_tool.call_count == 1, (
+            "Batch should abort after timeout, skipping remaining tools"
+        )
+
+        # Verify second LLM call has only 1 tool message
+        second_call_kwargs = mock_llm_client.client.chat_completions_create.call_args_list[1][1]
+        messages_in_second_call = second_call_kwargs['messages']
+
+        tool_messages = [msg for msg in messages_in_second_call if msg.get("role") == "tool"]
+        assert len(tool_messages) == 1, "Only timeout error should be in history"
+
+        # Verify message contains timeout error
+        timeout_msg = tool_messages[0]
+        assert timeout_msg["tool_call_id"] == "call_1"
+        assert "timeout" in str(timeout_msg["content"]).lower(), (
+            "Timeout error message should be present"
+        )
+
+    @pytest.mark.asyncio
+    async def test_timeout_message_in_history(
+        self, agent_with_mcp, mock_llm_client, sample_mcp_context
+    ):
+        """Timeout error message properly formatted in history (Req 6.6).
+
+        Verifies:
+        - Timeout message includes tool name
+        - Message format: {"error": "Tool call timeout: <tool_name>"}
+        - LLM can see timeout and decide how to proceed
+        """
+        # LLM response with 1 tool call
+        tool_call = ToolCall(
+            id="call_slow",
+            type="function",
+            function=FunctionCall(name="test.slowtool", arguments="{}"),
+        )
+
+        first_response = LLMResponse(
+            content=None,
+            model="gpt-4",
+            finish_reason="tool_calls",
+            tool_calls=[tool_call],
+        )
+
+        # Second response: content (exit loop)
+        second_response = LLMResponse(
+            content='{"thinking": "Tool timed out, will try simpler approach", "action": "look"}',
+            model="gpt-4",
+            finish_reason="stop",
+            tool_calls=None,
+        )
+
+        mock_llm_client.client.chat_completions_create.side_effect = [
+            first_response,
+            second_response,
+        ]
+
+        # Mock tool execution: raises TimeoutError
+        agent_with_mcp.mcp_manager.call_tool.side_effect = asyncio.TimeoutError()
+
+        # Call loop
+        result = await agent_with_mcp._run_tool_calling_loop(sample_mcp_context)
+
+        # Verify second LLM call messages
+        second_call_kwargs = mock_llm_client.client.chat_completions_create.call_args_list[1][1]
+        messages_in_second_call = second_call_kwargs['messages']
+
+        # Find tool message with timeout error
+        tool_msg = next(
+            msg for msg in messages_in_second_call if msg.get("role") == "tool"
+        )
+
+        assert tool_msg["tool_call_id"] == "call_slow"
+
+        # Verify message contains timeout error with tool name
+        content_str = str(tool_msg["content"])
+        assert "timeout" in content_str.lower(), "Message should mention timeout"
+        assert "test.slowtool" in content_str, "Message should include tool name"
+
+    @pytest.mark.asyncio
+    async def test_batch_partial_success_then_timeout(
+        self, agent_with_mcp, mock_llm_client, sample_mcp_context
+    ):
+        """Batch with partial success then timeout aborts remaining tools (Req 6.3, 6.5).
+
+        Verifies:
+        - First tool succeeds
+        - Second tool times out
+        - Third tool NOT executed (batch aborted)
+        - History has 2 tool messages (success + timeout)
+        """
+        # LLM response with 3 tool calls
+        tool_call_1 = ToolCall(
+            id="call_1",
+            type="function",
+            function=FunctionCall(name="tool.fast", arguments="{}"),
+        )
+        tool_call_2 = ToolCall(
+            id="call_2",
+            type="function",
+            function=FunctionCall(name="tool.slow", arguments="{}"),
+        )
+        tool_call_3 = ToolCall(
+            id="call_3",
+            type="function",
+            function=FunctionCall(name="tool.never_called", arguments="{}"),
+        )
+
+        first_response = LLMResponse(
+            content=None,
+            model="gpt-4",
+            finish_reason="tool_calls",
+            tool_calls=[tool_call_1, tool_call_2, tool_call_3],
+        )
+
+        # Second response: content (exit loop)
+        second_response = LLMResponse(
+            content='{"thinking": "Got partial results before timeout", "action": "wait"}',
+            model="gpt-4",
+            finish_reason="stop",
+            tool_calls=None,
+        )
+
+        mock_llm_client.client.chat_completions_create.side_effect = [
+            first_response,
+            second_response,
+        ]
+
+        # Mock tool execution: first succeeds, second times out, third never called
+        async def mock_call_tool_side_effect(tool_name, arguments):
+            if tool_name == "tool.fast":
+                return ToolCallResult(is_error=False, content={"result": "success"})
+            elif tool_name == "tool.slow":
+                raise asyncio.TimeoutError()
+            else:
+                raise AssertionError(f"Tool {tool_name} should not have been called")
+
+        agent_with_mcp.mcp_manager.call_tool.side_effect = mock_call_tool_side_effect
+
+        # Call loop
+        result = await agent_with_mcp._run_tool_calling_loop(sample_mcp_context)
+
+        # Verify only 2 tool calls made (third skipped due to timeout)
+        assert agent_with_mcp.mcp_manager.call_tool.call_count == 2, (
+            "Only first and second tools should execute, third skipped after timeout"
+        )
+
+        # Verify history has 2 tool messages
+        second_call_kwargs = mock_llm_client.client.chat_completions_create.call_args_list[1][1]
+        messages_in_second_call = second_call_kwargs['messages']
+
+        tool_messages = [msg for msg in messages_in_second_call if msg.get("role") == "tool"]
+        assert len(tool_messages) == 2, (
+            "History should have first tool result + timeout error (2 total)"
+        )
+
+        # Verify first message is success
+        first_msg = next(
+            msg for msg in messages_in_second_call
+            if msg.get("role") == "tool" and msg.get("tool_call_id") == "call_1"
+        )
+        assert "success" in str(first_msg["content"]), "First tool should have succeeded"
+
+        # Verify second message is timeout error
+        second_msg = next(
+            msg for msg in messages_in_second_call
+            if msg.get("role") == "tool" and msg.get("tool_call_id") == "call_2"
+        )
+        assert "timeout" in str(second_msg["content"]).lower(), (
+            "Second tool should have timeout error"
+        )
