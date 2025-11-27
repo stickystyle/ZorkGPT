@@ -641,7 +641,3 @@ Small mailbox located here.
         # Verify log was called twice (once for each reset)
         assert mock_logger.info.call_count >= 2, \
             f"log_info should be called at least twice (once per reset), got {mock_logger.info.call_count} calls"
-
-
-# Import fixtures from conftest
-pytest_plugins = ['tests.simple_memory.conftest']

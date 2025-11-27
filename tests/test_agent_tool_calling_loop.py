@@ -279,10 +279,11 @@ class TestToolExecution:
         # Call loop
         result = await agent_with_mcp._run_tool_calling_loop(sample_mcp_context)
 
-        # Verify tool was called
+        # Verify tool was called (with iteration parameter)
         agent_with_mcp.mcp_manager.call_tool.assert_awaited_once_with(
             tool_name="test.tool",
             arguments={"param": "value"},
+            iteration=1,  # First iteration
         )
 
         # Verify two LLM calls were made
@@ -342,7 +343,7 @@ class TestToolExecution:
         # Track call order
         call_order = []
 
-        async def mock_call_tool(tool_name, arguments):
+        async def mock_call_tool(tool_name, arguments, iteration=None):
             call_order.append(tool_name)
             return ToolCallResult(content={"result": f"{tool_name} done"})
 
@@ -1107,7 +1108,7 @@ class TestBatchErrorHandling:
         ]
 
         # Mock tool execution: first succeeds, second times out, third never called
-        async def mock_call_tool_side_effect(tool_name, arguments):
+        async def mock_call_tool_side_effect(tool_name, arguments, iteration=None):
             if tool_name == "tool.fast":
                 return ToolCallResult(is_error=False, content={"result": "success"})
             elif tool_name == "tool.slow":

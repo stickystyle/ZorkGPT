@@ -851,3 +851,148 @@ class TestMCPManagerGracefulDegradation:
         assert manager._disabled is True
         assert manager._retry_attempted is True  # Should remain True
         assert manager._successful_connections == 1  # Should not increment
+
+
+# =============================================================================
+# Tests for Session Startup Timeout
+# =============================================================================
+
+
+class TestMCPManagerStartupTimeout:
+    """Test MCP session startup timeout behavior."""
+
+    @pytest.mark.asyncio
+    async def test_connect_session_times_out_on_slow_initialize(
+        self,
+        mock_logger,
+        tmp_path,
+        create_mcp_config_file,
+        valid_mcp_config_data,
+    ):
+        """
+        Test connect_session raises TimeoutError when initialize() is slow.
+
+        Verifies that the mcp_server_startup_timeout_seconds config is used
+        to timeout the session initialization.
+        """
+        import asyncio
+        from managers.mcp_manager import MCPManager
+
+        # Create config with short timeout
+        config_file = create_mcp_config_file(valid_mcp_config_data)
+        config = GameConfiguration(
+            max_turns_per_episode=100,
+            game_file_path="test.z5",
+            mcp_enabled=True,
+            mcp_config_file=config_file,
+            mcp_server_startup_timeout_seconds=1,  # 1 second timeout
+        )
+
+        manager = MCPManager(config=config, logger=mock_logger)
+
+        # Create a mock that hangs forever on initialize()
+        mock_context = MagicMock()
+        mock_context.__aenter__ = AsyncMock(return_value=(AsyncMock(), AsyncMock()))
+        mock_context.__aexit__ = AsyncMock(return_value=None)
+
+        mock_session = MagicMock()
+
+        async def slow_initialize():
+            await asyncio.sleep(10)  # Hang for 10 seconds
+
+        mock_session.initialize = slow_initialize
+
+        with patch("managers.mcp_manager.stdio_client", return_value=mock_context):
+            with patch(
+                "managers.mcp_manager.ClientSession", return_value=mock_session
+            ):
+                with pytest.raises(MCPServerStartupError) as exc_info:
+                    await manager.connect_session()
+
+                error_msg = str(exc_info.value)
+                assert "timed out" in error_msg.lower()
+                assert "test-server" in error_msg
+
+    @pytest.mark.asyncio
+    async def test_connect_session_cleans_up_on_timeout(
+        self,
+        mock_logger,
+        tmp_path,
+        create_mcp_config_file,
+        valid_mcp_config_data,
+    ):
+        """
+        Test connect_session cleans up partial state on timeout.
+
+        Ensures stdio_context and session are set to None after timeout
+        to prevent resource leaks.
+        """
+        import asyncio
+        from managers.mcp_manager import MCPManager
+
+        config_file = create_mcp_config_file(valid_mcp_config_data)
+        config = GameConfiguration(
+            max_turns_per_episode=100,
+            game_file_path="test.z5",
+            mcp_enabled=True,
+            mcp_config_file=config_file,
+            mcp_server_startup_timeout_seconds=1,
+        )
+
+        manager = MCPManager(config=config, logger=mock_logger)
+
+        mock_context = MagicMock()
+        mock_context.__aenter__ = AsyncMock(return_value=(AsyncMock(), AsyncMock()))
+        mock_context.__aexit__ = AsyncMock(return_value=None)
+
+        mock_session = MagicMock()
+
+        async def slow_initialize():
+            await asyncio.sleep(10)
+
+        mock_session.initialize = slow_initialize
+
+        with patch("managers.mcp_manager.stdio_client", return_value=mock_context):
+            with patch(
+                "managers.mcp_manager.ClientSession", return_value=mock_session
+            ):
+                with pytest.raises(MCPServerStartupError):
+                    await manager.connect_session()
+
+        # Verify cleanup occurred
+        assert manager._session is None
+        assert manager._stdio_context is None
+
+    @pytest.mark.asyncio
+    async def test_connect_session_uses_config_timeout(
+        self,
+        mock_logger,
+        tmp_path,
+        create_mcp_config_file,
+        valid_mcp_config_data,
+        mock_stdio_client,
+        mock_client_session,
+    ):
+        """
+        Test connect_session respects mcp_server_startup_timeout_seconds config.
+
+        Verifies that a fast initialize() succeeds within the timeout window.
+        """
+        from managers.mcp_manager import MCPManager
+
+        config_file = create_mcp_config_file(valid_mcp_config_data)
+        config = GameConfiguration(
+            max_turns_per_episode=100,
+            game_file_path="test.z5",
+            mcp_enabled=True,
+            mcp_config_file=config_file,
+            mcp_server_startup_timeout_seconds=30,  # 30 second timeout
+        )
+
+        manager = MCPManager(config=config, logger=mock_logger)
+
+        # Fast initialize should succeed
+        await manager.connect_session()
+
+        assert manager._session is not None
+        assert manager._successful_connections == 1

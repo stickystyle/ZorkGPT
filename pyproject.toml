@@ -188,10 +188,23 @@ s3_key_prefix = "zorkgpt/"
 
 [tool.zorkgpt.mcp]
 # MCP (Model Context Protocol) Integration Configuration
-# When enabled, the agent can use external tools during action generation
-enabled = false
+# When enabled, the agent can use external tools during puzzle solving
+
+# Global MCP enable/disable flag
+enabled = true
+
+# Path to MCP server configuration file (relative to project root)
 config_file = "mcp_config.json"
+
+# Maximum tool-calling iterations per turn
 max_tool_iterations = 20
+
+# Timeout for individual tool calls (seconds)
 tool_call_timeout_seconds = 30
+
+# Timeout for MCP server startup (seconds)
 server_startup_timeout_seconds = 10
+
+# Override model compatibility auto-detection (escape hatch)
+# Set to true if auto-detection incorrectly flags your model as incompatible
 force_tool_support = false

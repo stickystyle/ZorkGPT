@@ -58,11 +58,49 @@ class ToolCallResult:
     is_error: bool = False
     error_message: Optional[str] = None
 
+    def _serialize_content(self, content: Any) -> Any:
+        """Serialize MCP content types for JSON compatibility.
+
+        MCP SDK returns Pydantic models (TextContent, ImageContent, etc.)
+        which aren't JSON serializable. This method converts them to dicts.
+
+        Args:
+            content: Content to serialize (may be list, Pydantic model, or primitive)
+
+        Returns:
+            JSON-serializable version of content
+        """
+        # Handle None early
+        if content is None:
+            return None
+
+        # Handle list of content items (MCP returns list of TextContent/etc.)
+        if isinstance(content, list):
+            return [self._serialize_content(item) for item in content]
+
+        # Handle dicts (recurse for nested Pydantic models/URLs)
+        if isinstance(content, dict):
+            return {k: self._serialize_content(v) for k, v in content.items()}
+
+        # Handle Pydantic models (TextContent, ImageContent, etc.)
+        # model_dump() returns dict which may still contain non-serializable types
+        if hasattr(content, 'model_dump'):
+            return self._serialize_content(content.model_dump())
+
+        # Handle Pydantic URL types (AnyUrl, HttpUrl, etc.) - convert to string
+        # These have __class__.__module__ starting with 'pydantic'
+        if hasattr(content, '__class__') and content.__class__.__module__.startswith('pydantic'):
+            return str(content)
+
+        # Primitives (str, int, bool, float) pass through
+        return content
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
+        serialized_content = self._serialize_content(self.content)
         if self.is_error:
-            return {"error": self.error_message, "content": self.content}
-        return {"content": self.content}
+            return {"error": self.error_message, "content": serialized_content}
+        return {"content": serialized_content}
 
 
 @dataclass

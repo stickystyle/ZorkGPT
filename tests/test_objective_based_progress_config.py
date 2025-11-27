@@ -50,8 +50,6 @@ enable_objective_refinement = true
 objective_refinement_interval = 75
 max_objectives_before_forced_refinement = 20
 refined_objectives_target_count = 10
-max_context_tokens = 100000
-context_overflow_threshold = 0.8
 enable_state_export = false
 enable_inter_episode_synthesis = true
 
@@ -135,8 +133,6 @@ enable_objective_refinement = true
 objective_refinement_interval = 75
 max_objectives_before_forced_refinement = 20
 refined_objectives_target_count = 10
-max_context_tokens = 100000
-context_overflow_threshold = 0.8
 enable_state_export = false
 enable_inter_episode_synthesis = true
 
@@ -220,8 +216,6 @@ enable_objective_refinement = true
 objective_refinement_interval = 75
 max_objectives_before_forced_refinement = 20
 refined_objectives_target_count = 10
-max_context_tokens = 100000
-context_overflow_threshold = 0.8
 enable_state_export = false
 enable_inter_episode_synthesis = true
 

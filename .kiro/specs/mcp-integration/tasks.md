@@ -295,11 +295,11 @@
   - **Validates: Requirements 15.5**
   - Ensures agent with MCP disabled works identically to pre-MCP agent
 
-- [ ] 14. Checkpoint - Ensure agent tests pass
+- [x] 14. Checkpoint - Ensure agent tests pass
   - Ensure all tests pass, ask the user if questions arise.
   - **Note**: Agent MCP functionality is complete, but orchestrator integration (Task 15) is needed for full system testing
 
-- [ ] 15. Integrate MCPManager into orchestrator
+- [x] 15. Integrate MCPManager into orchestrator
   - Add MCPManager initialization in _initialize_managers
   - Add error handling for MCPManager initialization failures
   - Pass MCPManager to ZorkAgent during initialization
@@ -308,7 +308,7 @@
   - **Note**: After this task, the full system is integrated and ready for end-to-end testing with real MCP servers
   - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5, 10.2_
 
-- [ ] 15.1 Write unit tests for orchestrator integration
+- [x] 15.1 Write unit tests for orchestrator integration
   - Test MCPManager initialization when enabled
   - Test no MCPManager when disabled
   - Test MCPManager passed to agent
@@ -316,20 +316,33 @@
   - Test orchestrator remains synchronous
   - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5, 10.2_
 
-- [ ] 16. Create example configuration files
+- [x] 15.2 Add MCP prompt injection to agent system prompt
+  - Add `_enhance_prompt_with_mcp()` method to ZorkAgent
+  - Conditionally inject thoughtbox guidance when `config.mcp_enabled=True`
+  - Insert before OUTPUT FORMAT section (same pattern as knowledge injection)
+  - Include: when to use, when NOT to use, iteration guidance, example JSON output
+  - _Requirements: Agent needs to know about available MCP tools_
+
+- [x] 15.3 Write unit tests for MCP prompt injection
+  - Test injection when MCP enabled vs disabled
+  - Test insertion position (before OUTPUT FORMAT)
+  - Test content includes puzzle guidance, anti-overuse, iteration hints
+  - Test example JSON matches expected output format
+
+- [x] 16. Create example configuration files
   - Create example mcp_config.json with thoughtbox server
   - Add MCP configuration section to pyproject.toml
   - Document configuration options
   - _Requirements: 2.1, 2.4, 13.1, 13.2, 13.3, 13.4, 13.5_
 
-- [ ] 17. Add comprehensive logging and observability
+- [x] 17. Add comprehensive logging and observability
   - Add JSON logging for all MCP events
   - Add human-readable episode log formatting
   - Ensure all Langfuse spans are properly created
   - Add error logging with actionable messages
   - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5_
 
-- [ ] 17.1 Write unit tests for logging
+- [x] 17.1 Write unit tests for logging
   - Test JSON log structure
   - Test episode log formatting
   - Test Langfuse span creation

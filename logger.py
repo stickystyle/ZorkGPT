@@ -58,11 +58,8 @@ class HumanReadableFormatter(logging.Formatter):
         if record.levelname == "DEBUG":
             return None  # Don't display debug messages on console
 
-        # Always show errors and warnings, regardless of event type
-        if record.levelname in ["ERROR", "WARNING"]:
-            return f"{record.levelname}: {message}"
-
         # Check for structured event types and format accordingly
+        # (Check before generic ERROR/WARNING handling for custom formatting)
         if hasattr(record, "event_type"):
             event_type = record.event_type
 
@@ -101,6 +98,40 @@ class HumanReadableFormatter(logging.Formatter):
             elif event_type == "knowledge_update":
                 return f"📚 Knowledge: {message}"
 
+            # MCP Events - Only show tool usage and errors
+            elif event_type == "mcp_session_connected":
+                return None  # Hide connection details
+
+            elif event_type == "mcp_tool_call_start":
+                return None  # Hide start, success shows usage
+
+            elif event_type == "mcp_tool_call_success":
+                tool = getattr(record, "tool_name", "unknown")
+                duration = getattr(record, "duration_ms", 0)
+                return f"  💭 {tool} ({duration:.0f}ms)"
+
+            elif event_type == "mcp_tool_call_error":
+                tool = getattr(record, "tool_name", "unknown")
+                error = getattr(record, "error", "unknown")
+                return f"  ✗ MCP Tool error: {tool} - {error}"
+
+            elif event_type == "mcp_tool_call_timeout":
+                tool = getattr(record, "tool_name", "unknown")
+                timeout = getattr(record, "timeout_seconds", 0)
+                return f"  ⏱ MCP Tool timeout: {tool} ({timeout}s)"
+
+            elif event_type == "mcp_session_summary":
+                return None  # Hide session summary
+
+            elif event_type == "mcp_session_disconnected":
+                return None  # Hide from console
+
+            elif event_type == "mcp_session_connect_retry":
+                return f"⚠️ MCP: Connection retry..."
+
+            elif event_type == "mcp_session_degradation":
+                return f"⚠️ MCP: Disabled for remainder of episode"
+
             # Hide low-value progress messages unless they're important
             elif event_type == "progress":
                 stage = getattr(record, "stage", "")
@@ -126,6 +157,10 @@ class HumanReadableFormatter(logging.Formatter):
                 "zork_response",  # Hide raw game responses from console
             ]:
                 return None  # Don't display these on console
+
+        # Always show errors and warnings if no event_type handled them
+        if record.levelname in ["ERROR", "WARNING"]:
+            return f"{record.levelname}: {message}"
 
         # For non-structured messages, only show if they're important
         if record.levelname == "INFO" and any(

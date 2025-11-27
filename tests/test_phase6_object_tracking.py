@@ -42,9 +42,6 @@ class TestPhase6ObjectTracking:
             objective_refinement_interval=200,
             max_objectives_before_forced_refinement=15,
             refined_objectives_target_count=10,
-            # Context management
-            max_context_tokens=100000,
-            context_overflow_threshold=0.8,
             # State export
             enable_state_export=False,
             s3_bucket="test-bucket",
