@@ -256,8 +256,8 @@ class TestIterationParameter:
 class TestHumanReadableFormatting:
     """Test human-readable formatting for MCP events."""
 
-    def test_mcp_session_connected_format(self):
-        """Test formatting for mcp_session_connected event."""
+    def test_mcp_session_connected_hidden(self):
+        """Test that mcp_session_connected is hidden from console."""
         formatter = HumanReadableFormatter()
 
         record = logging.LogRecord(
@@ -274,10 +274,10 @@ class TestHumanReadableFormatting:
 
         formatted = formatter.format(record)
 
-        assert formatted == "🔌 MCP: Connected to test-server"
+        assert formatted is None, "Should be hidden from console for cleaner output"
 
-    def test_mcp_tool_call_start_format(self):
-        """Test formatting for mcp_tool_call_start event."""
+    def test_mcp_tool_call_start_hidden(self):
+        """Test that mcp_tool_call_start is hidden from console (success shows usage)."""
         formatter = HumanReadableFormatter()
 
         record = logging.LogRecord(
@@ -295,7 +295,7 @@ class TestHumanReadableFormatting:
 
         formatted = formatter.format(record)
 
-        assert formatted == "  🔧 Tool [3]: search"
+        assert formatted is None, "Should be hidden; success event shows usage instead"
 
     def test_mcp_tool_call_success_format(self):
         """Test formatting for mcp_tool_call_success event."""
@@ -316,7 +316,8 @@ class TestHumanReadableFormatting:
 
         formatted = formatter.format(record)
 
-        assert formatted == "  ✓ Tool complete: search (1235ms)"
+        # Compact format with thought bubble emoji
+        assert formatted == "  💭 search (1235ms)"
 
     def test_mcp_tool_call_error_format(self):
         """Test formatting for mcp_tool_call_error event."""
@@ -337,7 +338,7 @@ class TestHumanReadableFormatting:
 
         formatted = formatter.format(record)
 
-        assert formatted == "  ✗ Tool error: search - Connection timeout"
+        assert formatted == "  ✗ MCP Tool error: search - Connection timeout"
 
     def test_mcp_tool_call_timeout_format(self):
         """Test formatting for mcp_tool_call_timeout event."""
@@ -358,10 +359,10 @@ class TestHumanReadableFormatting:
 
         formatted = formatter.format(record)
 
-        assert formatted == "  ⏱ Tool timeout: search (30s)"
+        assert formatted == "  ⏱ MCP Tool timeout: search (30s)"
 
-    def test_mcp_session_summary_format(self):
-        """Test formatting for mcp_session_summary event."""
+    def test_mcp_session_summary_hidden(self):
+        """Test that mcp_session_summary is hidden from console."""
         formatter = HumanReadableFormatter()
 
         record = logging.LogRecord(
@@ -380,7 +381,7 @@ class TestHumanReadableFormatting:
 
         formatted = formatter.format(record)
 
-        assert formatted == "🔌 MCP Session: 5 iterations, 3 tools (5679ms)"
+        assert formatted is None, "Should be hidden from console for cleaner output"
 
     def test_mcp_session_disconnected_hidden(self):
         """Test that mcp_session_disconnected is hidden from console."""
