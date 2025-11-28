@@ -365,6 +365,30 @@ class TestSyncWrapperMCPDisabled:
 class TestAsyncBoundary:
     """Test asyncio.run boundary and event loop handling."""
 
+    @pytest.mark.asyncio
+    async def test_raises_error_when_called_from_async_context(
+        self, agent_with_mcp, sample_game_state
+    ):
+        """
+        Verify get_action_with_reasoning raises RuntimeError when called from async context.
+
+        Test approach:
+        1. Call get_action_with_reasoning from within an async function
+        2. Verify RuntimeError is raised with appropriate message
+        3. Verify error message points to _generate_action_async as alternative
+        """
+        # Act & Assert
+        with pytest.raises(RuntimeError) as exc_info:
+            agent_with_mcp.get_action_with_reasoning(sample_game_state)
+
+        error_message = str(exc_info.value)
+        assert "cannot be called from within an async context" in error_message, (
+            "Error should explain the async context limitation"
+        )
+        assert "_generate_action_async" in error_message, (
+            "Error should point to the async alternative"
+        )
+
     def test_single_asyncio_run(self, agent_with_mcp, sample_game_state):
         """
         Verify only one asyncio.run call occurs.

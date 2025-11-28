@@ -762,7 +762,23 @@ You have access to `thoughtbox.clear_thought` for iterative reasoning on complex
 
         Returns:
             Dict with 'action' (cleaned), 'reasoning', 'new_objective', 'raw_response'
+
+        Raises:
+            RuntimeError: If called from within an existing async context.
         """
+        # Guard against nested event loops (Requirement 10.5)
+        try:
+            asyncio.get_running_loop()
+            raise RuntimeError(
+                "get_action_with_reasoning() cannot be called from within an async context. "
+                "Use 'await _generate_action_async()' directly instead."
+            )
+        except RuntimeError as e:
+            # Re-raise if it's our own error about async context
+            if "cannot be called from within an async context" in str(e):
+                raise
+            # Otherwise, no loop running - safe to proceed
+
         try:
             result = asyncio.run(
                 self._generate_action_async(game_state_text, relevant_memories)
