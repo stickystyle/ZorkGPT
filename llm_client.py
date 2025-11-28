@@ -8,6 +8,7 @@ parameters like top_k, min_p, etc. that are not supported by the OpenAI SDK.
 import requests
 import random
 import time
+import json
 from typing import Dict, List, Optional, Any, Union
 from dataclasses import dataclass
 from enum import Enum
@@ -36,12 +37,81 @@ except ImportError:
 
 
 @dataclass
+class FunctionCall:
+    """Function call details."""
+    name: str  # Tool name (e.g., "thoughtbox.think")
+    arguments: str  # JSON string of arguments
+
+
+@dataclass
+class ToolCall:
+    """Represents a tool call from the LLM."""
+    id: str  # Unique identifier for this tool call
+    type: str  # Always "function" for now
+    function: FunctionCall
+
+
+@dataclass
+class ToolCallResult:
+    """Result from an MCP tool call."""
+    content: Any  # Tool result (can be dict, str, list, etc.)
+    is_error: bool = False
+    error_message: Optional[str] = None
+
+    def _serialize_content(self, content: Any) -> Any:
+        """Serialize MCP content types for JSON compatibility.
+
+        MCP SDK returns Pydantic models (TextContent, ImageContent, etc.)
+        which aren't JSON serializable. This method converts them to dicts.
+
+        Args:
+            content: Content to serialize (may be list, Pydantic model, or primitive)
+
+        Returns:
+            JSON-serializable version of content
+        """
+        # Handle None early
+        if content is None:
+            return None
+
+        # Handle list of content items (MCP returns list of TextContent/etc.)
+        if isinstance(content, list):
+            return [self._serialize_content(item) for item in content]
+
+        # Handle dicts (recurse for nested Pydantic models/URLs)
+        if isinstance(content, dict):
+            return {k: self._serialize_content(v) for k, v in content.items()}
+
+        # Handle Pydantic models (TextContent, ImageContent, etc.)
+        # model_dump() returns dict which may still contain non-serializable types
+        if hasattr(content, 'model_dump'):
+            return self._serialize_content(content.model_dump())
+
+        # Handle Pydantic URL types (AnyUrl, HttpUrl, etc.) - convert to string
+        # These have __class__.__module__ starting with 'pydantic'
+        if hasattr(content, '__class__') and content.__class__.__module__.startswith('pydantic'):
+            return str(content)
+
+        # Primitives (str, int, bool, float) pass through
+        return content
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        serialized_content = self._serialize_content(self.content)
+        if self.is_error:
+            return {"error": self.error_message, "content": serialized_content}
+        return {"content": serialized_content}
+
+
+@dataclass
 class LLMResponse:
     """Response object for LLM completions."""
 
-    content: str
+    content: Optional[str]  # Now Optional - None if tool_calls present
     model: str
     usage: Optional[Dict[str, int]] = None
+    tool_calls: Optional[List[ToolCall]] = None  # NEW
+    finish_reason: Optional[str] = None  # NEW: "stop" | "tool_calls" | "length"
 
 
 class RetryableError(Exception):
@@ -231,6 +301,41 @@ class LLMClient:
         #         self.base_url += '/'
         #     self.base_url += 'v1'
 
+    def _supports_tool_calling(self, model: str) -> bool:
+        """
+        Check if a model supports tool calling.
+
+        Uses pattern matching on model name to detect reasoning models
+        that don't support tool calling (o1, o3, DeepSeek R1, QwQ).
+
+        Args:
+            model: The model name to check
+
+        Returns:
+            True if model supports tools, False otherwise
+        """
+        # Check config override first
+        if hasattr(self.config, 'mcp_force_tool_support') and self.config.mcp_force_tool_support:
+            return True
+
+        model_lower = model.lower()
+
+        # Known reasoning models that don't support tool calling
+        unsupported_patterns = [
+            "o1-",      # o1-preview, o1-mini, etc.
+            "o3-",      # o3-mini, o3-preview, etc.
+            "deepseek-r1",
+            "deepseek-reasoner",
+            "qwq"
+        ]
+
+        for pattern in unsupported_patterns:
+            if pattern in model_lower:
+                return False
+
+        # Permissive default: assume unknown models support tools
+        return True
+
     def _calculate_backoff_delay(self, attempt: int) -> float:
         """Calculate the delay for exponential backoff with jitter."""
         # Calculate exponential delay
@@ -312,6 +417,8 @@ class LLMClient:
         response_format: Optional[Dict[str, Any]] = None,
         extra_headers: Optional[Dict[str, str]] = None,
         name: Optional[str] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[Union[str, Dict[str, Any]]] = None,
         **kwargs,
     ) -> LLMResponse:
         """
@@ -371,6 +478,8 @@ class LLMClient:
                     response_format=response_format,
                     extra_headers=extra_headers,
                     name=name,
+                    tools=tools,
+                    tool_choice=tool_choice,
                     **kwargs,
                 )
 
@@ -451,6 +560,8 @@ class LLMClient:
         response_format: Optional[Dict[str, Any]] = None,
         extra_headers: Optional[Dict[str, str]] = None,
         name: Optional[str] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[Union[str, Dict[str, Any]]] = None,
         **kwargs,
     ) -> LLMResponse:
         """Make the actual HTTP request."""
@@ -467,6 +578,19 @@ class LLMClient:
         # Add any extra headers (will override defaults if same key)
         if extra_headers:
             headers.update(extra_headers)
+
+        # Add cache_control to system and user messages for prompt caching
+        # This is applied unconditionally to all system/user messages
+        processed_messages = []
+        for msg in messages:
+            new_msg = dict(msg)  # Copy message
+            # Add cache_control to system and user roles only (not assistant)
+            if msg.get("role") in ["system", "user"]:
+                # Only add if not already present (preserve existing cache_control)
+                if "cache_control" not in new_msg:
+                    new_msg["cache_control"] = {"type": "ephemeral"}
+            processed_messages.append(new_msg)
+        messages = processed_messages
 
         # Handle model-specific parameter restrictions
         is_o1_model = "o1-" in model.lower()
@@ -534,6 +658,12 @@ class LLMClient:
             "messages": messages,
         }
         payload.update(model_parameters)
+
+        # Add tools and tool_choice if provided (for tool calling support)
+        if tools is not None:
+            payload["tools"] = tools
+        if tool_choice is not None:
+            payload["tool_choice"] = tool_choice
 
         # Add any additional kwargs
         payload.update(kwargs)
@@ -777,11 +907,51 @@ class LLMClient:
                     }
                 )
 
-            # Extract content from response
-            # Reasoning models (QwQ, DeepSeek R1, etc.) may return different formats
+            # Extract content and tool_calls from response
+            # Tool calls and content are mutually exclusive
+            content = None
+            tool_calls = None
+            finish_reason = None
+
             if "choices" in response_data and len(response_data["choices"]) > 0:
                 # Standard chat completion format
-                content = response_data["choices"][0]["message"]["content"]
+                first_choice = response_data["choices"][0]
+                message = first_choice.get("message", {})
+                finish_reason = first_choice.get("finish_reason")
+
+                # Check for tool_calls first (takes precedence over content)
+                # Explicitly check for non-empty list
+                tool_calls_data = message.get("tool_calls")
+                if tool_calls_data and len(tool_calls_data) > 0:
+                    # Parse tool calls
+                    tool_calls = []
+                    for i, tc in enumerate(tool_calls_data):
+                        try:
+                            # Validate arguments is valid JSON
+                            json.loads(tc["function"]["arguments"])  # Validate only
+
+                            tool_call = ToolCall(
+                                id=tc["id"],
+                                type=tc["type"],
+                                function=FunctionCall(
+                                    name=tc["function"]["name"],
+                                    arguments=tc["function"]["arguments"]
+                                )
+                            )
+                            tool_calls.append(tool_call)
+                        except json.JSONDecodeError as e:
+                            if self.logger:
+                                self.logger.warning(f"Tool call has invalid JSON arguments, skipping: {e}")
+                            continue  # Skip malformed tool call
+                        except (KeyError, TypeError) as e:
+                            if self.logger:
+                                self.logger.warning(f"Failed to parse tool call {i}: {e}")
+                            continue  # Skip malformed tool call
+                    # When tool_calls present, content should be None
+                    content = None
+                else:
+                    # No tool calls, extract content
+                    content = message.get("content")
             elif "content" in response_data:
                 # Some reasoning models return content directly
                 content = response_data["content"]
@@ -797,8 +967,8 @@ class LLMClient:
             # Extract model from response (or use from payload)
             model = response_data.get("model", payload.get("model", "unknown"))
 
-            # Check for empty or whitespace-only responses
-            if content is None or (isinstance(content, str) and not content.strip()):
+            # Check for empty or whitespace-only responses (only when no tool_calls)
+            if tool_calls is None and (content is None or (isinstance(content, str) and not content.strip())):
                 # Build diagnostic message
                 diagnostic_parts = [f"Empty response from model {model}"]
                 if usage:
@@ -824,7 +994,13 @@ class LLMClient:
 
                 raise EmptyResponseError(diagnostic_msg)
 
-            return LLMResponse(content=content, model=model, usage=usage)
+            return LLMResponse(
+                content=content,
+                model=model,
+                usage=usage,
+                tool_calls=tool_calls,
+                finish_reason=finish_reason
+            )
 
         except requests.exceptions.RequestException as e:
             # Classify and potentially convert to retryable error

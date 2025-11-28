@@ -9,7 +9,7 @@ import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch, PropertyMock
 from session.game_configuration import GameConfiguration
-from orchestration.zork_orchestrator_v2 import ZorkOrchestrator
+from orchestration.zork_orchestrator_v2 import ZorkOrchestratorV2 as ZorkOrchestrator
 from zork_critic import CriticResponse, ValidationResult
 
 

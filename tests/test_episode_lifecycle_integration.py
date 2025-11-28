@@ -60,8 +60,6 @@ def game_config(tmp_path):
         objective_refinement_interval=200,
         max_objectives_before_forced_refinement=15,
         refined_objectives_target_count=10,
-        max_context_tokens=100000,
-        context_overflow_threshold=0.8,
         enable_state_export=True,
         s3_bucket="test-bucket",
         s3_key_prefix="test/",

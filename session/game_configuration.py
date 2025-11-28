@@ -276,6 +276,36 @@ class GameConfiguration(BaseSettings):
         le=100
     )
 
+    # MCP Configuration
+    mcp_enabled: bool = Field(
+        default=False, description="Enable MCP tool calling integration"
+    )
+    mcp_config_file: str = Field(
+        default="mcp_config.json", description="Path to MCP server configuration file"
+    )
+    mcp_max_tool_iterations: int = Field(
+        default=20,
+        ge=1,
+        le=100,
+        description="Maximum tool-calling iterations per turn",
+    )
+    mcp_tool_call_timeout_seconds: int = Field(
+        default=30,
+        ge=1,
+        le=300,
+        description="Timeout for individual tool calls in seconds",
+    )
+    mcp_server_startup_timeout_seconds: int = Field(
+        default=10,
+        ge=1,
+        le=60,
+        description="Timeout for MCP server startup in seconds",
+    )
+    mcp_force_tool_support: bool = Field(
+        default=False,
+        description="Override model compatibility auto-detection for tool calling",
+    )
+
     # Sampling parameters (loaded from TOML)
     agent_sampling: dict = Field(
         default_factory=dict, description="Sampling parameters for agent"
@@ -378,6 +408,7 @@ class GameConfiguration(BaseSettings):
         retry_config = zorkgpt_config.get("retry", {})
         objective_completion_config = zorkgpt_config.get("objective_completion", {})
         loop_break_config = zorkgpt_config.get("loop_break", {})
+        mcp_config = zorkgpt_config.get("mcp", {})
 
         # Extract sampling parameter sections
         agent_sampling = zorkgpt_config.get("agent_sampling", {})
@@ -479,6 +510,20 @@ class GameConfiguration(BaseSettings):
             config_dict["enable_stuck_warnings"] = loop_break_config.get("enable_stuck_warnings")
         if loop_break_config.get("stuck_warning_threshold") is not None:
             config_dict["stuck_warning_threshold"] = loop_break_config.get("stuck_warning_threshold")
+
+        # Add optional MCP settings (only if present in TOML)
+        if mcp_config.get("enabled") is not None:
+            config_dict["mcp_enabled"] = mcp_config.get("enabled")
+        if mcp_config.get("config_file") is not None:
+            config_dict["mcp_config_file"] = mcp_config.get("config_file")
+        if mcp_config.get("max_tool_iterations") is not None:
+            config_dict["mcp_max_tool_iterations"] = mcp_config.get("max_tool_iterations")
+        if mcp_config.get("tool_call_timeout_seconds") is not None:
+            config_dict["mcp_tool_call_timeout_seconds"] = mcp_config.get("tool_call_timeout_seconds")
+        if mcp_config.get("server_startup_timeout_seconds") is not None:
+            config_dict["mcp_server_startup_timeout_seconds"] = mcp_config.get("server_startup_timeout_seconds")
+        if mcp_config.get("force_tool_support") is not None:
+            config_dict["mcp_force_tool_support"] = mcp_config.get("force_tool_support")
 
         # Use Pydantic's model_validate to create the instance
         return cls.model_validate(config_dict)

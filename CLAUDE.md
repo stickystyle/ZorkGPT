@@ -4,6 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **IMPORTANT**: Do not make any changes until you have 95% confidence in the change you need to make. Ask me questions until you reach that confidence.
 
+## Implementation
+
+**CRITICAL**: All application code changes must be implemented using specialized agents.
+
+- **Implementation**: Use Task tool with `subagent_type='python-engineer'`
+- **Code Review**: Follow implementation with Task tool `subagent_type='code-reviewer'`
+- **Fixes**: If issues identified in review, use `python-engineer` to fix before proceeding
+
+**Exception**: Simple fixes (typos, comments, single-line changes) don't require agent delegation.
+
 ## Project Overview
 
 ZorkGPT is an AI agent system that plays the classic text adventure game "Zork" using Large Language Models. The system uses a modular architecture with specialized LLM-driven components for action generation, information extraction, action evaluation, and adaptive learning.
@@ -116,21 +126,6 @@ Always prefer Z-machine structured data over text parsing:
 - Inventory: `get_inventory_structured()` → `List[ZObject]`
 - Movement: Compare `before_id != after_id`
 - Objects: `get_visible_objects_in_location()` → `List[ZObject]`
-
-### Loop Break System
-ZorkGPT includes a three-phase loop break system to prevent stuck episodes and token waste:
-
-**Phase 1A - Progress Velocity Detection**: Terminates episodes after 40 turns without score change. Programmatic hard stop using O(1) score tracking. See `orchestration/zork_orchestrator_v2.py` lines 347-380 (tracking) and 526-547 (termination).
-
-**Phase 1B - Location Revisit Penalty**: Applies programmatic -0.2 penalty per recent location revisit to discourage loops. Uses Z-machine location IDs in sliding window (last 5 locations). Modifies critic confidence scores, not context. See lines 394-504.
-
-**Phase 1C - Stuck Countdown Warnings**: Shows explicit "DIE in {y} turns" warnings in agent context starting at 20 turns stuck. Includes action novelty hints and unexplored exit suggestions. Context-based guidance, not penalties. See lines 483-522 (warnings) and 849-866 (critic integration).
-
-**Configuration**: All settings in `pyproject.toml` under `[tool.zorkgpt.loop_break]` section. Loaded via `session/game_configuration.py` lines 220-282.
-
-**Testing**: 66 tests across 4 files validate all three phases independently and together. Run: `uv run pytest tests/test_*loop*.py -v`
-
-**For complete details**: See `loop_break.md` for design rationale, configuration options, monitoring, troubleshooting, and episode analysis tools.
 
 ## File Organization
 

@@ -11,6 +11,7 @@
 5. [Subsystems](#subsystems)
 6. [System Execution Flow](#system-execution-flow)
 7. [Architecture Diagrams](#architecture-diagrams)
+8. [MCP Integration](#mcp-integration)
 
 ## Project Overview
 
@@ -501,3 +502,46 @@ sequenceDiagram
     Orch-->>UserMain: Episode complete (score, summary)
     deactivate Orch
 ```
+
+## MCP Integration
+
+ZorkGPT supports Model Context Protocol (MCP) to give the agent access to external reasoning tools during gameplay. When enabled, the agent can use [thoughtbox](https://github.com/kastalien-research/thoughtbox) - a structured meta-cognitive reasoning tool that helps with complex puzzle solving.
+
+### Enabling MCP
+
+1. Install thoughtbox locally:
+   ```bash
+   npm install @kastalien-research/thoughtbox
+   ```
+   Note: The thoughtbox project recommends npx, but local installation works more reliably.
+
+2. Create `mcp_config.json` in project root:
+   ```json
+   {
+     "mcpServers": {
+       "thoughtbox": {
+         "command": "node",
+         "args": ["node_modules/@kastalien-research/thoughtbox/dist/index.js"],
+         "env": {
+           "DISABLE_THOUGHT_LOGGING": "true"
+         }
+       }
+     }
+   }
+   ```
+
+3. Enable in `pyproject.toml`:
+   ```toml
+   [tool.zorkgpt.mcp]
+   enabled = true
+   ```
+
+### Disabling MCP
+
+Set `enabled = false` in the `[tool.zorkgpt.mcp]` section of `pyproject.toml`, or remove the section entirely.
+
+### Requirements
+
+- Node.js 22+ (for thoughtbox server)
+- Python 3.11+ (for async support)
+- mcp package >= 1.22.0 (included in dependencies)
