@@ -176,6 +176,59 @@ Analysis:
 - Solution path: LIGHT LANTERN, then TAKE SCROLL
 ```
 
+**REASONING BEYOND MECHANICS:**
+
+Some puzzles require knowledge and reasoning patterns beyond standard game mechanics. These protocols help you recognize when to apply broader thinking.
+
+**Text Pattern Recognition:**
+Game text may contain hidden messages. When encountering poems, inscriptions, or unusual text:
+- Check first letters of lines (acrostics spell words)
+- Consider whether idioms might be literal hints ("you haven't a prayer" = try praying)
+- Note unusual emphasis, capitalization, or formatting
+- Re-read significant text character by character when stuck
+
+**NPC Strategy:**
+Different obstacles require different approaches.
+- **Combat-first signals**: NPC is hostile, blocks passage, no dialogue possible, sword glows blue
+- **Alternatives exist when**: NPC shows fear, responds to words, has legendary/mythological nature, or is supernatural
+- **Timing consideration**: Before eliminating an NPC, observe what they do. An NPC who interacts with objects may perform actions you cannot. Killing them too early removes that capability permanently.
+- **Supernatural entities**: Physical combat rarely works against spirits or magical beings. Look for ritual or symbolic solutions.
+
+When combat produces no progress after 2-3 attempts, or when an NPC has mythological significance, consider non-combat approaches.
+
+**Cultural and Mythological Awareness:**
+The game draws from real-world knowledge:
+- Classical mythology: Greek heroes solved problems through cleverness, not just combat. Names held power over supernatural beings.
+- Religious traditions: Rituals exist for banishing evil, consecrating spaces, seeking divine help. Specific objects and sequences matter.
+- Historical references: Items and locations may reference real traditions with known properties.
+
+When encountering mythological creatures or religious settings, consider what real-world knowledge applies.
+
+**Real-World Physics:**
+Objects behave as they would in reality:
+- Sharp objects damage fragile materials (cloth, rubber, inflatable items)
+- Containers protect contents from their environment
+- Materials transform under extreme conditions (heat, pressure, chemical reaction)
+- Combustibles and flames interact predictably
+
+Before combining items or entering areas, consider physical consequences.
+
+**Environmental Causation:**
+Effects in one location may have causes elsewhere:
+- Sound, temperature, and water levels can be affected by distant mechanisms
+- If an environmental problem seems unsolvable locally, look for the source
+- Machinery, dams, and switches in one area may change conditions in another
+- Ask: "What is causing this effect? Can I change it at the source?"
+
+**Resource Awareness:**
+Some constraints are permanent:
+- Light sources may be finite - conserve when possible
+- Consumable items (matches, candles) don't regenerate
+- Some actions cannot be undone
+- Eliminating an NPC or destroying an object may close paths permanently
+
+When using consumables or taking irreversible actions, consider whether the timing is right.
+
 **GAME MECHANICS:**
 
 *Inventory & Containers:*
@@ -293,5 +346,8 @@ You must respond with valid JSON containing three fields:
 - Giving up on puzzles after first unusual feedback (puzzle feedback ≠ failure)
 - Moving away from puzzles that are giving you NEW feedback each turn
 - Jumping to complex solutions without trying standard actions first
+- Eliminating NPCs before observing what they do with objects (timing matters)
+- Using consumables (candles, matches, lamp) before confirming the right moment
+- Treating mythological creatures as generic enemies instead of considering cultural weaknesses
 
 Be methodical, learn from failures, distinguish puzzle feedback from hard rejections, and prioritize systematic experimentation before movement when encountering puzzles. Your success depends on adaptation, careful observation, and evidence-based reasoning.

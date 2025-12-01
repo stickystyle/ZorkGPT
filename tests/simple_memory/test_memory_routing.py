@@ -434,7 +434,3 @@ class TestMemoryRouting:
         assert not memories_file.exists(), (
             "Memories.md should NOT be created for ephemeral memories"
         )
-
-
-# Import fixtures from conftest
-pytest_plugins = ['tests.simple_memory.conftest']
