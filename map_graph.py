@@ -504,7 +504,7 @@ class MapGraph:
             self.connection_confidence[connection_key] = confidence
             self.connection_verifications[connection_key] = 1
 
-        # Add the forward connection
+        # Add the forward connection (verified by actual traversal)
         if from_room_id not in self.connections:
             self.connections[from_room_id] = {}
         self.connections[from_room_id][processed_exit_taken] = to_room_id
@@ -512,23 +512,11 @@ class MapGraph:
             processed_exit_taken
         )  # Ensure exit is recorded for the room
 
-        # Add the reverse connection if an opposite direction exists
-        opposite_exit = self._get_opposite_direction(processed_exit_taken)
-        if opposite_exit:
-            reverse_connection_key = (to_room_id, opposite_exit)
-
-            if to_room_id not in self.connections:
-                self.connections[to_room_id] = {}
-            # Only add reverse connection if it doesn't overwrite an existing one from that direction
-            # This handles cases where "north" from A leads to B, but "south" from B leads to C (unlikely but possible)
-            if opposite_exit not in self.connections[to_room_id]:
-                self.connections[to_room_id][opposite_exit] = from_room_id
-                # Set confidence for reverse connection (slightly lower since it's inferred)
-                self.connection_confidence[reverse_connection_key] = confidence * 0.9
-                self.connection_verifications[reverse_connection_key] = 1
-            self.rooms[to_room_id].add_exit(
-                opposite_exit
-            )  # Ensure reverse exit is recorded
+        # NOTE: Reverse connections are NOT inferred. Zork has many one-way passages:
+        # - Trapdoor (Living Room → Cellar, no return via "up")
+        # - Chimney (one-way down with specific item requirements)
+        # - Maze (non-Euclidean: north then south ≠ original location)
+        # Connections are only recorded when verified by actual traversal.
 
     def get_room_info(self, room_id: int) -> str:
         """Get room information using integer ID."""
