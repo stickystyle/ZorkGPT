@@ -59,7 +59,12 @@ class TestMapGraph(unittest.TestCase):
         self.assertIn("down", cave_room.exits)
         self.assertIn("slide", cave_room.exits)
 
-    def test_add_connection_simple_and_bidirectional(self):
+    def test_add_connection_forward_only(self):
+        """
+        Test that add_connection only adds the forward connection.
+
+        Reverse connections are NOT inferred due to Zork's one-way passages.
+        """
         # Room ID mapping for test
         WEST_ID = 1
         NORTH_ID = 2
@@ -67,14 +72,18 @@ class TestMapGraph(unittest.TestCase):
         self.map.add_room(WEST_ID, "West of House")
         self.map.add_room(NORTH_ID, "North of House")
         self.map.add_connection(WEST_ID, "north", NORTH_ID)
+
+        # Forward connection should exist
         self.assertIn(WEST_ID, self.map.connections)
         self.assertEqual(self.map.connections[WEST_ID]["north"], NORTH_ID)
-        self.assertIn(NORTH_ID, self.map.connections)
-        self.assertEqual(self.map.connections[NORTH_ID]["south"], WEST_ID)
         self.assertIn("north", self.map.rooms[WEST_ID].exits)
-        self.assertIn("south", self.map.rooms[NORTH_ID].exits)
 
-    def test_add_connection_with_normalization_in_add_connection(self):
+        # Reverse connection should NOT be automatically added
+        self.assertNotIn(NORTH_ID, self.map.connections)
+        self.assertNotIn("south", self.map.rooms[NORTH_ID].exits)
+
+    def test_add_connection_with_normalization(self):
+        """Test that direction normalization works (e.g., 'w' → 'west')."""
         # Room ID mapping for test
         LIVING_ROOM_ID = 1
         KITCHEN_ID = 2
@@ -82,8 +91,12 @@ class TestMapGraph(unittest.TestCase):
         self.map.add_room(LIVING_ROOM_ID, "Living Room")
         self.map.add_room(KITCHEN_ID, "Kitchen")
         self.map.add_connection(LIVING_ROOM_ID, "west", KITCHEN_ID)
+
+        # Forward connection should be normalized and stored
         self.assertEqual(self.map.connections[LIVING_ROOM_ID]["west"], KITCHEN_ID)
-        self.assertEqual(self.map.connections[KITCHEN_ID]["east"], LIVING_ROOM_ID)
+
+        # No reverse connection (Zork has one-way passages)
+        self.assertNotIn(KITCHEN_ID, self.map.connections)
 
     def test_add_connection_non_directional(self):
         # Room ID mapping for test
@@ -99,19 +112,30 @@ class TestMapGraph(unittest.TestCase):
         # No reverse connection for non-directional actions
         self.assertNotIn("open trap door", self.map.connections.get(DARK_TUNNEL_ID, {}))
 
-    def test_add_connection_one_way_if_opposite_exists(self):
+    def test_no_automatic_reverse_connections(self):
+        """
+        Verify that reverse connections are NOT automatically inferred.
+
+        Zork has many one-way passages (trapdoor, chimney, maze) so we only
+        record connections that have been verified by actual traversal.
+        """
         # Room ID mapping for test
         ROOM_A_ID = 1
         ROOM_B_ID = 2
-        ROOM_C_ID = 3
 
         self.map.add_room(ROOM_A_ID, "RoomA")
         self.map.add_room(ROOM_B_ID, "RoomB")
-        self.map.add_room(ROOM_C_ID, "RoomC")
+
+        # Add connection A → north → B
         self.map.add_connection(ROOM_A_ID, "north", ROOM_B_ID)
-        self.map.add_connection(ROOM_C_ID, "south", ROOM_B_ID)
-        self.assertEqual(self.map.connections[ROOM_B_ID]["south"], ROOM_A_ID)
-        self.assertEqual(self.map.connections[ROOM_B_ID]["north"], ROOM_C_ID)
+
+        # Forward connection should exist
+        self.assertEqual(self.map.connections[ROOM_A_ID]["north"], ROOM_B_ID)
+
+        # Reverse connection should NOT be automatically added
+        # (Zork has one-way passages like trapdoor, chimney, maze)
+        self.assertNotIn(ROOM_B_ID, self.map.connections,
+                         "Reverse connection should not be automatically inferred")
 
     def test_get_room_info(self):
         # Room ID mapping for test
@@ -128,27 +152,32 @@ class TestMapGraph(unittest.TestCase):
         self.assertIn("down (leads to Landing)", info)
         self.assertIn("window (closed)", info)
 
-    def test_connection_overwrite_preserves_symmetry_if_possible(self):
+    def test_explicit_bidirectional_connections(self):
+        """
+        Test that bidirectional connections require explicit traversal in both directions.
+
+        Unlike the old automatic reverse inference, each direction must be
+        separately verified by actual movement.
+        """
         # Room ID mapping for test
         ROOM_A_ID = 1
         ROOM_B_ID = 2
-        ROOM_C_ID = 3
-        ROOM_D_ID = 4
 
         self.map.add_room(ROOM_A_ID, "A")
         self.map.add_room(ROOM_B_ID, "B")
-        self.map.add_room(ROOM_C_ID, "C")
-        self.map.add_room(ROOM_D_ID, "D")
-        self.map.add_connection(ROOM_B_ID, "north", ROOM_C_ID)
+
+        # First traversal: A → north → B
+        self.map.add_connection(ROOM_A_ID, "north", ROOM_B_ID)
+        self.assertEqual(self.map.connections[ROOM_A_ID]["north"], ROOM_B_ID)
+        self.assertNotIn(ROOM_B_ID, self.map.connections)  # No reverse yet
+
+        # Second traversal: B → south → A (explicitly verified)
         self.map.add_connection(ROOM_B_ID, "south", ROOM_A_ID)
-        self.assertEqual(self.map.connections[ROOM_B_ID]["north"], ROOM_C_ID)
-        self.assertEqual(self.map.connections[ROOM_C_ID]["south"], ROOM_B_ID)
         self.assertEqual(self.map.connections[ROOM_B_ID]["south"], ROOM_A_ID)
+
+        # Now both directions are verified
         self.assertEqual(self.map.connections[ROOM_A_ID]["north"], ROOM_B_ID)
-        self.map.add_connection(ROOM_D_ID, "north", ROOM_B_ID)
-        self.assertEqual(self.map.connections[ROOM_D_ID]["north"], ROOM_B_ID)
-        self.assertEqual(self.map.connections[ROOM_B_ID]["south"], ROOM_A_ID)  # Should remain A
-        self.assertEqual(self.map.connections[ROOM_A_ID]["north"], ROOM_B_ID)
+        self.assertEqual(self.map.connections[ROOM_B_ID]["south"], ROOM_A_ID)
 
     def test_get_context_for_prompt_empty_current_room_name(self):
         context = self.map.get_context_for_prompt(None, "Some Room")
