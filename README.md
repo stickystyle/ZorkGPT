@@ -1,3 +1,5 @@
+> Note: I have started a full rewrite of this over at [stickystyle/ZorkGPT2](https://github.com/stickystyle/ZorkGPT2). The live gameplay is now running ZorkGPT2
+
 # ZorkGPT: An LLM-Powered Agent for Interactive Fiction
 
 **🎮 Watch ZorkGPT play live at [https://zorkgpt.com](https://zorkgpt.com)**
