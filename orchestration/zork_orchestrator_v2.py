@@ -17,6 +17,8 @@ from managers import (
     RejectionManager,
 )
 from managers.simple_memory_manager import SimpleMemoryManager
+from managers.mcp_manager import MCPManager
+from managers.mcp_config import MCPError, MCPConfigError, MCPServerStartupError
 from zork_agent import ZorkAgent
 from zork_critic import ZorkCritic
 from hybrid_zork_extractor import HybridZorkExtractor
@@ -93,6 +95,35 @@ class ZorkOrchestratorV2:
                 extra={"event_type": "langfuse_not_installed"}
             )
 
+        # Initialize MCPManager (conditional, needed before agent creation)
+        self.mcp_manager = None
+        if self.config.mcp_enabled:
+            try:
+                self.mcp_manager = MCPManager(
+                    config=self.config,
+                    logger=self.logger,
+                    langfuse_client=self.langfuse_client,
+                )
+                self.logger.info(
+                    "MCPManager initialized successfully",
+                    extra={
+                        "event_type": "mcp_manager_initialized",
+                        "server_name": self.mcp_manager.server_name,
+                    },
+                )
+            except (MCPConfigError, MCPServerStartupError) as e:
+                raise MCPError(
+                    f"Failed to initialize MCPManager: {e}\n"
+                    f"Please either:\n"
+                    f"  1. Create {self.config.mcp_config_file} in project root, or\n"
+                    f"  2. Set mcp.enabled = false in pyproject.toml"
+                ) from e
+        else:
+            self.logger.info(
+                "MCP disabled in configuration",
+                extra={"event_type": "mcp_disabled"},
+            )
+
         # Setup episode-specific logging
         from logger import setup_episode_logging
 
@@ -136,6 +167,8 @@ class ZorkOrchestratorV2:
             logger=self.logger,
             episode_id=self.game_state.episode_id,
             model=self.config.agent_model,
+            mcp_manager=self.mcp_manager,
+            langfuse_client=self.langfuse_client,
         )
 
         # Initialize critic with config

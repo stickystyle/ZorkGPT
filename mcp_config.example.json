@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "thoughtbox": {
+      "command": "node",
+      "args": ["node_modules/@kastalien-research/thoughtbox/dist/index.js"],
+      "env": {
+        "DISABLE_THOUGHT_LOGGING": "true"
+      }
+    }
+  }
+}

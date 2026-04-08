@@ -2,17 +2,27 @@
 ZorkAgent module for generating actions and managing game memory.
 """
 
+import asyncio
 import re
-from typing import Optional, List, Tuple, Dict
+import json
+import time
+from typing import Optional, List, Tuple, Dict, TYPE_CHECKING, Any
 from collections import Counter
+from contextlib import nullcontext
 import os
 from pathlib import Path
+from dataclasses import dataclass
 from pydantic import BaseModel, Field
 from map_graph import MapGraph
 from hybrid_zork_extractor import ExtractorResponse
 from llm_client import LLMClientWrapper
 from session.game_configuration import GameConfiguration
 from shared_utils import create_json_schema
+
+if TYPE_CHECKING:
+    from managers.mcp_manager import MCPManager
+
+from managers.mcp_config import MCPError
 
 try:
     from langfuse.decorators import observe
@@ -44,6 +54,14 @@ class AgentResponse(BaseModel):
     )
 
 
+@dataclass
+class MCPContext:
+    """Context prepared by async setup for tool-calling loop."""
+    messages: List[Dict[str, Any]]
+    tool_schemas: Optional[List[Dict[str, Any]]]
+    mcp_connected: bool
+
+
 class ZorkAgent:
     """
     Handles agent action generation and memory management for Zork gameplay.
@@ -61,6 +79,8 @@ class ZorkAgent:
         min_p: float = None,
         logger=None,
         episode_id: str = "unknown",
+        mcp_manager: Optional["MCPManager"] = None,
+        langfuse_client: Optional[Any] = None,
     ):
         """
         Initialize the ZorkAgent.
@@ -76,6 +96,8 @@ class ZorkAgent:
             min_p: Minimum probability sampling
             logger: Logger instance for tracking
             episode_id: Current episode ID for logging
+            mcp_manager: Optional MCPManager instance for MCP tool calling support
+            langfuse_client: Optional Langfuse client for tracing MCP sessions
         """
         self.config = config
 
@@ -108,15 +130,21 @@ class ZorkAgent:
         # Load system prompt
         self._load_system_prompt()
 
+        self.mcp_manager = mcp_manager
+        self.langfuse_client = langfuse_client
+
     def _load_system_prompt(self) -> None:
-        """Load agent system prompt from markdown files and enhance with knowledge."""
+        """Load agent system prompt from markdown files and enhance with knowledge/MCP."""
         try:
             # Load base agent prompt
             with open("agent.md") as fh:
                 base_agent_prompt = fh.read()
 
             # Try to enhance with knowledge base
-            self.system_prompt = self._enhance_prompt_with_knowledge(base_agent_prompt)
+            enhanced_prompt = self._enhance_prompt_with_knowledge(base_agent_prompt)
+
+            # Conditionally enhance with MCP tool guidance
+            self.system_prompt = self._enhance_prompt_with_mcp(enhanced_prompt)
 
         except FileNotFoundError as e:
             if self.logger:
@@ -181,24 +209,139 @@ The following strategic guide has been compiled from analyzing previous episodes
                 )
             return base_prompt
 
-    @observe(name="agent-generate-action")
-    def get_action_with_reasoning(
+    def _enhance_prompt_with_mcp(self, base_prompt: str) -> str:
+        """Enhance the agent prompt with MCP tool guidance when MCP is enabled.
+
+        Only injects guidance when config.mcp_enabled is True. The guidance
+        explains when and how to use the thoughtbox structured reasoning tool.
+
+        Args:
+            base_prompt: The current prompt (possibly already enhanced with knowledge)
+
+        Returns:
+            Enhanced prompt with MCP guidance, or original if MCP disabled
+        """
+        if not self.config.mcp_enabled:
+            return base_prompt
+
+        mcp_section = '''
+**STRUCTURED REASONING TOOL:**
+
+You have access to `thoughtbox.clear_thought` for iterative reasoning on complex problems.
+
+**Use thoughtbox when:**
+- Puzzle feedback requires systematic experimentation (see Puzzle-Solving Protocols)
+- Planning multi-turn objectives (3+ steps to goal)
+- Stuck 3+ turns at same location with no new feedback
+- Weighing multiple strategic options with unclear best choice
+
+**Do NOT use thoughtbox for:**
+- Simple movement or navigation
+- Obvious single actions (take visible item, open door)
+- Combat situations (act quickly)
+- When you already know what to do
+
+**How to use:**
+1. Call `thoughtbox.clear_thought` with your reasoning, thought number, and estimated total thoughts
+2. Set `nextThoughtNeeded: true` to continue, `false` when ready to decide
+3. Typical usage: 2-4 thoughts for puzzles, 1-2 for strategic decisions
+4. After reasoning completes, provide your final JSON response
+
+**Example:**
+- Puzzle: Crystal phases when touched, room mentions "unstable magic"
+- Thought 1: "Standard TAKE fails with phasing effect. Environment emphasizes instability."
+- Thought 2: "Need verb addressing magic. Options: STABILIZE, DISPEL, GROUND."
+- Thought 3: "STABILIZE gave new response. Magic responds to state-change verbs."
+- Final output:
+```json
+{
+  "thinking": "Crystal puzzle analyzed via thoughtbox - magic responds to state-change verbs, DISPEL most likely",
+  "action": "dispel crystal",
+  "new_objective": null
+}
+```
+
+'''
+
+        # Insert before OUTPUT FORMAT section (same pattern as knowledge injection)
+        if "**OUTPUT FORMAT" in base_prompt:
+            insertion_point = base_prompt.find("**OUTPUT FORMAT")
+            enhanced_prompt = (
+                base_prompt[:insertion_point]
+                + mcp_section
+                + base_prompt[insertion_point:]
+            )
+        else:
+            enhanced_prompt = base_prompt + mcp_section
+
+        if self.logger:
+            self.logger.info("Enhanced prompt with MCP tool guidance")
+
+        return enhanced_prompt
+
+    def _check_model_tool_compatibility(self) -> None:
+        """Check if model supports tool calling when MCP is enabled.
+
+        Raises:
+            MCPError: If model is incompatible and force_tool_support is False
+        """
+        if self.mcp_manager is None or self.mcp_manager.is_disabled:
+            return
+
+        # Check if force_tool_support bypasses the check
+        if self.config.mcp_force_tool_support:
+            return
+
+        if not self.client.client._supports_tool_calling(self.model):
+            raise MCPError(
+                f"Model '{self.model}' does not support tool calling.\n"
+                f"Please either:\n"
+                f"  1. Set mcp.enabled = false in pyproject.toml, or\n"
+                f"  2. Use a compatible model (gpt-4, claude-3, etc.), or\n"
+                f"  3. Set mcp.force_tool_support = true to override"
+            )
+
+    async def _setup_mcp_context(
         self,
         game_state_text: str,
         relevant_memories: Optional[str] = None,
-    ) -> Dict[str, str]:
-        """
-        Gets an action from the Agent LM with reasoning preserved.
+    ) -> MCPContext:
+        """Setup MCP context for action generation with tool calling.
+
+        Handles:
+        - MCP session lifecycle (connect, will disconnect in finally of caller)
+        - Tool schema retrieval when MCP enabled
+        - Model compatibility checking
+        - Message history building with cache_control
 
         Args:
             game_state_text: Current game state text
-            relevant_memories: Formatted string of relevant memories (includes reasoning history)
+            relevant_memories: Formatted string of relevant memories
 
         Returns:
-            Dict with 'action' (cleaned) and 'reasoning' (raw thinking/reasoning)
+            MCPContext with messages, tool_schemas, and connection status
+            for use in tool-calling loop
+
+        Raises:
+            MCPError: If model is incompatible with tool calling
         """
-        if "o1" in self.model:
-            # Use user prompt for o1 models with caching
+        tool_schemas = None
+        mcp_connected = False
+
+        # === MCP Session Connect (Req 3.1) ===
+        if self.mcp_manager is not None and not self.mcp_manager.is_disabled:
+            self._check_model_tool_compatibility()  # Req 12.5
+            await self.mcp_manager.connect_session()  # Req 3.3
+            mcp_connected = True
+            tool_schemas = await self.mcp_manager.get_tool_schemas()  # Req 1.1, 3.4
+
+            if self.logger:
+                self.logger.debug(
+                    f"MCP session connected, {len(tool_schemas)} tools available"
+                )
+
+        # === Build Messages with cache_control (Req 4.7) ===
+        if "o1" in self.model or "o3" in self.model:
             messages = [
                 {
                     "role": "user",
@@ -215,7 +358,7 @@ The following strategic guide has been compiled from analyzing previous episodes
                 }
             ]
 
-        # Combine game state with relevant memories if available
+        # Combine game state with memories
         user_content = game_state_text
         if relevant_memories:
             if user_content:
@@ -223,47 +366,432 @@ The following strategic guide has been compiled from analyzing previous episodes
             else:
                 user_content = relevant_memories
 
-        messages.append({"role": "user", "content": user_content})
+        messages.append(
+            {
+                "role": "user",
+                "content": user_content,
+                "cache_control": {"type": "ephemeral"},
+            }
+        )
 
-        try:
-            client_args = dict(
+        return MCPContext(
+            messages=messages,
+            tool_schemas=tool_schemas,
+            mcp_connected=mcp_connected,
+        )
+
+    async def _run_tool_calling_loop(
+        self,
+        mcp_context: MCPContext,
+        max_iterations: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Run the tool-calling loop until LLM returns content.
+
+        Implements Requirements:
+        - 5.1: Execute tool calls via MCPManager
+        - 5.2: Sequential tool execution (not parallel)
+        - 5.3: JSON argument parsing before execution
+        - 5.4: Append tool results to message history
+        - 5.5: Call LLM again after tool results
+        - 5.6: Exit loop when LLM returns content
+        - 5.10: Log warning and exit on neither content nor tool_calls
+        - 4.6: response_format NOT used during loop (OpenRouter compatibility)
+        - 7.3: Track iterations and tool calls for logging
+
+        Args:
+            mcp_context: MCPContext with messages, tool_schemas, and connection status
+            max_iterations: Maximum number of iterations (defaults to config value)
+
+        Returns:
+            Dict with either:
+            - 'action', 'reasoning', 'new_objective', '_metadata' (on success)
+            - '_needs_forced_action': True, 'messages': [...], '_metadata' (on max iterations)
+        """
+        messages = mcp_context.messages.copy()
+        iteration = 0
+        start_time = time.perf_counter()
+        tool_call_count = 0
+
+        if max_iterations is None:
+            max_iterations = self.config.mcp_max_tool_iterations
+
+        while iteration < max_iterations:
+            iteration += 1
+
+            # Call LLM with tools (NO response_format during loop - Req 4.6)
+            response = self.client.client.chat_completions_create(
                 model=self.model,
                 messages=messages,
-                stop=None,
+                tools=mcp_context.tool_schemas if mcp_context.mcp_connected else None,
+                tool_choice="auto" if mcp_context.mcp_connected else None,
                 temperature=self.temperature,
                 top_p=self.top_p,
                 top_k=self.top_k,
                 min_p=self.min_p,
                 max_tokens=self.max_tokens,
-                name="Agent",
-                response_format=create_json_schema(AgentResponse),
+                # NOTE: response_format=None during loop for OpenRouter compatibility
             )
 
-            response = self.client.chat.completions.create(**client_args)
-            raw_response = response.content.strip()
+            # Exit on content (Req 5.6)
+            if response.content:
+                result = self._parse_agent_response(response.content)
+                result["_metadata"] = {
+                    "iterations": iteration,
+                    "tool_calls": tool_call_count,
+                    "duration_ms": int((time.perf_counter() - start_time) * 1000),
+                }
+                return result
 
-            # Parse structured JSON response
-            try:
-                agent_response = AgentResponse.model_validate_json(raw_response)
-            except Exception as e:
-                # Fallback to safe defaults on parsing error
+            # Execute tool calls (Req 5.1)
+            if response.tool_calls:
+                # Add assistant message with tool_calls to history
+                messages.append({
+                    "role": "assistant",
+                    "tool_calls": [
+                        {
+                            "id": tc.id,
+                            "type": tc.type,
+                            "function": {
+                                "name": tc.function.name,
+                                "arguments": tc.function.arguments
+                            }
+                        }
+                        for tc in response.tool_calls
+                    ]
+                })
+
+                # Execute each tool sequentially (Req 5.2)
+                for tool_call in response.tool_calls:
+                    # Validate argument size before parsing
+                    if len(tool_call.function.arguments) > 100_000:  # 100KB limit
+                        if self.logger:
+                            self.logger.error(
+                                f"Tool arguments exceed size limit: {len(tool_call.function.arguments)} bytes"
+                            )
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": json.dumps({"error": "Tool arguments exceed size limit"})
+                        })
+                        continue
+
+                    # Parse JSON arguments (Req 5.3)
+                    try:
+                        arguments = json.loads(tool_call.function.arguments)
+                    except json.JSONDecodeError as e:
+                        if self.logger:
+                            self.logger.error(
+                                f"Failed to parse tool arguments for {tool_call.function.name}: {e}"
+                            )
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": json.dumps({"error": f"Invalid JSON arguments: {str(e)}"})
+                        })
+                        continue
+
+                    # Execute via MCPManager with timeout handling (Req 5.1, 6.3, 6.4, 6.5)
+                    try:
+                        result = await self.mcp_manager.call_tool(
+                            tool_name=tool_call.function.name,
+                            arguments=arguments,
+                            iteration=iteration  # Req 7.1
+                        )
+
+                        # Increment tool call count (Req 7.3)
+                        tool_call_count += 1
+
+                        # Append tool result to history (Req 5.4, 6.2)
+                        # Non-timeout errors return ToolCallResult(is_error=True) and continue (Req 6.4)
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": json.dumps(result.to_dict())
+                        })
+
+                    except asyncio.TimeoutError:
+                        # Timeout - abort batch (Req 6.5)
+                        if self.logger:
+                            self.logger.warning(
+                                f"Tool call timeout, aborting batch: {tool_call.function.name}"
+                            )
+                        # Add timeout message to history (Req 6.6)
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": json.dumps({
+                                "error": f"Tool call timeout: {tool_call.function.name}"
+                            })
+                        })
+                        # Skip remaining tools in this batch
+                        break
+
+                # Log iteration info
                 if self.logger:
-                    self.logger.error(f"Failed to parse agent response: {e}")
-                    self.logger.error(f"Raw response: {raw_response}")
-                agent_response = AgentResponse(
-                    thinking="[Error parsing response]",
-                    action="look",
-                    new_objective=None
-                )
+                    self.logger.debug(
+                        f"Tool-calling iteration {iteration}: executed {len(response.tool_calls)} tools"
+                    )
 
-            # Clean and validate action
-            cleaned_action = self._clean_action(agent_response.action)
+                # Continue loop for next LLM call (Req 5.5)
+                continue
+
+            # Neither content nor tool_calls (Req 5.10)
+            if self.logger:
+                self.logger.warning(
+                    f"LLM returned neither content nor tool_calls at iteration {iteration}"
+                )
+            break
+
+        # Max iterations reached - force final action (Req 5.7, 5.8, 5.9)
+        if self.logger:
+            self.logger.warning(
+                f"Max iterations ({max_iterations}) reached, forcing final action"
+            )
+
+        # Append user message requesting final action (Req 5.7)
+        messages.append({
+            "role": "user",
+            "content": "Max iterations reached. Please provide your final game action now."
+        })
+
+        # Force final LLM call without tools (Req 5.8, 5.9)
+        try:
+            forced_response = self.client.client.chat_completions_create(
+                model=self.model,
+                messages=messages,
+                # NO tools parameter (Req 5.8)
+                # NO tool_choice parameter (Req 5.8)
+                response_format=create_json_schema(AgentResponse),  # Req 5.9
+                temperature=self.temperature,
+                top_p=self.top_p,
+                top_k=self.top_k,
+                min_p=self.min_p,
+                max_tokens=self.max_tokens,
+            )
+
+            # Parse and return (Req 15.1, 15.2, 15.3)
+            if forced_response.content:
+                result = self._parse_agent_response(forced_response.content)
+                result["_metadata"] = {
+                    "iterations": iteration,
+                    "tool_calls": tool_call_count,
+                    "duration_ms": int((time.perf_counter() - start_time) * 1000),
+                }
+                return result
+            else:
+                # Fallback to safe defaults (Req 15.3)
+                if self.logger:
+                    self.logger.warning("Forced final action returned no content")
+                return {
+                    "action": "look",
+                    "reasoning": "",
+                    "_metadata": {
+                        "iterations": iteration,
+                        "tool_calls": tool_call_count,
+                        "duration_ms": int((time.perf_counter() - start_time) * 1000),
+                    }
+                }
+        except Exception as e:
+            # Fallback on LLM call failure (Req 15.3)
+            if self.logger:
+                self.logger.error(f"Forced final action LLM call failed: {e}")
+            return {
+                "action": "look",
+                "reasoning": "",
+                "_metadata": {
+                    "iterations": iteration,
+                    "tool_calls": tool_call_count,
+                    "duration_ms": int((time.perf_counter() - start_time) * 1000),
+                }
+            }
+
+    async def _generate_action_async(
+        self,
+        game_state_text: str,
+        relevant_memories: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Async implementation of action generation with tool calling.
+
+        Orchestrates:
+        1. MCP setup (connect session, get tools)
+        2. Tool-calling loop (when MCP connected)
+        3. Direct LLM call (when MCP not connected)
+        4. Session cleanup and summary logging
+
+        Implements Requirements:
+        - 3.5: MCP session disconnect in finally block
+        - 7.3: Session summary logging
+        - 7.5: Langfuse session span tracking
+
+        Args:
+            game_state_text: Current game state text
+            relevant_memories: Formatted string of relevant memories
+
+        Returns:
+            Dict with 'action', 'reasoning', and optional 'new_objective'
+            Or dict with '_needs_forced_action' if max iterations reached
+        """
+        # Step 1: Setup
+        mcp_context = await self._setup_mcp_context(game_state_text, relevant_memories)
+
+        # Setup Langfuse span context (Req 7.5)
+        start_time = time.perf_counter()
+        if self.langfuse_client and mcp_context.mcp_connected:
+            span_context = self.langfuse_client.start_as_current_span(
+                name="mcp-session",
+                input={"tool_count": len(mcp_context.tool_schemas or [])},
+                metadata={"server_name": getattr(self.mcp_manager, "_server_name", "unknown")},
+            )
+        else:
+            # Use nullcontext() as a no-op context manager when Langfuse is disabled
+            span_context = nullcontext()
+
+        result = {}
+        try:
+            with span_context as session_span:
+                if mcp_context.mcp_connected:
+                    # Step 2: Run tool-calling loop
+                    result = await self._run_tool_calling_loop(mcp_context)
+                else:
+                    # No MCP - direct LLM call without tools
+                    response = self.client.client.chat_completions_create(
+                        model=self.model,
+                        messages=mcp_context.messages,
+                        temperature=self.temperature,
+                        top_p=self.top_p,
+                        top_k=self.top_k,
+                        min_p=self.min_p,
+                        max_tokens=self.max_tokens,
+                        response_format=create_json_schema(AgentResponse),
+                    )
+
+                    if response.content:
+                        result = self._parse_agent_response(response.content)
+                    else:
+                        # Fallback for unexpected case
+                        if self.logger:
+                            self.logger.warning("LLM returned no content without MCP")
+                        result = {"_needs_forced_action": True, "messages": mcp_context.messages}
+
+                # Update Langfuse span with results (Req 7.5)
+                if session_span and hasattr(session_span, "update"):
+                    try:
+                        metadata = result.get("_metadata", {})
+                        session_span.update(
+                            output={
+                                "action": result.get("action"),
+                                "iterations": metadata.get("iterations", 0),
+                                "tool_calls": metadata.get("tool_calls", 0),
+                                "duration_ms": metadata.get("duration_ms", int((time.perf_counter() - start_time) * 1000)),
+                            },
+                        )
+                    except Exception as e:
+                        # Don't let Langfuse issues break the agent
+                        if self.logger:
+                            self.logger.warning(f"Failed to update Langfuse span: {e}")
+        finally:
+            # Ensure MCP session is always disconnected (Req 3.5)
+            if mcp_context.mcp_connected and self.mcp_manager:
+                await self.mcp_manager.disconnect_session()
+
+                # Session summary logging (Req 7.3)
+                if self.logger:
+                    metadata = result.get("_metadata", {})
+                    iterations = metadata.get("iterations", 0)
+                    tool_calls = metadata.get("tool_calls", 0)
+                    duration_ms = metadata.get("duration_ms", int((time.perf_counter() - start_time) * 1000))
+                    self.logger.info(
+                        f"MCP session complete: {iterations} iterations, {tool_calls} tool calls",
+                        extra={
+                            "event_type": "mcp_session_summary",
+                            "iterations": iterations,
+                            "tool_calls": tool_calls,
+                            "duration_ms": duration_ms,
+                        }
+                    )
+
+        return result
+
+    def _parse_agent_response(self, content: str) -> Dict[str, Any]:
+        """Parse LLM response content into action data.
+
+        Args:
+            content: Raw LLM response content (should be JSON)
+
+        Returns:
+            Dict with 'action', 'reasoning', optional 'new_objective', and 'raw_response'
+        """
+        try:
+            data = json.loads(content)
+            return {
+                "action": data.get("action", "look"),
+                "reasoning": data.get("thinking", ""),
+                "new_objective": data.get("new_objective"),
+                "raw_response": content,
+            }
+        except json.JSONDecodeError:
+            # Fallback for non-JSON response
+            if self.logger:
+                self.logger.warning(f"Failed to parse agent response as JSON: {content[:100]}")
+            return {
+                "action": content.strip() if content else "look",
+                "reasoning": "",
+                "raw_response": content,
+            }
+
+    @observe(name="agent-generate-action")
+    def get_action_with_reasoning(
+        self,
+        game_state_text: str,
+        relevant_memories: Optional[str] = None,
+    ) -> Dict[str, str]:
+        """Gets an action from the Agent LM with reasoning preserved.
+
+        This sync wrapper calls the async implementation via asyncio.run().
+        Both MCP enabled and disabled cases are handled by _generate_action_async.
+
+        Implements Requirements:
+        - 10.1: Single asyncio.run boundary
+        - 10.4: Public API remains synchronous
+        - 10.5: No nested event loops
+        - 15.5: AgentResponse backward compatibility
+
+        Args:
+            game_state_text: Current game state text
+            relevant_memories: Formatted string of relevant memories (includes reasoning history)
+
+        Returns:
+            Dict with 'action' (cleaned), 'reasoning', 'new_objective', 'raw_response'
+
+        Raises:
+            RuntimeError: If called from within an existing async context.
+        """
+        # Guard against nested event loops (Requirement 10.5)
+        try:
+            asyncio.get_running_loop()
+            raise RuntimeError(
+                "get_action_with_reasoning() cannot be called from within an async context. "
+                "Use 'await _generate_action_async()' directly instead."
+            )
+        except RuntimeError as e:
+            # Re-raise if it's our own error about async context
+            if "cannot be called from within an async context" in str(e):
+                raise
+            # Otherwise, no loop running - safe to proceed
+
+        try:
+            result = asyncio.run(
+                self._generate_action_async(game_state_text, relevant_memories)
+            )
+
+            # Clean action for game compatibility
+            cleaned_action = self._clean_action(result.get("action", "look"))
 
             return {
                 "action": cleaned_action,
-                "reasoning": agent_response.thinking,
-                "new_objective": agent_response.new_objective,
-                "raw_response": raw_response,
+                "reasoning": result.get("reasoning", ""),
+                "new_objective": result.get("new_objective"),
+                "raw_response": result.get("raw_response"),
             }
         except Exception as e:
             if self.logger:
@@ -276,7 +804,7 @@ The following strategic guide has been compiled from analyzing previous episodes
                 "reasoning": None,
                 "new_objective": None,
                 "raw_response": None,
-            }  # Default safe action on error
+            }
 
     def _clean_action(self, action: str) -> str:
         """Clean and validate an action command from the agent.
